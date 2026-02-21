@@ -4,12 +4,16 @@ $nombre_usuario = $_SESSION['nombre'] ?? 'Operador';
 ?>
 
 <style>
+    /* Estilos para tabla fija y scroll */
     .table-fixed-head thead { position: sticky; top: 0; z-index: 10; }
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    
+    /* Quitar flechas de input number */
     input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
     
+    /* Clases dinámicas para Modo Uso */
     .btn-uso { background-color: #f97316 !important; color: white !important; }
     .btn-uso:hover { background-color: #ea580c !important; }
     .input-uso { border-color: #f97316 !important; color: #c2410c !important; background-color: #fff7ed !important; }
@@ -17,7 +21,7 @@ $nombre_usuario = $_SESSION['nombre'] ?? 'Operador';
 
 <div class="h-screen flex flex-col font-sans select-none bg-gray-100">
     
-    <div class="bg-white border-b border-gray-300 px-6 py-3 flex justify-between items-center shrink-0 z-20 shadow-sm">
+    <div class="bg-white border-b border-gray-300 px-6 py-3 flex justify-between items-center shrink-0 shadow-sm z-20">
         <h1 class="text-xl font-black text-gray-800 tracking-tight">CAPTURA DE INVENTARIO</h1>
         <div class="flex items-center gap-4">
             <span class="text-sm font-bold text-gray-500 uppercase"><?= htmlspecialchars($nombre_usuario) ?></span>
@@ -36,13 +40,14 @@ $nombre_usuario = $_SESSION['nombre'] ?? 'Operador';
                     <label class="block text-xs font-black text-gray-500 uppercase mb-1">CÓDIGO DE BARRAS</label>
                     <input type="text" id="inpCodigo" 
                         onkeydown="if(event.key==='Enter') { event.preventDefault(); CapturaAPI.verificar(this.value); }"
+                        onchange="CapturaAPI.verificar(this.value)"
                         class="w-full h-14 px-4 text-3xl font-mono font-black text-black bg-gray-50 border-2 border-gray-300 focus:border-blue-600 focus:bg-white outline-none rounded transition-colors placeholder:text-gray-300" 
                         placeholder="Escanear..." autofocus autocomplete="off">
                 </div>
 
                 <div class="flex-1 bg-blue-50 border-2 border-blue-100 rounded px-4 flex flex-col justify-center relative overflow-hidden transition-colors" id="cardNombreProducto">
                     <span class="text-xs font-black text-blue-500 uppercase" id="lblEstado">ESPERANDO LECTURA...</span>
-                    <h2 class="text-2xl font-black text-gray-900 truncate leading-tight mt-1" id="lblNombreProducto">---</h2>
+                    <div class="text-2xl font-black text-gray-900 truncate leading-tight mt-1" id="lblNombreProducto">---</div>
                     
                     <div id="zonaVincular" class="hidden absolute inset-0 bg-yellow-50 flex items-center px-4 gap-4 z-10 transition-all">
                         <span class="text-yellow-800 font-black whitespace-nowrap">⚠ NUEVO: VINCULAR PIEZA</span>
@@ -76,10 +81,11 @@ $nombre_usuario = $_SESSION['nombre'] ?? 'Operador';
                     </div>
 
                     <div class="col-span-5 flex flex-col justify-end h-20 gap-2">
+                        
                         <div class="flex justify-end items-center pr-1">
                             <label class="flex items-center cursor-pointer select-none group">
                                 <span class="text-[10px] font-black text-gray-400 group-hover:text-orange-600 mr-2 uppercase transition-colors">¿ES PARA USO?</span>
-                                <input type="checkbox" id="chkConsumo" class="w-5 h-5 accent-orange-600 cursor-pointer border-gray-300 rounded" onchange="CapturaAPI.cambiarModoVisual()">
+                                <input type="checkbox" id="chkConsumo" class="w-5 h-5 accent-orange-600 cursor-pointer border-gray-300 rounded" onchange="CapturaAPI.cambiarModoVisual(false)">
                             </label>
                         </div>
 
@@ -135,7 +141,6 @@ window.CapturaAPI = {
         const inp = document.getElementById('inpCodigo');
         if(inp) setTimeout(() => inp.focus(), 100);
 
-        // Listeners Modo Turbo (Enter)
         ['inpExistencia', 'inpBultos', 'inpFactor'].forEach(id => {
             const el = document.getElementById(id);
             if(el) {
@@ -157,8 +162,7 @@ window.CapturaAPI = {
         document.addEventListener('keydown', e => { if(e.key === 'Escape') CapturaAPI.resetear(); });
     },
 
-    // --- CEREBRO INTELIGENTE ---
-    cambiarModoVisual: () => {
+    cambiarModoVisual: (autoFocus = true) => {
         const isConsumo = document.getElementById('chkConsumo').checked;
         const btn = document.getElementById('btnConfirmar');
         const txtBtn = document.getElementById('txtBtnGuardar');
@@ -169,49 +173,52 @@ window.CapturaAPI = {
         const zonaVincular = document.getElementById('zonaVincular');
 
         if (isConsumo) {
-            // MODO USO (Gasto)
             if (!zonaVincular.classList.contains('hidden')) {
                 zonaVincular.classList.add('hidden'); 
                 inpFactor.value = 1; 
                 document.getElementById('lblNombreProducto').innerText = "Producto Manual (Uso)";
             }
-
             if(inpFactor.value === '' || inpFactor.value == 0) inpFactor.value = 1;
-            inpBultos.value = 0;
-            inpBultos.disabled = true; 
-            
-            // Si está en 0, sugerimos 1 pieza
+            inpBultos.value = 0; inpBultos.disabled = true; 
             if(parseFloat(inpExistencia.value) === 0) inpExistencia.value = 1;
             
-            // Estilos
             btn.classList.add('btn-uso');
             inpExistencia.classList.add('input-uso');
             txtBtn.innerText = "REGISTRAR USO";
-            
-            inpExistencia.focus();
+            if(!autoFocus) inpExistencia.focus();
 
         } else {
-            // MODO VENTA (Inventario)
-            if (CapturaAPI.datos.registrar_nuevo && !CapturaAPI.datos.clave_sicar) {
+            if (CapturaAPI.datos.registrar_nuevo) {
                 zonaVincular.classList.remove('hidden');
-                document.getElementById('lblNombreProducto').innerText = "---";
+                
+                // RESTAURAR NOMBRE REAL SI ES DE BD
+                if (CapturaAPI.datos.nombre_caja && CapturaAPI.datos.nombre_caja !== "PRODUCTO NUEVO (SIN REGISTRO)") {
+                    document.getElementById('lblNombreProducto').innerHTML = `<span class="badge badge-info badge-sm mr-2 align-middle text-white font-bold">SICAR</span><span class="text-lg text-gray-800">${CapturaAPI.datos.nombre_caja}</span>`;
+                } else {
+                    document.getElementById('lblNombreProducto').innerText = "---";
+                }
+                
+                if(!autoFocus) document.getElementById('inpVinculo').focus();
+            } else {
+                if(!autoFocus) inpBultos.focus();
             }
 
             btn.classList.remove('btn-uso');
             inpExistencia.classList.remove('input-uso');
             inpBultos.disabled = false;
             txtBtn.innerText = "CONFIRMAR";
-            
-            inpBultos.focus();
         }
         CapturaAPI.calcular();
     },
 
     verificar: (codigo) => {
         codigo = codigo.trim(); if(!codigo) return;
+        if (CapturaAPI.estado === 'BUSCANDO') return;
+        CapturaAPI.estado = 'BUSCANDO';
+
         const inp = document.getElementById('inpCodigo');
         inp.disabled = true; 
-        document.getElementById('lblEstado').innerText = "BUSCANDO...";
+        document.getElementById('lblEstado').innerHTML = '<span class="loading loading-spinner loading-xs mr-2"></span>BUSCANDO...';
         
         const fd = new FormData(); fd.append('codigo', codigo);
         fetch(CapturaAPI.baseApi + 'api_captura_verificar.php', {method:'POST', body:fd})
@@ -223,21 +230,45 @@ window.CapturaAPI = {
             .catch(() => CapturaAPI.resetear());
     },
 
+    // AQUI SE UNEN LOS DOS NOMBRES DE TU CATÁLOGO (Caja y Suelto)
     buscarVinculo: (codigo) => {
         codigo = codigo.trim(); if(!codigo) return;
+        const v = document.getElementById('inpVinculo');
+        if(v.disabled) return;
+        v.disabled = true;
+        
         const fd = new FormData(); fd.append('codigo', codigo);
         fetch(CapturaAPI.baseApi + 'api_buscar_producto.php', {method:'POST', body:fd})
             .then(r=>r.json()).then(d => {
+                v.disabled = false;
                 if(d.success) {
                     document.getElementById('zonaVincular').classList.add('hidden');
-                    document.getElementById('lblNombreProducto').innerText = d.data.descripcion; 
-                    CapturaAPI.datos.clave_sicar = d.data.clave_sicar;
-                    CapturaAPI.datos.nombre_suelto = d.data.descripcion; 
-                    document.getElementById('inpFactor').focus();
+                    
+                    let nombreCaja = CapturaAPI.datos.nombre_caja;
+                    if (!nombreCaja || nombreCaja === 'PRODUCTO NUEVO (SIN REGISTRO)') {
+                        nombreCaja = 'Caja de Proveedor';
+                    }
+                    let nombrePieza = d.data.descripcion; // Nombre del suelto en tu BD
+                    
+                    // DISEÑO DOBLE HERMOSO
+                    document.getElementById('lblNombreProducto').innerHTML = `
+                        <div class="flex flex-col gap-0.5 mt-0.5">
+                            <div class="text-xs font-bold text-gray-500 truncate"><span class="badge badge-info badge-xs mr-1 text-white">CAJA</span> ${nombreCaja}</div>
+                            <div class="text-[1.3rem] font-black text-gray-900 truncate leading-tight"><span class="badge badge-primary badge-sm mr-1">CONTIENE</span> ${nombrePieza}</div>
+                        </div>`;
+                    
+                    // Sobrescribimos la clave de SICAR con la del suelto
+                    CapturaAPI.datos.clave_sicar_final = d.data.clave_sicar;
+                    
+                    // GUARDAMOS EL NOMBRE COMPUESTO PARA SIEMPRE CON UNA FLECHA '➔'
+                    CapturaAPI.datos.nombre_suelto = `CAJA: ${nombreCaja} ➔ PIEZA: ${nombrePieza}`; 
+                    
+                    const inpF = document.getElementById('inpFactor');
+                    inpF.focus(); inpF.select();
                     CapturaAPI.calcular();
                 } else {
-                    const v = document.getElementById('inpVinculo');
                     v.style.borderColor = 'red'; setTimeout(()=>v.style.borderColor='', 500); v.value='';
+                    v.focus();
                 }
             });
     },
@@ -245,36 +276,65 @@ window.CapturaAPI = {
     prepararUI: (d, codigo, nombre) => {
         document.getElementById('zonaInputs').classList.remove('hidden');
         CapturaAPI.datos = { ...d, codigo: codigo, nombre_caja: nombre, registrar_nuevo: false };
-        document.getElementById('lblNombreProducto').innerText = nombre;
-        document.getElementById('lblEstado').innerText = "LISTO PARA CAPTURAR";
 
         const vinculoDiv = document.getElementById('zonaVincular');
         const inpFactor = document.getElementById('inpFactor');
         const chkConsumo = document.getElementById('chkConsumo');
 
-        // MEMORIA DEL PRODUCTO
-        if (d.modo_preferido === 'CONSUMO') {
-            chkConsumo.checked = true;
-        } else {
-            chkConsumo.checked = false;
-        }
+        if (d.modo_preferido === 'CONSUMO') { chkConsumo.checked = true; } 
+        else { chkConsumo.checked = false; }
 
-        if (d.tipo !== 'DESCONOCIDO') {
-            // CONOCIDO
+        if (d.tipo === 'CONOCIDO_MEMORIA') {
+            // EL SISTEMA YA RECUERDA LA CAJA O EL SUELTO
             vinculoDiv.classList.add('hidden');
+            
+            if (d.factor > 1) {
+                // Separamos el nombre compuesto guardado
+                if (nombre.includes('➔')) {
+                    let partes = nombre.split('➔');
+                    let nomC = partes[0].replace('CAJA:', '').trim();
+                    let nomP = partes[1].replace('PIEZA:', '').trim();
+                    
+                    document.getElementById('lblNombreProducto').innerHTML = `
+                        <div class="flex flex-col gap-0.5 mt-0.5">
+                            <div class="text-xs font-bold text-gray-500 truncate"><span class="badge badge-success badge-xs mr-1 text-white">CAJA</span> ${nomC}</div>
+                            <div class="text-[1.3rem] font-black text-gray-900 truncate leading-tight"><span class="badge badge-primary badge-sm mr-1">CONTIENE</span> ${nomP}</div>
+                        </div>`;
+                } else {
+                    document.getElementById('lblNombreProducto').innerHTML = `<span class="badge badge-success badge-sm mr-2 align-middle text-white font-bold">📦 CAJA</span><span class="text-lg font-bold">${nombre}</span>`;
+                }
+                document.getElementById('lblEstado').innerText = "CAJA IDENTIFICADA";
+            } else {
+                document.getElementById('lblNombreProducto').innerText = nombre;
+                document.getElementById('lblEstado').innerText = "PIEZA IDENTIFICADA";
+            }
+
             CapturaAPI.datos.nombre_suelto = nombre; 
             inpFactor.value = d.factor; 
             inpFactor.disabled = true; 
             inpFactor.classList.add('bg-gray-100');
             
-            CapturaAPI.cambiarModoVisual(); 
+            CapturaAPI.cambiarModoVisual(true);
+            
+            setTimeout(() => {
+                if (chkConsumo.checked) { document.getElementById('inpExistencia').focus(); document.getElementById('inpExistencia').select(); }
+                else if (d.factor > 1) { document.getElementById('inpBultos').focus(); document.getElementById('inpBultos').select(); }
+                else { document.getElementById('inpExistencia').focus(); document.getElementById('inpExistencia').select(); }
+            }, 50);
 
         } else {
-            // NUEVO
-            document.getElementById('lblEstado').innerText = "PRODUCTO NUEVO";
+            // ES NUEVO PARA ESTE MODULO (Viene de BD o es totalmente nuevo)
+            document.getElementById('lblEstado').innerText = "VINCULAR AL SISTEMA";
             CapturaAPI.datos.registrar_nuevo = true;
+            CapturaAPI.datos.clave_sicar_final = d.clave_sicar; // Clave original por si solo es un suelto
             
-            CapturaAPI.cambiarModoVisual(); 
+            if (d.tipo === 'NUEVO_CATALOGO') {
+                document.getElementById('lblNombreProducto').innerHTML = `<span class="badge badge-info badge-sm mr-2 align-middle text-white font-bold">SICAR</span><span class="text-lg text-gray-800">${nombre}</span>`;
+            } else {
+                document.getElementById('lblNombreProducto').innerText = "---";
+            }
+            
+            CapturaAPI.cambiarModoVisual(true);
             
             if(!chkConsumo.checked) {
                 vinculoDiv.classList.remove('hidden');
@@ -282,7 +342,9 @@ window.CapturaAPI = {
                 setTimeout(() => document.getElementById('inpVinculo').focus(), 50);
             } else {
                 inpFactor.value = 1;
+                setTimeout(() => { document.getElementById('inpExistencia').focus(); document.getElementById('inpExistencia').select(); }, 50);
             }
+            
             inpFactor.disabled = false; 
             inpFactor.classList.remove('bg-gray-100');
         }
@@ -297,7 +359,6 @@ window.CapturaAPI = {
         
         const btn = document.getElementById('btnConfirmar');
         const isConsumo = document.getElementById('chkConsumo').checked;
-
         document.getElementById('lblBtnTotal').innerText = total.toLocaleString();
 
         if(total > 0) {
@@ -325,7 +386,9 @@ window.CapturaAPI = {
         fd.append('existencia', document.getElementById('inpExistencia').value);
         fd.append('bultos', document.getElementById('inpBultos').value);
         fd.append('factor', document.getElementById('inpFactor').value);
-        fd.append('clave_sicar', CapturaAPI.datos.clave_sicar || '');
+        
+        // Enviamos la clave vinculada (O la original si era un suelto y no vincularon nada)
+        fd.append('clave_sicar', CapturaAPI.datos.clave_sicar_final || '');
         
         let nombreFinal = CapturaAPI.datos.nombre_suelto || CapturaAPI.datos.nombre_caja;
         if(!nombreFinal || nombreFinal === '---') nombreFinal = "Producto Manual";
@@ -333,18 +396,13 @@ window.CapturaAPI = {
         
         const isConsumo = document.getElementById('chkConsumo').checked;
         fd.append('tipo_uso', isConsumo ? 'CONSUMO' : 'VENTA');
-
         if(CapturaAPI.datos.registrar_nuevo) fd.append('registrar_nuevo', 'true');
 
         fetch(CapturaAPI.baseApi + 'api_captura_guardar.php', {method:'POST', body:fd})
             .then(r=>r.json()).then(d => {
                 if(d.success) {
                     if(typeof Swal !== 'undefined') {
-                        Swal.fire({
-                            toast: true, position: 'top-end', icon: 'success', 
-                            title: isConsumo ? 'Uso Registrado' : 'Guardado', 
-                            showConfirmButton: false, timer: 1500
-                        });
+                        Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: isConsumo ? 'Uso Registrado' : 'Guardado', showConfirmButton: false, timer: 1500 });
                     }
                     CapturaAPI.resetear(); 
                     CapturaAPI.cargarHistorial();
@@ -377,9 +435,8 @@ window.CapturaAPI = {
         document.getElementById('lblNombreProducto').innerText = '---';
         document.getElementById('lblEstado').innerText = 'ESPERANDO LECTURA...';
         
-        // Reset checkbox
         document.getElementById('chkConsumo').checked = false; 
-        CapturaAPI.cambiarModoVisual(); 
+        CapturaAPI.cambiarModoVisual(true); 
 
         CapturaAPI.estado='ESPERA';
         setTimeout(()=>inp.focus(), 50);
@@ -396,5 +453,8 @@ window.CapturaAPI = {
     }
 };
 
-CapturaAPI.init();
+// Se ejecuta inmediatamente al abrir el módulo (Ideal para tu menú dinámico)
+setTimeout(() => {
+    CapturaAPI.init();
+}, 100);
 </script>

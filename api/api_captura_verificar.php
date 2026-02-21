@@ -10,35 +10,63 @@ if(empty($codigo)){
 }
 
 try {
-    // Buscamos en el catálogo de cajas (donde guardamos la configuración)
-    $sql = "SELECT * FROM configuracion_cajas WHERE codigo_barras = ? LIMIT 1";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute([$codigo]);
+    // 1. PRIMERA BÚSQUEDA: Memoria Interna (Si ya la vinculaste alguna vez en este módulo)
+    $sqlCaja = "SELECT * FROM configuracion_cajas WHERE codigo_barras = ? LIMIT 1";
+    $stmtCaja = $pdo->prepare($sqlCaja);
+    $stmtCaja->execute([$codigo]);
 
-    if($row = $stmt->fetch(PDO::FETCH_ASSOC)){
-        // ENCONTRADO
+    if($row = $stmtCaja->fetch(PDO::FETCH_ASSOC)){
         echo json_encode([
-            'tipo' => 'CONOCIDO',
+            'tipo' => 'CONOCIDO_MEMORIA', // Ya sabemos qué factor tiene y su nombre compuesto
             'clave_sicar' => $row['clave_sicar'],
-            'descripcion_caja' => $row['descripcion'],
-            'factor' => $row['cantidad_unidades'],
-            // Enviamos la memoria. Si no existe la columna aun, enviamos 'VENTA' por defecto para que no falle.
-            'modo_preferido' => $row['modo_preferido'] ?? 'VENTA' 
+            'descripcion_caja' => $row['descripcion'], 
+            'factor' => floatval($row['cantidad_unidades']),
+            'modo_preferido' => $row['modo_preferido'] ?? 'VENTA'
         ]);
-    } else {
-        // NO ENCONTRADO (NUEVO)
+        exit;
+    } 
+    
+    // 2. SEGUNDA BÚSQUEDA: Catálogo Oficial (Tu POS / cat_productos)
+    // Aquí es donde encontrará la caja "0799192419614" de tu ejemplo.
+    $sqlCat = "SELECT * FROM cat_productos WHERE codigo_barras = ? OR clave_sicar = ? LIMIT 1";
+    $stmtCat = $pdo->prepare($sqlCat);
+    $stmtCat->execute([$codigo, $codigo]);
+
+    if($rowCat = $stmtCat->fetch(PDO::FETCH_ASSOC)){
         echo json_encode([
-            'tipo' => 'DESCONOCIDO',
-            'descripcion_caja' => 'PRODUCTO NUEVO',
-            'modo_preferido' => 'VENTA' // Por defecto
+            'tipo' => 'NUEVO_CATALOGO', // Está en el POS, pero falta decirle a este módulo si es suelto o caja
+            'clave_sicar' => $rowCat['clave_sicar'],
+            'descripcion_caja' => $rowCat['descripcion'], // <-- NOMBRE DE LA CAJA EN TU BD
+            'factor' => 1, 
+            'modo_preferido' => 'VENTA'
         ]);
+        exit;
     }
-} catch (Exception $e) {
-    // Si hay error (ej. falta la columna en BD), respondemos algo válido para que no se trabe
+
+    // 3. TERCERA BÚSQUEDA: Tabla de Relaciones (Proveedores)
+    $sqlRel = "SELECT cp.descripcion FROM rel_codigos_proveedor rcp JOIN cat_productos cp ON rcp.clave_sicar = cp.clave_sicar WHERE rcp.codigo_proveedor = ? LIMIT 1";
+    $stmtRel = $pdo->prepare($sqlRel);
+    $stmtRel->execute([$codigo]);
+    
+    if($rowRel = $stmtRel->fetch(PDO::FETCH_ASSOC)){
+        echo json_encode([
+            'tipo' => 'NUEVO_CATALOGO',
+            'clave_sicar' => $rowRel['clave_sicar'],
+            'descripcion_caja' => $rowRel['descripcion'],
+            'factor' => 1,
+            'modo_preferido' => 'VENTA'
+        ]);
+        exit;
+    }
+
+    // 4. DE PLANO NO EXISTE EN TU BD
     echo json_encode([
         'tipo' => 'DESCONOCIDO',
-        'error' => $e->getMessage(),
+        'descripcion_caja' => 'PRODUCTO NUEVO (SIN REGISTRO)',
         'modo_preferido' => 'VENTA'
     ]);
+    
+} catch (Exception $e) {
+    echo json_encode(['tipo' => 'DESCONOCIDO', 'error' => $e->getMessage(), 'modo_preferido' => 'VENTA']);
 }
 ?>
