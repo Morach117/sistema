@@ -1,4 +1,7 @@
 <?php
+// ZONA HORARIA CORREGIDA
+date_default_timezone_set('America/Mexico_City');
+
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 $nombre_usuario = $_SESSION['nombre'] ?? 'Operador';
 ?>
@@ -387,8 +390,9 @@ window.CapturaAPI = {
         fd.append('bultos', document.getElementById('inpBultos').value);
         fd.append('factor', document.getElementById('inpFactor').value);
         
-        // Enviamos la clave vinculada (O la original si era un suelto y no vincularon nada)
-        fd.append('clave_sicar', CapturaAPI.datos.clave_sicar_final || '');
+        // LA SOLUCIÓN ESTÁ AQUÍ: Toma la clave nueva o la que ya conocía la memoria
+        const claveParaGuardar = CapturaAPI.datos.clave_sicar_final || CapturaAPI.datos.clave_sicar || '';
+        fd.append('clave_sicar', claveParaGuardar);
         
         let nombreFinal = CapturaAPI.datos.nombre_suelto || CapturaAPI.datos.nombre_caja;
         if(!nombreFinal || nombreFinal === '---') nombreFinal = "Producto Manual";
@@ -453,7 +457,7 @@ window.CapturaAPI = {
     }
 };
 
-// Se ejecuta inmediatamente al abrir el módulo (Ideal para tu menú dinámico)
+// Se ejecuta inmediatamente al abrir el módulo
 setTimeout(() => {
     CapturaAPI.init();
 }, 100);
