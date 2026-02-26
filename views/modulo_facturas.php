@@ -34,7 +34,8 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                     $border = ($row['estado'] === 'REVISION') ? 'border-l-warning' : 'border-l-primary';
                     $badge = ($row['estado'] === 'REVISION') ? 'badge-warning' : 'badge-ghost';
                     $p = strtoupper($row['proveedor'] ?? '');
-                    $iconProv = ($p === 'TONY') ? '🐯' : (($p === 'PAOLA' || $p === 'OPERADORA') ? '📄' : (($p === 'OPTIVOSA') ? '👓' : '📦'));
+                    // CORRECCIÓN: Agregado icono genérico para SINDESC
+                    $iconProv = ($p === 'TONY') ? '🐯' : (($p === 'PAOLA' || $p === 'OPERADORA') ? '📄' : (($p === 'OPTIVOSA') ? '👓' : (($p === 'SINDESC') ? '🚫' : '📦')));
                     $provJs = !empty($row['proveedor']) ? $row['proveedor'] : 'MANUAL';
             ?>
                 <div class="card bg-white border border-base-200 border-l-4 <?= $border ?> shadow-sm hover:shadow-md cursor-pointer transition-all rounded-md p-3 group active:bg-base-100" onclick="FacturasAPI.iniciarCarga(<?= $row['id'] ?>, '<?= $provJs ?>')">
@@ -70,6 +71,7 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                         <option value="paola">📄 Paola/Oper.</option>
                         <option value="tony">🐯 Tony</option>
                         <option value="optivosa">👓 Optivosa</option>
+                        <option value="sindesc">🚫 Sin Descuentos</option>
                     </select>
                 </div>
                 <?php endif; ?>
@@ -92,7 +94,23 @@ $rol = $_SESSION['rol'] ?? 'empleado';
     </div>
 </div>
 
-<dialog id="modalSeleccionProveedor" class="modal modal-bottom sm:modal-middle"><div class="modal-box bg-white"><h3 class="font-bold text-lg text-gray-800 text-center mb-4">Selecciona Proveedor</h3><select id="selProvModal" class="select select-bordered select-primary w-full font-bold text-gray-700 text-lg"><option value="" disabled selected>-- Elige uno --</option><option value="paola">📄 Paola / Operadora</option><option value="tony">🐯 Tony</option><option value="optivosa">👓 Optivosa</option></select><div class="modal-action flex justify-between w-full"><button class="btn btn-ghost text-gray-500" onclick="FacturasAPI.cancelarCarga()">Cancelar</button><button class="btn btn-primary px-8" onclick="FacturasAPI.confirmarProveedor()">Confirmar</button></div></div></dialog>
+<dialog id="modalSeleccionProveedor" class="modal modal-bottom sm:modal-middle">
+    <div class="modal-box bg-white">
+        <h3 class="font-bold text-lg text-gray-800 text-center mb-4">Selecciona Proveedor</h3>
+        <select id="selProvModal" class="select select-bordered select-primary w-full font-bold text-gray-700 text-lg">
+            <option value="" disabled selected>-- Elige uno --</option>
+            <option value="paola">📄 Paola / Operadora</option>
+            <option value="tony">🐯 Tony</option>
+            <option value="optivosa">👓 Optivosa</option>
+            <option value="sindesc">🚫 Sin Descuentos</option>
+        </select>
+        <div class="modal-action flex justify-between w-full">
+            <button class="btn btn-ghost text-gray-500" onclick="FacturasAPI.cancelarCarga()">Cancelar</button>
+            <button class="btn btn-primary px-8" onclick="FacturasAPI.confirmarProveedor()">Confirmar</button>
+        </div>
+    </div>
+</dialog>
+
 <dialog id="modalSubir" class="modal"><div class="modal-box bg-white"><h3 class="font-bold text-lg">Cargar XML / CSV</h3><form id="formUploadModal" class="mt-4"><input type="file" name="archivo_factura[]" multiple class="file-input file-input-bordered file-input-primary w-full" accept=".csv,.xml" /><div class="modal-action"><form method="dialog"><button class="btn btn-ghost">Cancelar</button></form><button type="button" class="btn btn-primary" onclick="FacturasAPI.submitUploadForm()">Procesar</button></div></form></div></dialog>
 
 <script>
@@ -114,6 +132,19 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                 setTimeout(() => { toast.remove(); }, 3000);
             },
 
+            // NUEVO: Función para limpiar el detalle visual de la factura
+            limpiarDetalle: () => {
+                document.getElementById('headerTitulo').innerText = 'Recepción';
+                document.getElementById('zonaResultados').innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full text-gray-400 opacity-50 mt-20">
+                        <i class="bi bi-basket2 text-8xl mb-4"></i>
+                        <p class="text-xl font-medium">Selecciona una tarea de la lista</p>
+                    </div>`;
+                FacturasAPI.currentId = null;
+                FacturasAPI.currentRemisionCode = null;
+                FacturasAPI.currentProveedor = null;
+            },
+
             iniciarCarga: (id, proveedorBD) => {
                 FacturasAPI.currentId = id;
                 FacturasAPI.currentProveedor = null;
@@ -128,6 +159,7 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                 if(provStr.includes('PAOLA') || provStr.includes('OPERADORA')) provFinal = 'paola';
                 else if(provStr.includes('TONY')) provFinal = 'tony';
                 else if(provStr.includes('OPTIVOSA')) provFinal = 'optivosa';
+                else if(provStr.includes('SINDESC')) provFinal = 'sindesc'; // NUEVO: Mapeo de SINDESC
 
                 if(window.userRol === 'admin' && (provFinal === 'custom' || provStr === 'MANUAL')) {
                     const modal = document.getElementById('modalSeleccionProveedor');
@@ -194,7 +226,13 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                         let claveFinal = p.clave_final || p.clave_sicar || '';
                         let fisico = p.existencia_lapiz || 0;
                         let tieneDescXML = p.aplica_descuento == 1; 
-                        let checkDesc = (FacturasAPI.currentProveedor === 'paola') ? true : ((FacturasAPI.currentProveedor === 'tony') ? !tieneDescXML : false);
+                        
+                        // CORRECCIÓN: Lógica para el nuevo proveedor (sindesc = false)
+                        let checkDesc = false;
+                        if (FacturasAPI.currentProveedor === 'paola') checkDesc = true;
+                        else if (FacturasAPI.currentProveedor === 'tony') checkDesc = !tieneDescXML;
+                        else if (FacturasAPI.currentProveedor === 'sindesc') checkDesc = false;
+
                         if(p.aplica_descuento_manual !== undefined && p.aplica_descuento_manual !== null) checkDesc = (p.aplica_descuento_manual == '1');
 
                         let esDevuelto = (p.revision_pendiente == 2);
@@ -206,12 +244,10 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                             let costoSis = parseFloat(p.costo_sistema_actual) || 0;
                             let ventaSis = parseFloat(p.precio_venta_sistema) || 0;
                             
-                            // 1. Badge COSTO ANTERIOR (Compra)
                             let badgeCosto = costoSis > 0 
                                 ? `<div class="mt-1 text-center"><span class="${styles.tiny} text-orange-600 font-bold bg-orange-50 px-2 rounded border border-orange-200">Ant: ${fmtMoney(costoSis)}</span></div>` 
                                 : `<div class="badge badge-ghost badge-sm w-full mt-1 ${styles.tiny}">Nuevo</div>`;
                             
-                            // 2. Badge PRECIO VENTA ACTUAL (S/P)
                             let displayVenta = ventaSis > 0 
                                 ? `<div class="bg-yellow-100 text-yellow-800 text-[10px] font-black text-center rounded py-0.5 border border-yellow-200 mb-0.5 shadow-sm">VENTA: ${fmtMoney(ventaSis)}</div>` 
                                 : `<div class="text-center text-gray-300 text-[9px]">Sin precio</div>`;
@@ -359,13 +395,12 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                     FacturasAPI.currentProveedor = val; FacturasAPI.renderizarTodo();
                 });
             },
-guardarYValidar: () => { 
-                // 1. Forzamos el guardado de cualquier input que el usuario esté escribiendo actualmente
+            
+            guardarYValidar: () => { 
                 if (document.activeElement) {
                     document.activeElement.blur(); 
                 }
                 
-                // 2. Mostramos carga visual de SweetAlert
                 Swal.fire({ 
                     title: 'Calculando Totales...', 
                     text: 'Sumando factura + físico y agrupando códigos',
@@ -373,7 +408,6 @@ guardarYValidar: () => {
                     didOpen: () => { Swal.showLoading(); } 
                 });
                 
-                // 3. Esperamos un momento breve para que los fetch de autoguardado terminen
                 setTimeout(() => {
                     let f = document.createElement('form'); 
                     f.method = 'POST'; 
@@ -401,7 +435,12 @@ guardarYValidar: () => {
                                 let form = document.createElement("form"); form.method = "POST"; form.action = "api/generar_sicar_final.php";
                                 let inp = document.createElement("input"); inp.type = "hidden"; inp.name = "remision_id"; inp.value = FacturasAPI.currentRemisionCode;
                                 form.appendChild(inp); document.body.appendChild(form); form.submit();
-                                Swal.fire('¡Listo!', 'Finalizado correctamente.', 'success').then(() => { FacturasAPI.refrescarLista(); FacturasAPI.cerrarDetalle(); });
+                                Swal.fire('¡Listo!', 'Finalizado correctamente.', 'success').then(() => { 
+                                    FacturasAPI.refrescarLista(); 
+                                    FacturasAPI.cerrarDetalle(); 
+                                    // CORRECCIÓN: Llamamos a limpiarDetalle para que desaparezca la factura en curso
+                                    FacturasAPI.limpiarDetalle();
+                                });
                             } else Swal.fire('Error', d.error, 'error');
                         });
                     }
@@ -444,4 +483,4 @@ guardarYValidar: () => {
         };
     })();
 </script>
-<datalist id="dlSicar"><?php try { $st = $pdo->query("SELECT clave_sicar FROM cat_productos LIMIT 2000"); while ($r = $st->fetch()) { echo "<option value='{$r['clave_sicar']}'>"; } } catch (E $e) {} ?></datalist>
+<datalist id="dlSicar"><?php try { $st = $pdo->query("SELECT clave_sicar FROM cat_productos LIMIT 2000"); while ($r = $st->fetch()) { echo "<option value='{$r['clave_sicar']}'>"; } } catch (Exception $e) {} ?></datalist>

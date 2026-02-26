@@ -42,20 +42,30 @@ echo '<?mso-application progid="Excel.Sheet"?>';
                 <Cell ss:StyleID="sHeader"><Data ss:Type="String">Existencia</Data></Cell>
             </Row>
             <?php
-            // IMPORTANTE: Traemos 'es_paquete' y 'piezas_por_paquete' para poder dividir
-            $sql = "SELECT clave_final, clave_sicar, codigo_proveedor, cantidad, existencia_lapiz, es_paquete, piezas_por_paquete 
+            // Se delega la jerarquía de selección a SQL. 
+            // Evaluará: clave_final -> clave_sicar -> codigo_proveedor -> SIN_CLAVE
+            $sql = "SELECT 
+                        COALESCE(
+                            NULLIF(TRIM(clave_final), ''), 
+                            NULLIF(TRIM(clave_sicar), ''), 
+                            NULLIF(TRIM(codigo_proveedor), ''), 
+                            'SIN_CLAVE'
+                        ) AS clave_definitiva,
+                        cantidad, 
+                        existencia_lapiz, 
+                        es_paquete, 
+                        piezas_por_paquete 
                     FROM historial_items 
                     WHERE remision_id = ? 
                     ORDER BY id ASC";
+                    
             $stmtItems = $pdo->prepare($sql);
             $stmtItems->execute([$id_db]);
             
             $agrupados = [];
             while ($row = $stmtItems->fetch(PDO::FETCH_ASSOC)) {
-                // 1. Determinar Clave
-                $clave = trim($row['clave_final']);
-                if (empty($clave)) $clave = trim($row['clave_sicar']);
-                if (empty($clave)) $clave = !empty($row['codigo_proveedor']) ? $row['codigo_proveedor'] : "SIN_CLAVE";
+                // 1. Determinar Clave (ya resuelta desde la base de datos)
+                $clave = $row['clave_definitiva'];
                 
                 // 2. OBTENER DATOS
                 $cantidadBD = floatval($row['cantidad']);       // Ej: 250
@@ -64,17 +74,13 @@ echo '<?mso-application progid="Excel.Sheet"?>';
                 $piezasPorCaja = floatval($row['piezas_por_paquete']); // Ej: 50
 
                 // 3. LÓGICA DE DIVISIÓN (CONVERTIR A CAJAS)
-                // Si es paquete y tiene factor de conversión válido:
                 if ($esPaquete === 1 && $piezasPorCaja > 0) {
-                    // Dividimos para obtener las cajas (250 / 50 = 5)
                     $cantidadCalculada = $cantidadBD / $piezasPorCaja;
                 } else {
-                    // Si no es paquete, pasa directo (piezas sueltas)
                     $cantidadCalculada = $cantidadBD;
                 }
 
                 // 4. SUMAR CON FÍSICO
-                // Nota: Asumimos que si activaste "Caja", tu conteo físico TAMBIÉN está en cajas.
                 $totalProducto = $cantidadCalculada + $fisico;
 
                 // 5. AGRUPAR
@@ -88,7 +94,6 @@ echo '<?mso-application progid="Excel.Sheet"?>';
             foreach ($agrupados as $clave => $cant) {
                 echo "<Row>\n";
                 echo " <Cell ss:StyleID='sTexto'><Data ss:Type='String'>" . htmlspecialchars($clave) . "</Data></Cell>\n";
-                // Usamos round() por si la división da decimales (ej: 2.5 cajas)
                 echo " <Cell><Data ss:Type='Number'>" . round($cant, 2) . "</Data></Cell>\n";
                 echo "</Row>\n";
             }
