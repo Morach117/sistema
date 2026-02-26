@@ -42,36 +42,43 @@ echo '<?mso-application progid="Excel.Sheet"?>';
                 <Cell ss:StyleID="sHeader"><Data ss:Type="String">Existencia</Data></Cell>
             </Row>
             <?php
-            // Se delega la jerarquía de selección a SQL. 
-            // Evaluará: clave_final -> clave_sicar -> codigo_proveedor -> SIN_CLAVE
+            // Ahora el Excel hace JOIN con la memoria para extraer la clave sugerida si el usuario no escribió una manual
             $sql = "SELECT 
                         COALESCE(
-                            NULLIF(TRIM(clave_final), ''), 
-                            NULLIF(TRIM(clave_sicar), ''), 
-                            NULLIF(TRIM(codigo_proveedor), ''), 
+                            NULLIF(TRIM(hi.clave_final), ''), 
+                            NULLIF(TRIM(hi.clave_sicar), ''), 
+                            NULLIF(TRIM(rcp.clave_sicar), ''), 
+                            NULLIF(TRIM(cp.clave_sicar), ''),
+                            NULLIF(TRIM(hi.codigo_proveedor), ''), 
                             'SIN_CLAVE'
                         ) AS clave_definitiva,
-                        cantidad, 
-                        existencia_lapiz, 
-                        es_paquete, 
-                        piezas_por_paquete 
-                    FROM historial_items 
-                    WHERE remision_id = ? 
-                    ORDER BY id ASC";
+                        
+                        hi.cantidad, 
+                        hi.existencia_lapiz, 
+                        
+                        -- De igual forma, si la configuración de paquetes no se tocó (NULL), usa la de la memoria
+                        COALESCE(hi.es_paquete, rcp.es_paquete, 0) AS es_paquete,
+                        COALESCE(hi.piezas_por_paquete, rcp.piezas_por_paquete, 1) AS piezas_por_paquete 
+                        
+                    FROM historial_items hi
+                    LEFT JOIN rel_codigos_proveedor rcp ON hi.codigo_proveedor = rcp.codigo_proveedor
+                    LEFT JOIN cat_productos cp ON hi.codigo_proveedor = cp.codigo_barras
+                    WHERE hi.remision_id = ? 
+                    ORDER BY hi.id ASC";
                     
             $stmtItems = $pdo->prepare($sql);
             $stmtItems->execute([$id_db]);
             
             $agrupados = [];
             while ($row = $stmtItems->fetch(PDO::FETCH_ASSOC)) {
-                // 1. Determinar Clave (ya resuelta desde la base de datos)
+                // 1. Determinar Clave
                 $clave = $row['clave_definitiva'];
                 
                 // 2. OBTENER DATOS
-                $cantidadBD = floatval($row['cantidad']);       // Ej: 250
-                $fisico = floatval($row['existencia_lapiz']);   // Ej: 0
-                $esPaquete = intval($row['es_paquete']);        // 1 (Sí)
-                $piezasPorCaja = floatval($row['piezas_por_paquete']); // Ej: 50
+                $cantidadBD = floatval($row['cantidad']);       
+                $fisico = floatval($row['existencia_lapiz']);   
+                $esPaquete = intval($row['es_paquete']);        
+                $piezasPorCaja = floatval($row['piezas_por_paquete']); 
 
                 // 3. LÓGICA DE DIVISIÓN (CONVERTIR A CAJAS)
                 if ($esPaquete === 1 && $piezasPorCaja > 0) {
