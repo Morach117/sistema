@@ -77,27 +77,36 @@ function procesarXML($ruta, $pdo)
     $xml = simplexml_load_string($content);
     $xml->registerXPathNamespace('cfdi', 'http://www.sat.gob.mx/cfd/4');
 
-    $serie = (string) $xml['Serie'];
-    $folio = (string) $xml['Folio'];
+    // Validación por si el XML omite estos atributos
+    $serie = isset($xml['Serie']) ? (string) $xml['Serie'] : '';
+    $folio = isset($xml['Folio']) ? (string) $xml['Folio'] : '';
 
     // --- CORRECCIÓN 1: Limpieza estricta del Folio (Solo letras y números) ---
     // Esto evita duplicados como "F-123" vs "F123"
     $folioCompleto = preg_replace('/[^A-Z0-9]/', '', strtoupper($serie . $folio));
 
-    // Detección automática
-    $emisor = $xml->xpath('//cfdi:Emisor')[0];
+    // Detección automática (Con validación por si falla la lectura)
+    $emisores = $xml->xpath('//cfdi:Emisor');
+    if (!$emisores) return null; 
+    
+    $emisor = $emisores[0];
     $rfc = strtoupper((string) $emisor['Rfc']);
     $nombre = strtoupper((string) $emisor['Nombre']);
 
     $prov = 'MANUAL';
-    if ($rfc === 'TTI961202IM1' || strpos($nombre, 'TONY') !== false)
+    if ($rfc === 'TTI961202IM1' || strpos($nombre, 'TONY') !== false) {
         $prov = 'TONY';
-    elseif ($rfc === 'LOVM900722BD8' || strpos($nombre, 'PAOLA') !== false)
+    } elseif ($rfc === 'LOVM900722BD8' || strpos($nombre, 'PAOLA') !== false) {
         $prov = 'PAOLA';
-    elseif ($rfc === 'OTV801119HU2' || strpos($nombre, 'OPTIVOSA') !== false)
+    } elseif ($rfc === 'OTV801119HU2' || strpos($nombre, 'OPTIVOSA') !== false) {
         $prov = 'OPTIVOSA';
-    elseif (strpos($nombre, 'OPERADORA') !== false)
+    } elseif (strpos($nombre, 'OPERADORA') !== false) {
         $prov = 'PAOLA';
+    } 
+    // NUEVO PROVEEDOR: GRUPO MEGAMER
+    elseif ($rfc === 'GME191105I5A' || strpos($nombre, 'MEGAMER') !== false) {
+        $prov = 'MEGAMER';
+    }
 
     // Obtener ID (Upsert)
     $idRem = obtenerOcrearRemision($pdo, $folioCompleto, $prov);
@@ -108,7 +117,8 @@ function procesarXML($ruta, $pdo)
         $cant = (float) $c['Cantidad'];
         $costo = (float) $c['ValorUnitario'];
 
-        $traslados = $c->xpath('cfdi:Impuestos/cfdi:Traslados/cfdi:Traslado');
+        // Búsqueda profunda de traslados (.//) para mayor compatibilidad
+        $traslados = $c->xpath('.//cfdi:Traslado');
         if ($traslados) {
             foreach ($traslados as $t) {
                 if ((string) $t['Impuesto'] === '002' && (float) $t['TasaOCuota'] > 0) {
