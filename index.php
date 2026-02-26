@@ -16,6 +16,7 @@ $nombre = $_SESSION['nombre'] ?? 'Usuario';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventario | Papelería Yazmín</title>
+    
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.6.0/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
@@ -36,6 +37,7 @@ $nombre = $_SESSION['nombre'] ?? 'Usuario';
         }
     </script>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap');
         body { transition: background-color 0.3s, color 0.3s; }
         #loading-overlay {
             position: absolute; inset: 0; z-index: 50;

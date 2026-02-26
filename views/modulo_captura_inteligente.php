@@ -8,7 +8,6 @@ $nombre_usuario = $_SESSION['nombre'] ?? 'Operador';
 
 <style>
     /* Estilos Modernos 2026 */
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap');
     
     body { font-family: 'Plus Jakarta Sans', sans-serif; }
     .table-fixed-head thead { position: sticky; top: 0; z-index: 10; }
