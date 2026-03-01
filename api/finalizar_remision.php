@@ -20,7 +20,7 @@ try {
 
     if (!$id_remision) throw new Exception("Remisión no encontrada");
 
-    // 1. Guardar última versión
+    // 1. Guardar última versión (Si se envían items de golpe)
     if (isset($_POST['items']) && is_array($_POST['items'])) {
         $sqlUpd = "UPDATE historial_items 
                    SET existencia_lapiz = :fisico, clave_final = :clave, cantidad = :cant_real,
@@ -40,7 +40,6 @@ try {
             $aplicaDesc = intval($item['aplica_descuento'] ?? 1);
 
             // Validación (Tolerancia simple)
-            // Si es caja, la validación se hace contra (Factura / Piezas). Si es suelto, directo.
             $esperado = $esPaquete ? ($cantReal / $piezasPorPaquete) : $cantReal;
             $estadoItem = (abs($fisico - $esperado) > 0.1) ? 'REVISION' : 'OK';
             $claveBD = (empty($clave)) ? null : $clave;
@@ -53,9 +52,14 @@ try {
         }
     }
 
-    // 2. APRENDER (Memoria)
+    // 2. APRENDER (Memoria) - ESCUDO ACTIVADO
+    // Añadimos la regla: UPPER(TRIM(clave_final)) NOT IN ('FALTANTE', 'DEVOLUCION')
     $sqlLearn = "SELECT codigo_proveedor, clave_final, costo_unitario, es_paquete, piezas_por_paquete, aplica_iva, aplica_descuento 
-                 FROM historial_items WHERE remision_id = ? AND clave_final IS NOT NULL";
+                 FROM historial_items 
+                 WHERE remision_id = ? 
+                 AND clave_final IS NOT NULL 
+                 AND UPPER(TRIM(clave_final)) NOT IN ('FALTANTE', 'DEVOLUCION')";
+                 
     $stmtLearn = $pdo->prepare($sqlLearn);
     $stmtLearn->execute([$id_remision]);
     $itemsAprendidos = $stmtLearn->fetchAll(PDO::FETCH_ASSOC);

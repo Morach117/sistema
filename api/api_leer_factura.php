@@ -19,21 +19,21 @@ try {
     $cabecera = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$cabecera) throw new Exception("Remisión no encontrada");
 
-    // 2. CONSULTA INTELIGENTE DE ITEMS
-    // Unimos historial_items con cat_productos Y con rel_codigos_proveedor
+    // 2. CONSULTA INTELIGENTE DE ITEMS (CORREGIDA PARA EVITAR DUPLICADOS)
+    // Se agregan funciones MAX() y un GROUP BY hi.id para evitar el producto cartesiano
     $sqlItems = "
         SELECT 
             hi.*, 
-            -- Datos del Catálogo (Sistema Actual)
-            cp.precio_compra as costo_bd, 
-            cp.precio_venta as venta_bd,
-            cp.descripcion as desc_bd,
-            cp.clave_sicar as clave_catalogo,
+            -- Datos del Catálogo (Sistema Actual) envueltos en MAX()
+            MAX(cp.precio_compra) as costo_bd, 
+            MAX(cp.precio_venta) as venta_bd,
+            MAX(cp.descripcion) as desc_bd,
+            MAX(cp.clave_sicar) as clave_catalogo,
             
-            -- Datos de la Memoria (Tabla de Relaciones)
-            rcp.clave_sicar as clave_memoria,
-            rcp.es_paquete as es_paquete_mem,
-            rcp.piezas_por_paquete as piezas_mem
+            -- Datos de la Memoria (Tabla de Relaciones) envueltos en MAX()
+            MAX(rcp.clave_sicar) as clave_memoria,
+            MAX(rcp.es_paquete) as es_paquete_mem,
+            MAX(rcp.piezas_por_paquete) as piezas_mem
             
         FROM historial_items hi
         
@@ -55,6 +55,9 @@ try {
             (hi.codigo_proveedor IS NOT NULL AND hi.codigo_proveedor != '' AND cp.codigo_barras = hi.codigo_proveedor)
         )
         WHERE hi.remision_id = ?
+        
+        -- ESTA LÍNEA EVITA QUE SE CLONEN PRODUCTOS EN PANTALLA
+        GROUP BY hi.id 
         ORDER BY hi.id ASC
     ";
 
@@ -70,13 +73,12 @@ try {
         // LÓGICA DE DEFINICIÓN DE DATOS FINALES
         
         // 1. Definir Clave SICAR sugerida
-        // Usamos la que ya esté fija, o la del historial, o la de la memoria, o la del catálogo directo
         $claveSugerida = $item['clave_final'];
         if (empty($claveSugerida)) $claveSugerida = $item['clave_sicar'];
-        if (empty($claveSugerida)) $claveSugerida = $item['clave_memoria']; // <--- Aquí entra la inteligencia
+        if (empty($claveSugerida)) $claveSugerida = $item['clave_memoria']; // Inteligencia desde memoria
         if (empty($claveSugerida)) $claveSugerida = $item['clave_catalogo']; // Match directo de barras
 
-        // 2. Definir Configuración de Paquete (Si viene vacío, usamos la memoria)
+        // 2. Definir Configuración de Paquete
         $esPaquete = $item['es_paquete'];
         $piezas = $item['piezas_por_paquete'];
 
