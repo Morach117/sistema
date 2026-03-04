@@ -94,25 +94,14 @@ $nombre = $_SESSION['nombre'] ?? 'Usuario';
                         </a>
                     </li>
 
-                    <?php if ($rol === 'admin'): ?>
-                        <li>
-                            <a onclick="window.cargarVista('catalogo')" id="nav-catalogo" class="font-medium">
-                                <i class="bi bi-search text-lg"></i> Catálogo
-                            </a>
-                        </li>
-                        <li>
-                            <a onclick="window.cargarVista('modulo_historial')" id="nav-modulo_historial" class="font-medium">
-                                <i class="bi bi-graph-up-arrow text-lg"></i> Evolución Precios
-                            </a>
-                        </li>
-                    <?php endif; ?>
-
                     <li class="menu-title mt-4 text-xs uppercase opacity-50 font-bold">Operaciones</li>
+                    
                     <li>
-    <a onclick="window.cargarVista('modulo_auditoria_admin')" id="nav-modulo_auditoria_admin" class="font-medium text-indigo-600 hover:bg-indigo-50">
-        <i class="bi bi-file-earmark-spreadsheet text-lg"></i> Auditoría & Exportar
-    </a>
-</li>
+                        <a onclick="window.cargarVista('modulo_traspasos')" id="nav-modulo_traspasos" class="font-medium text-blue-600 hover:bg-blue-50">
+                            <i class="bi bi-box-arrow-right text-lg"></i> Generar Traspaso
+                        </a>
+                    </li>
+
                     <li>
                         <a onclick="window.cargarVista('modulo_captura_inteligente')" id="nav-modulo_captura_inteligente" class="font-medium text-secondary hover:bg-secondary/10">
                             <i class="bi bi-qr-code-scan text-lg"></i> Captura Inteligente
@@ -125,14 +114,6 @@ $nombre = $_SESSION['nombre'] ?? 'Usuario';
                         </a>
                     </li>
                     
-                    <?php if ($rol === 'admin'): ?>
-                        <li>
-                            <a onclick="window.cargarVista('modulo_historial_facturas')" id="nav-modulo_historial_facturas" class="font-medium">
-                                <i class="bi bi-archive text-lg"></i> Historial Remisiones
-                            </a>
-                        </li>
-                    <?php endif; ?>
-
                     <li>
                         <a onclick="window.cargarVista('modulo_devoluciones')" id="nav-modulo_devoluciones" class="font-medium text-error hover:bg-error/10">
                             <i class="bi bi-exclamation-triangle text-lg"></i> Reclamaciones
@@ -141,6 +122,34 @@ $nombre = $_SESSION['nombre'] ?? 'Usuario';
 
                     <?php if ($rol === 'admin'): ?>
                         <li class="menu-title mt-4 text-xs uppercase opacity-50 font-bold">Administración</li>
+                        
+                        <li>
+                            <a onclick="window.cargarVista('catalogo')" id="nav-catalogo" class="font-medium">
+                                <i class="bi bi-search text-lg"></i> Catálogo
+                            </a>
+                        </li>
+                        <li>
+                            <a onclick="window.cargarVista('modulo_historial')" id="nav-modulo_historial" class="font-medium">
+                                <i class="bi bi-graph-up-arrow text-lg"></i> Evolución Precios
+                            </a>
+                        </li>
+                        <li>
+                            <a onclick="window.cargarVista('modulo_auditoria_admin')" id="nav-modulo_auditoria_admin" class="font-medium text-indigo-600 hover:bg-indigo-50">
+                                <i class="bi bi-file-earmark-spreadsheet text-lg"></i> Auditoría & Exportar
+                            </a>
+                        </li>
+                        <li>
+                            <a onclick="window.cargarVista('modulo_historial_facturas')" id="nav-modulo_historial_facturas" class="font-medium">
+                                <i class="bi bi-archive text-lg"></i> Historial Remisiones
+                            </a>
+                        </li>
+                        
+                        <li>
+                            <a onclick="window.cargarVista('modulo_admin_traspasos')" id="nav-modulo_admin_traspasos" class="font-medium text-purple-600 hover:bg-purple-50">
+                                <i class="bi bi-inboxes-fill text-lg"></i> Gestión Traspasos
+                            </a>
+                        </li>
+
                         <li>
                             <a onclick="window.cargarVista('usuarios')" id="nav-usuarios" class="font-medium">
                                 <i class="bi bi-people text-lg"></i> Usuarios
@@ -202,8 +211,15 @@ $nombre = $_SESSION['nombre'] ?? 'Usuario';
             let hash = window.location.hash.replace('#', '');
             const userRol = "<?= $rol ?>";
 
-            // Lista negra para empleados (Nota: Captura Inteligente NO está aquí, así que pueden entrar)
-            const prohibidoParaEmpleado = ['catalogo', 'modulo_historial', 'modulo_historial_facturas', 'usuarios'];
+            // LISTA NEGRA: Si el empleado intenta entrar a estas rutas, lo bloquea.
+            const prohibidoParaEmpleado = [
+                'catalogo', 
+                'modulo_historial', 
+                'modulo_auditoria_admin', 
+                'modulo_historial_facturas', 
+                'modulo_admin_traspasos', 
+                'usuarios'
+            ];
             
             if(userRol === 'empleado' && prohibidoParaEmpleado.includes(hash)) {
                 cargarVista('dashboard');
@@ -216,7 +232,15 @@ $nombre = $_SESSION['nombre'] ?? 'Usuario';
             let hash = window.location.hash.replace('#', '');
             if (hash) {
                 const userRol = "<?= $rol ?>";
-                const prohibidoParaEmpleado = ['catalogo', 'modulo_historial', 'modulo_historial_facturas', 'usuarios'];
+                const prohibidoParaEmpleado = [
+                    'catalogo', 
+                    'modulo_historial', 
+                    'modulo_auditoria_admin', 
+                    'modulo_historial_facturas', 
+                    'modulo_admin_traspasos', 
+                    'usuarios'
+                ];
+
                 if(userRol === 'empleado' && prohibidoParaEmpleado.includes(hash)) {
                     cargarVista('dashboard');
                 } else {
