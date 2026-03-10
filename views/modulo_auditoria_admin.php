@@ -85,11 +85,19 @@ if (!isset($_SESSION['rol']) || $_SESSION['rol'] !== 'admin') {
                 </div>
             </div>
 
-            <button onclick="AuditoriaCapturaAPI.exportarExcel()"
-                class="btn btn-lg btn-success text-white shadow-xl shadow-green-200 w-full hover:scale-[1.02] transition-transform">
-                <i class="bi bi-file-earmark-spreadsheet-fill text-xl"></i>
-                DESCARGAR EXCEL
-            </button>
+            <div class="flex flex-col gap-2 mt-auto">
+                <button onclick="AuditoriaCapturaAPI.exportarExcel()"
+                    class="btn btn-lg btn-success text-white shadow-xl shadow-green-200 w-full hover:scale-[1.02] transition-transform">
+                    <i class="bi bi-file-earmark-spreadsheet-fill text-xl"></i>
+                    DESCARGAR DÍA ACTUAL
+                </button>
+
+                <button onclick="AuditoriaCapturaAPI.exportarMasivo()"
+                    class="btn btn-md bg-orange-500 hover:bg-orange-600 text-white border-none shadow-lg shadow-orange-200 w-full hover:scale-[1.02] transition-transform tooltip tooltip-top" data-tip="Descarga TODO lo que esté pendiente de días anteriores">
+                    <i class="bi bi-cloud-arrow-down-fill text-lg"></i>
+                    DESCARGAR PENDIENTES
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -137,7 +145,7 @@ window.AuditoriaCapturaAPI = {
         }
 
         let sumaGlobal = 0;
-        let pendientes = 0; // Contador de lo que falta por bajar
+        let pendientes = 0; 
         
         leyenda.innerText = incluirFisico ? "Sumando Cajas + Existencia (Solo Pendientes)" : "Mostrando solo desdoble (Solo Pendientes)";
 
@@ -150,28 +158,23 @@ window.AuditoriaCapturaAPI = {
             
             const yaExportado = (row.exportado == 1);
 
-            // LOGICA DE SUMA: Solo sumamos al total visible si NO ha sido exportado
             if (!yaExportado) {
                 sumaGlobal += ajusteFila;
                 pendientes++;
             }
 
-            // ESTILOS VISUALES
             let rowClass = 'border-b border-gray-100 last:border-0 transition-colors ';
             let textClass = '';
             let iconStatus = '';
 
             if (yaExportado) {
-                // ESTILO DESACTIVADO (Gris, Opaco, Tachado sutilmente)
                 rowClass += 'bg-gray-100 opacity-60 grayscale';
                 textClass = 'text-gray-400 decoration-slate-400';
                 iconStatus = '<i class="bi bi-check-all text-green-600 text-lg" title="Ya exportado"></i>';
             } else {
-                // ESTILO ACTIVO (Normal)
                 rowClass += 'hover:bg-indigo-50 group';
                 textClass = 'text-gray-700';
                 
-                // Distinción Uso vs Venta
                 if (row.tipo_uso === 'CONSUMO') {
                     rowClass += ' bg-orange-50 hover:bg-orange-100';
                     iconStatus = '<span class="badge badge-warning badge-sm text-white">USO</span>';
@@ -210,16 +213,13 @@ window.AuditoriaCapturaAPI = {
                 </tr>`;
         });
 
-        // Actualizamos contadores
         document.getElementById('lblTotalMovimientos').innerText = pendientes + " pendientes / " + AuditoriaCapturaAPI.dataCache.length + " total";
         
-        // El total grande ahora solo muestra lo que falta por bajar
         document.getElementById('lblGranTotal').innerText = sumaGlobal.toLocaleString(undefined, {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         });
         
-        // Cambiar color del total si ya no hay nada pendiente
         if(sumaGlobal === 0 && AuditoriaCapturaAPI.dataCache.length > 0){
              document.getElementById('lblGranTotal').className = "text-3xl font-black text-green-500";
              document.getElementById('lblGranTotal').innerText = "✓ AL DÍA";
@@ -234,7 +234,7 @@ window.AuditoriaCapturaAPI = {
 
         const form = document.createElement('form');
         form.method = 'POST';
-        form.action = 'api/generar_sicar_captura.php'; // Este archivo YA tiene el filtro 'AND exportado = 0'
+        form.action = 'api/generar_sicar_captura.php'; 
 
         const i1 = document.createElement('input'); i1.type = 'hidden'; i1.name = 'fecha'; i1.value = fecha;
         const i2 = document.createElement('input'); i2.type = 'hidden'; i2.name = 'incluir_fisico'; i2.value = incluirFisico;
@@ -244,7 +244,6 @@ window.AuditoriaCapturaAPI = {
         form.submit();
         document.body.removeChild(form);
         
-        // Recargar la tabla automáticamente después de 2 segundos para verlos ya grises
         setTimeout(() => {
             AuditoriaCapturaAPI.cargarLista();
             Swal.fire({
@@ -252,6 +251,44 @@ window.AuditoriaCapturaAPI = {
                 title: 'Exportación completada', showConfirmButton: false, timer: 2000
             });
         }, 2000);
+    },
+
+    // NUEVA FUNCIÓN MASIVA
+    exportarMasivo: () => {
+        Swal.fire({
+            title: '¿Descargar todo lo pendiente?',
+            text: 'Se agruparán todos los registros de fechas anteriores que aún no han sido descargados.',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#f97316', // Naranja
+            confirmButtonText: 'Sí, descargar todo',
+            cancelButtonText: 'Cancelar'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                const incluirFisico = document.getElementById('swIncluirFisico').checked ? '1' : '0';
+
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = 'api/generar_sicar_captura.php';
+
+                // Enviamos una variable "masivo" en lugar de "fecha"
+                const i1 = document.createElement('input'); i1.type = 'hidden'; i1.name = 'masivo'; i1.value = '1';
+                const i2 = document.createElement('input'); i2.type = 'hidden'; i2.name = 'incluir_fisico'; i2.value = incluirFisico;
+                
+                form.appendChild(i1); form.appendChild(i2);
+                document.body.appendChild(form);
+                form.submit();
+                document.body.removeChild(form);
+                
+                setTimeout(() => {
+                    AuditoriaCapturaAPI.cargarLista();
+                    Swal.fire({
+                        toast: true, position: 'top-end', icon: 'success', 
+                        title: 'Exportación masiva completada', showConfirmButton: false, timer: 2000
+                    });
+                }, 2000);
+            }
+        });
     },
 
     borrar: (id) => {

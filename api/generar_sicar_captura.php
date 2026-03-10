@@ -5,11 +5,14 @@ require_once '../config/db.php';
 while (ob_get_level()) ob_end_clean();
 ini_set('display_errors', 0);
 
-// 1. RECIBIMOS LA FECHA DEL SELECTOR
+// 1. RECIBIMOS VARIABLES DEL SELECTOR
 $fecha = $_POST['fecha'] ?? date('Y-m-d');
 $incluirFisico = (isset($_POST['incluir_fisico']) && $_POST['incluir_fisico'] == '1');
+$esMasivo = (isset($_POST['masivo']) && $_POST['masivo'] == '1'); // Detectamos si pulsaron el botón masivo
 
-$filename = "Ajuste_SICAR_" . date('Ymd_Hi') . ".xls";
+// Nombre dinámico para el archivo Excel
+$prefix = $esMasivo ? "MASIVO_" : "";
+$filename = "Ajuste_SICAR_" . $prefix . date('Ymd_Hi') . ".xls";
 
 header('Content-Type: application/vnd.ms-excel; charset=utf-8');
 header("Content-Disposition: attachment; filename=\"$filename\"");
@@ -31,15 +34,25 @@ echo '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>';
             $listaFinal = [];
             $idsProcesados = []; 
 
-            // 2. CONSULTA (Trae VENTA y CONSUMO)
-            $sql = "SELECT id, codigo, clave_sicar, factor, cantidad_bultos, existencia, tipo_uso 
-                    FROM historial_rapido 
-                    WHERE DATE(fecha) = ? 
-                    AND estatus = 1 
-                    AND exportado = 0";
-            
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute([$fecha]);
+            // 2. CONSULTA DINÁMICA (Masivo vs Fecha Específica)
+            if ($esMasivo) {
+                // Si es masivo, ignoramos la fecha y traemos TODO lo pendiente
+                $sql = "SELECT id, codigo, clave_sicar, factor, cantidad_bultos, existencia, tipo_uso 
+                        FROM historial_rapido 
+                        WHERE estatus = 1 
+                        AND exportado = 0";
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute();
+            } else {
+                // Si es normal, filtramos por la fecha seleccionada
+                $sql = "SELECT id, codigo, clave_sicar, factor, cantidad_bultos, existencia, tipo_uso 
+                        FROM historial_rapido 
+                        WHERE DATE(fecha) = ? 
+                        AND estatus = 1 
+                        AND exportado = 0";
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute([$fecha]);
+            }
 
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 $idsProcesados[] = $row['id'];
@@ -55,10 +68,8 @@ echo '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>';
 
                 if ($tipoUso === 'CONSUMO') {
                     // *** CASO 1: GASTO INTERNO (RESTAR) ***
-                    // Calculamos el total de piezas consumidas
                     $totalConsumido = ($bultos * $factor) + $existenciaFisica;
                     
-                    // Restamos directamente a la clave de la pieza
                     if ($totalConsumido > 0) {
                         $listaFinal[$codigoPieza] = ($listaFinal[$codigoPieza] ?? 0) - $totalConsumido;
                     }
@@ -68,9 +79,7 @@ echo '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>';
                     
                     // A. Manejo de Cajas (Desdoble)
                     if ($factor > 1 && $bultos > 0) {
-                        // Restamos 1 al código de CAJA (porque se abrió)
                         $listaFinal[$codigoCaja] = ($listaFinal[$codigoCaja] ?? 0) - $bultos;
-                        // Sumamos el contenido al código de PIEZA
                         $listaFinal[$codigoPieza] = ($listaFinal[$codigoPieza] ?? 0) + ($bultos * $factor);
                     } 
                     // B. Manejo de bultos directos (si no es caja compuesta)
