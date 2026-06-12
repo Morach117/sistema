@@ -35,7 +35,7 @@ $rol = $_SESSION['rol'] ?? 'empleado';
 
 <div class="toast toast-bottom toast-end z-[9999]" id="toastContainer"></div>
 
-<div class="relative h-[calc(100vh-1rem)] bg-slate-50 font-sans text-sm overflow-hidden flex transition-all-elements text-slate-800 selection:bg-indigo-100">
+<div class="relative flex-1 min-w-0 w-full h-[calc(100vh-1rem)] bg-slate-50 font-sans text-sm overflow-hidden flex transition-all-elements text-slate-800 selection:bg-indigo-100">
     
     <div id="panelLista" class="w-full md:w-80 flex-shrink-0 bg-white/80 backdrop-blur-xl border-r border-slate-200 flex flex-col h-full z-20 transition-transform duration-300 absolute md:relative shadow-sm">
         <div class="p-5 border-b border-slate-100 sticky top-0 z-10 h-20 flex justify-between items-center bg-white/50 backdrop-blur-md">
@@ -73,7 +73,7 @@ $rol = $_SESSION['rol'] ?? 'empleado';
         </div>
     </div>
 
-    <div id="panelDetalle" class="w-full flex flex-col h-full absolute md:relative translate-x-full md:translate-x-0 transition-transform duration-300 z-30 bg-slate-50/50">
+    <div id="panelDetalle" class="flex-1 min-w-0 flex flex-col h-full absolute md:relative translate-x-full md:translate-x-0 transition-transform duration-300 z-30 bg-slate-50/50 min-h-0">
         
         <div class="px-4 pt-4 shrink-0 z-40 sticky top-0">
             <div class="glass-panel rounded-3xl min-h-[4rem] px-5 flex flex-wrap gap-3 justify-between items-center shadow-sm">
@@ -118,8 +118,8 @@ $rol = $_SESSION['rol'] ?? 'empleado';
             </div>
         </div>
 
-        <div class="flex-grow overflow-y-auto p-4 md:p-6" id="mainContainer">
-            <div id="zonaResultados" class="pb-24 w-full max-w-[1920px] mx-auto">
+        <div class="flex-grow overflow-y-auto p-4 md:p-6 min-h-0 min-w-0" id="mainContainer">
+            <div id="zonaResultados" class="pb-32 w-full max-w-[1920px] mx-auto min-w-0">
                 <div class="flex flex-col items-center justify-center h-full text-slate-300 mt-32">
                     <i class="bi bi-inboxes text-8xl mb-4 opacity-50"></i>
                     <p class="text-xl font-bold tracking-tight text-slate-400">Selecciona una tarea de la lista para comenzar</p>
@@ -250,7 +250,6 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                 const readOnlyAttr = esFinalizada ? 'disabled' : '';
                 const z = FacturasAPI.zoomMode;
 
-                // LECTURA DE DESCUENTO GLOBAL
                 let descGlobal = 5;
                 const elDescGlobal = document.getElementById('inp_desc_global');
                 if (elDescGlobal) descGlobal = parseFloat(elDescGlobal.value) || 0;
@@ -272,7 +271,7 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                     productos.forEach(p => {
                         let cantFactura = p.cantidad || p.cant; 
                         let esPaquete = p.es_paquete == '1';
-                        let piezas = p.piezas_por_paquete || 1;
+                        let piezas = parseFloat(p.piezas_por_paquete) || 1;
                         let claveFinal = p.clave_final || p.clave_sicar || '';
                         let fisico = p.existencia_lapiz || 0;
                         
@@ -284,6 +283,13 @@ $rol = $_SESSION['rol'] ?? 'empleado';
 
                         if(p.aplica_descuento_manual !== undefined && p.aplica_descuento_manual !== null) {
                             checkDesc = (p.aplica_descuento_manual == '1');
+                        }
+
+                        let costoDb = parseFloat(p.costo) || 0;
+                        let baseCost = parseFloat(p.costo_bruto || p.costo_xml || p.costo_base);
+                        
+                        if(isNaN(baseCost)) {
+                            baseCost = (esPaquete && piezas > 0) ? (costoDb / piezas) : costoDb;
                         }
 
                         let esDevuelto = (p.revision_pendiente == 2);
@@ -336,7 +342,8 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                         html += `<div id="card_item_${i}" class="glass-panel border ${estiloCard} hover:border-indigo-200 transition-all duration-300 rounded-3xl group relative overflow-hidden" data-idx="${i}">
                             
                             <div class="${styles.cardP} flex ${z ? 'flex-col' : 'flex-col xl:flex-row'} ${styles.gap} items-stretch xl:items-center relative z-10">
-                                <input type="hidden" id="hidden_costo_${i}" value="${p.costo}">
+                                
+                                <input type="hidden" id="hidden_costo_${i}" value="${baseCost}">
                                 
                                 <div class="flex flex-row xl:flex-col items-center gap-3 border-b xl:border-b-0 xl:border-r border-slate-100 pb-3 xl:pb-0 xl:pr-4 w-full ${z ? '' : 'xl:w-auto'} justify-between xl:justify-center">
                                     <div class="text-center">
@@ -360,18 +367,19 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                                     </div>
                                 </div>
 
-                                <div class="flex-grow w-full ${z ? '' : 'xl:w-auto xl:flex-1'} text-center xl:text-left min-w-0 flex flex-col justify-center">
-                                    <div class="${styles.normal} leading-snug mb-2 truncate break-words whitespace-normal">${p.desc}</div>
+                                <div class="flex-grow flex-1 min-w-0 w-full ${z ? '' : 'xl:w-auto'} text-center xl:text-left flex flex-col justify-center">
+                                    <div class="${styles.normal} leading-snug mb-2 break-words line-clamp-2" title="${(p.desc || '').replace(/"/g, '&quot;')}">${p.desc}</div>
                                     <div class="flex flex-wrap justify-center xl:justify-start gap-2 items-center">
                                         
-                                        <div class="flex items-center bg-slate-100 rounded-lg pl-2 pr-1 py-1 border border-slate-200 group-hover:border-slate-300 transition-colors">
-                                            <span class="font-mono text-slate-500 font-bold ${styles.tiny} mr-2 cursor-pointer hover:text-indigo-600" onclick="navigator.clipboard.writeText('${p.cod_prov}')">${p.cod_prov}</span>
-                                            <button class="bg-white rounded-md w-5 h-5 flex items-center justify-center shadow-sm text-slate-400 hover:text-indigo-600 transition-colors" onclick="FacturasAPI.verCodigoBarras('${p.cod_prov}', '${p.desc.replace(/'/g, "")}')"><i class="bi bi-upc-scan text-[10px]"></i></button>
+                                        <div class="flex items-center bg-slate-100 rounded-lg pl-2 pr-1 py-1 border border-slate-200 group-hover:border-slate-300 transition-colors min-w-0">
+                                            <span class="font-mono text-slate-500 font-bold ${styles.tiny} mr-2 cursor-pointer hover:text-indigo-600 truncate block" onclick="navigator.clipboard.writeText('${p.cod_prov}')">${p.cod_prov}</span>
+                                            <button class="bg-white rounded-md w-5 h-5 flex-shrink-0 flex items-center justify-center shadow-sm text-slate-400 hover:text-indigo-600 transition-colors" onclick="FacturasAPI.verCodigoBarras('${p.cod_prov}', '${p.desc.replace(/'/g, "")}')"><i class="bi bi-upc-scan text-[10px]"></i></button>
                                         </div>
                                         
-                                        <div class="flex items-center shadow-sm border border-slate-200 rounded-lg overflow-hidden bg-white h-7 2xl:h-8">
+                                        <div class="flex items-center shadow-sm border border-slate-200 rounded-lg overflow-hidden bg-white h-7 2xl:h-8 relative group/sicar">
                                             <span class="bg-slate-700 text-white px-2 flex items-center h-full text-[9px] font-extrabold uppercase tracking-widest">SICAR</span>
-                                            <input type="text" id="inp_sicar_${i}" class="w-24 2xl:w-32 bg-transparent text-center font-mono font-bold text-xs outline-none px-2 data-input" data-id-item="${p.id}" value="${claveFinal}" list="dlSicar" placeholder="---" ${readOnlyAttr} onchange="FacturasAPI.guardarCampo(this, 'clave_final')">
+                                            <input type="text" id="inp_sicar_${i}" class="w-24 2xl:w-32 bg-transparent text-center font-mono font-bold text-xs outline-none px-2 pr-6 data-input" data-id-item="${p.id}" value="${claveFinal}" list="dlSicar" placeholder="---" ${readOnlyAttr} onchange="FacturasAPI.guardarCampo(this, 'clave_final')">
+                                            <button class="absolute right-1 text-slate-300 hover:text-red-500 hidden group-hover/sicar:block transition-colors" onclick="FacturasAPI.limpiarSicar(${i}, ${p.id})" title="Borrar código" ${readOnlyAttr}><i class="bi bi-x-circle-fill"></i></button>
                                         </div>
                                     </div>
                                     <input type="hidden" name="items[${i}][cod_prov]" value="${p.cod_prov}" class="data-input">
@@ -412,14 +420,12 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                 filasParaCalcular.forEach(idx => FacturasAPI.calculoEnVivo(idx, false));
             },
 
-            // FIX: Función Faltante SIN recargar la página (Manipulación del DOM en vivo)
             toggleFaltante: (chk, idx, idItem) => {
                 const inpSicar = document.getElementById(`inp_sicar_${idx}`);
                 const inpFisico = document.getElementById(`inp_fisico_${idx}`);
                 const card = document.getElementById(`card_item_${idx}`);
                 
                 if (chk.checked) {
-                    // Acción Frontend
                     inpSicar.value = 'FALTANTE';
                     inpFisico.value = 0;
                     if (card) {
@@ -429,12 +435,10 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                     inpFisico.classList.remove('text-indigo-600');
                     inpFisico.classList.add('text-red-600');
                     
-                    // Acción Backend
                     FacturasAPI.guardarCampo(inpSicar, 'clave_final', 'FALTANTE');
                     FacturasAPI.guardarCampo(inpFisico, 'existencia_lapiz', 0);
                     FacturasAPI.showToast('Artículo marcado como faltante', 'error');
                 } else {
-                    // Reversión Frontend
                     inpSicar.value = '';
                     if (card) {
                         card.classList.remove('border-amber-300', 'bg-amber-50/40', 'opacity-80');
@@ -443,12 +447,19 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                     inpFisico.classList.remove('text-red-600');
                     inpFisico.classList.add('text-indigo-600');
                     
-                    // Reversión Backend
                     FacturasAPI.guardarCampo(inpSicar, 'clave_final', '');
                 }
                 
-                // Forzamos un recálculo simple por si acaso, sin redibujar HTML
                 FacturasAPI.calculoEnVivo(idx, false);
+            },
+
+            limpiarSicar: (idx, idItem) => {
+                const inp = document.getElementById(`inp_sicar_${idx}`);
+                if(inp) {
+                    inp.value = '';
+                    FacturasAPI.guardarCampo(inp, 'clave_final', '');
+                    FacturasAPI.showToast('Código borrado', 'success');
+                }
             },
 
             guardarAvance: () => {
@@ -457,7 +468,6 @@ $rol = $_SESSION['rol'] ?? 'empleado';
             },
 
             calculoEnVivo: (idx, guardar = false) => {
-                // Leer Descuento Global actual
                 let descGlobal = 5;
                 const elDescGlobal = document.getElementById('inp_desc_global');
                 if (elDescGlobal) descGlobal = parseFloat(elDescGlobal.value) || 0;
@@ -465,6 +475,7 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                 const elCostoBase = document.getElementById(`hidden_costo_${idx}`);
                 if(!elCostoBase) return;
                 const costoBase = parseFloat(elCostoBase.value) || 0;
+                
                 const chkPaq = document.getElementById(`chk_paq_${idx}`);
                 const inpPz = document.getElementById(`inp_pz_${idx}`);
                 const chkDesc = document.getElementById(`chk_desc_${idx}`);
@@ -489,7 +500,6 @@ $rol = $_SESSION['rol'] ?? 'empleado';
                     lblTotal.innerText = "PIEZAS";
                 }
 
-                // APLICA LA REGLA DEL PORCENTAJE DINÁMICO
                 if(chkDesc && chkDesc.checked) {
                     costoFinal *= (1 - (descGlobal / 100));
                 }
