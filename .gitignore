@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Production build outputs
+frontend/dist/
+dist/
+
+# Environment configuration
+.env
+.env.local
+.env.*.local
+*.env
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+logs/
+
+# Uploads & Temporary files
+uploads/*
+!uploads/.gitkeep
+csv/*.csv
+*.xlsx
+*.tmp
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local agent artifacts
+.gemini/
+.agents/
