@@ -44,6 +44,30 @@ app.get('*', (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor Node.js corriendo en http://localhost:${PORT}`);
+const net = require('net');
+const { exec } = require('child_process');
+
+function getAvailablePort(desiredPort) {
+    return new Promise((resolve) => {
+        const server = net.createServer();
+        server.listen(desiredPort, () => {
+            const { port } = server.address();
+            server.close(() => resolve(port));
+        });
+        server.on('error', () => {
+            resolve(getAvailablePort(Number(desiredPort) + 1));
+        });
+    });
+}
+
+const DESIRED_PORT = parseInt(process.env.PORT, 10) || 3000;
+
+getAvailablePort(DESIRED_PORT).then((PORT) => {
+    app.listen(PORT, () => {
+        console.log(`🚀 Servidor Node.js corriendo exitosamente en http://localhost:${PORT}`);
+        // Auto-open browser if launched directly or requested
+        if (process.argv.includes('--open') || process.env.AUTO_OPEN === 'true') {
+            exec(`start http://localhost:${PORT}`);
+        }
+    });
 });

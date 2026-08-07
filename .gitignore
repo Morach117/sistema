@@ -22,6 +22,7 @@ logs/
 # Uploads & Temporary files
 uploads/*
 !uploads/.gitkeep
+backups/
 csv/*.csv
 *.xlsx
 *.tmp

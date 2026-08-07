@@ -5,7 +5,15 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "setup": "npm install && cd frontend && npm install && npm run build && cd .. && node migrar_base_datos.js && npx pm2 start ecosystem.config.js && npx pm2 save",
+    "backup": "node backup_bd.js",
+    "migrate": "node migrar_base_datos.js",
+    "pm2:start": "npx pm2 start ecosystem.config.js",
+    "pm2:stop": "npx pm2 stop papeleria-sistema",
+    "pm2:restart": "npx pm2 restart papeleria-sistema",
+    "pm2:status": "npx pm2 status",
+    "pm2:save": "npx pm2 save"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -16,6 +24,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.6.5",
+    "pm2": "^5.3.1",
     "xml2js": "^0.6.2"
   },
   "devDependencies": {
