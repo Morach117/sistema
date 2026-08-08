@@ -13,14 +13,37 @@ async function migrarBaseDatos() {
 
     let connection;
     try {
-        // 1. Conectar a MySQL sin especificar base de datos
-        connection = await mysql.createConnection({
-            host: DB_HOST,
-            user: DB_USER,
-            password: DB_PASSWORD
-        });
-
-        console.log(`[1/4] Conectado exitosamente a MySQL en ${DB_HOST}...`);
+        let successfulPort = 3306;
+    const portsToTry = [3307, 3306];
+    
+    for (const port of portsToTry) {
+        try {
+            console.log(`Intentando conectar a MySQL en puerto ${port}...`);
+            connection = await mysql.createConnection({
+                host: DB_HOST,
+                port: port,
+                user: DB_USER,
+                password: DB_PASSWORD
+            });
+            successfulPort = port;
+            console.log(`[1/4] Conectado exitosamente a MySQL en ${DB_HOST}:${port}...`);
+            
+            // Guardar puerto exitoso para que Node y PHP lo lean rápido en el futuro
+            try {
+                const fs = require('fs');
+                const path = require('path');
+                fs.writeFileSync(path.join(__dirname, 'config', '.active_port'), port.toString());
+            } catch(e) { /* Ignorar error al escribir */ }
+            
+            break; // Si conecta, salimos del bucle
+        } catch (err) {
+            console.log(`Fallo al conectar en puerto ${port}.`);
+        }
+    }
+    
+    if (!connection) {
+        throw new Error("No se pudo conectar a MySQL en los puertos 3307 ni 3306. Verifica que XAMPP o MySQL esté iniciado.");
+    }
 
         // 2. Crear BD si no existe
         await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`);
