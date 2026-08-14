@@ -44,7 +44,7 @@ async function completeTraspaso({ pool, traspasoId, detalles, actorId }) {
       }
 
       const [result] = await connection.execute(
-        'UPDATE traspaso_detalles SET cantidad_recibida = ? WHERE id = ? AND traspaso_id = ?',
+        'UPDATE traspaso_detalles SET cantidad = ? WHERE id = ? AND traspaso_id = ?',
         [quantity, detailId, transferId]
       );
       if (result.affectedRows !== 1) {

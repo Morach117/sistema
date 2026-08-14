@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 
 const { completeTraspaso } = require('../../services/traspasos-service');
 
@@ -43,7 +45,7 @@ test('rolls back when a detail does not belong to its transfer', async () => {
   assert.deepEqual(pool.events.at(-1), 'release');
   assert.deepEqual(pool.events[2], [
     'execute',
-    'UPDATE traspaso_detalles SET cantidad_recibida = ? WHERE id = ? AND traspaso_id = ?',
+    'UPDATE traspaso_detalles SET cantidad = ? WHERE id = ? AND traspaso_id = ?',
     [2, 9, 4]
   ]);
 });
@@ -69,8 +71,8 @@ test('locks a pending transfer and commits only after every detail and header up
   assert.deepEqual(pool.events, [
     'begin',
     ['execute', "SELECT id FROM traspasos WHERE id = ? AND estado = 'PENDIENTE' FOR UPDATE", [4]],
-    ['execute', 'UPDATE traspaso_detalles SET cantidad_recibida = ? WHERE id = ? AND traspaso_id = ?', [2.5, 9, 4]],
-    ['execute', 'UPDATE traspaso_detalles SET cantidad_recibida = ? WHERE id = ? AND traspaso_id = ?', [1, 10, 4]],
+    ['execute', 'UPDATE traspaso_detalles SET cantidad = ? WHERE id = ? AND traspaso_id = ?', [2.5, 9, 4]],
+    ['execute', 'UPDATE traspaso_detalles SET cantidad = ? WHERE id = ? AND traspaso_id = ?', [1, 10, 4]],
     ['execute', "UPDATE traspasos SET estado = 'COMPLETADO' WHERE id = ? AND estado = 'PENDIENTE'", [4]],
     'commit',
     'release'
@@ -93,4 +95,19 @@ test('rejects non-positive received quantities and rolls back the locked transfe
   );
 
   assert.deepEqual(pool.events.slice(-2), ['rollback', 'release']);
+});
+
+test('versioned transfer detail DDL declares cantidad as the persistence column', async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    '../../database/migraciones/001_crear_tablas_traspasos.sql'
+  );
+  const ddl = await fs.readFile(migrationPath, 'utf8');
+  const detailTable = ddl.match(
+    /CREATE TABLE IF NOT EXISTS `traspaso_detalles` \(([\s\S]*?)\) COLLATE/
+  );
+
+  assert.ok(detailTable, 'versioned DDL must declare traspaso_detalles');
+  assert.match(detailTable[1], /`cantidad` DECIMAL\(10,2\) NOT NULL/);
+  assert.doesNotMatch(detailTable[1], /`cantidad_recibida`/);
 });
