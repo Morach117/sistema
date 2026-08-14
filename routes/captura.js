@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
-const { authorize } = require('../middleware/authorize');
+const { authorize, denyAccess } = require('../middleware/authorize');
+const { sendInternalError } = require('../middleware/errors');
 
 router.use(authMiddleware);
 
@@ -127,7 +128,7 @@ router.post('/verificar', authorize({ module: 'captura', action: 'read' }), asyn
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -150,7 +151,7 @@ router.post('/agregar_variante', authorize({ module: 'captura', action: 'write' 
         res.json({ success: true });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -181,7 +182,7 @@ router.post('/revincular', authorize({ module: 'captura', action: 'write' }), as
         res.json({ success: true });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -238,7 +239,7 @@ router.post('/guardar', authorize({ module: 'captura', action: 'write' }), async
         res.json({ success: true });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -254,13 +255,13 @@ router.get('/historial', authorize({ module: 'captura', action: 'read' }), async
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
 // Admin: Listar capturas
 router.get('/admin_list', authorize({ module: 'auditoria', action: 'read' }), async (req, res) => {
-    if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
+    if (req.user.rol !== 'admin') return denyAccess(res);
     const { fecha, todos_pendientes } = req.query; // YYYY-MM-DD
     try {
         let sql = `
@@ -286,13 +287,13 @@ router.get('/admin_list', authorize({ module: 'auditoria', action: 'read' }), as
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
 // Admin: Marcar como exportados
 router.post('/marcar_exportados', authorize({ module: 'auditoria', action: 'write' }), async (req, res) => {
-    if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
+    if (req.user.rol !== 'admin') return denyAccess(res);
     const { ids } = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) return res.json({ success: true });
 
@@ -302,7 +303,7 @@ router.post('/marcar_exportados', authorize({ module: 'auditoria', action: 'writ
         res.json({ success: true });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -315,20 +316,20 @@ router.post('/eliminar', authorize({ module: 'captura', action: 'write' }), asyn
         if (rows.length === 0) return res.status(404).json({ error: 'No encontrado' });
         
         if (req.user.rol !== 'admin' && rows[0].usuario_id !== req.user.id) {
-            return res.status(403).json({ error: 'Denegado. Solo puedes borrar tus propios registros.' });
+            return denyAccess(res);
         }
         
         await pool.execute('UPDATE historial_rapido SET estatus = 0 WHERE id = ?', [id]);
         res.json({ success: true });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
 // Admin: Registrar log de descarga
 router.post('/registrar_descarga', authorize({ module: 'auditoria', action: 'write' }), async (req, res) => {
-    if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
+    if (req.user.rol !== 'admin') return denyAccess(res);
     const { fecha_captura, tipo_exportacion, total_registros, nombre_archivo } = req.body;
     try {
         await pool.execute(
@@ -348,13 +349,13 @@ router.post('/registrar_descarga', authorize({ module: 'auditoria', action: 'wri
         res.json({ success: true });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
 // Admin: Listar historial de descargas
 router.get('/historial_descargas', authorize({ module: 'auditoria', action: 'read' }), async (req, res) => {
-    if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
+    if (req.user.rol !== 'admin') return denyAccess(res);
     try {
         const sql = `
             SELECT hd.*, u.usuario as capturista 
@@ -367,13 +368,13 @@ router.get('/historial_descargas', authorize({ module: 'auditoria', action: 'rea
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
 // Admin: Ver logs globales del sistema (logs_sistema)
 router.get('/logs_sistema', authorize({ module: 'auditoria', action: 'read' }), async (req, res) => {
-    if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
+    if (req.user.rol !== 'admin') return denyAccess(res);
     try {
         const sql = `
             SELECT l.id, l.accion, l.modulo, l.detalles, l.fecha, u.nombre as usuario
@@ -386,7 +387,7 @@ router.get('/logs_sistema', authorize({ module: 'auditoria', action: 'read' }), 
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -399,7 +400,7 @@ router.get('/factores/:clave', authorize({ module: 'captura', action: 'read' }),
         res.json({ success: true, data: factores });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -409,7 +410,7 @@ router.get('/variantes/:clave_sicar', authorize({ module: 'captura', action: 're
         const [rows] = await pool.execute('SELECT * FROM producto_variantes WHERE clave_sicar = ? AND estado = "ACTIVO"', [req.params.clave_sicar]);
         res.json({ success: true, data: rows });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        return sendInternalError(e, req, res);
     }
 });
 
@@ -419,7 +420,7 @@ router.delete('/variante/:id', authorize({ module: 'captura', action: 'write' })
         await pool.execute('DELETE FROM producto_variantes WHERE id = ?', [req.params.id]);
         res.json({ success: true });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        return sendInternalError(e, req, res);
     }
 });
 
@@ -470,7 +471,7 @@ router.post('/corregir_captura', authorize({ module: 'auditoria', action: 'write
         res.json({ success: true, nueva_desc, nuevo_total, nueva_clave_sicar, factor });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 

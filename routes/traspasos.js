@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
-const { authorize } = require('../middleware/authorize');
+const { authorize, denyAccess } = require('../middleware/authorize');
+const { releaseConnection, rollbackTransaction, sendInternalError } = require('../middleware/errors');
 
 router.use(authMiddleware);
 
@@ -35,7 +36,7 @@ router.get('/buscar', authorize({ module: 'traspasos', action: 'read' }), async 
         }
     } catch (error) {
         console.error(error);
-        return res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -48,8 +49,9 @@ router.post('/guardar', authorize({ module: 'traspasos', action: 'write' }), asy
         return res.status(400).json({ success: false, error: 'No hay productos para traspasar' });
     }
 
-    const connection = await pool.getConnection();
+    let connection;
     try {
+        connection = await pool.getConnection();
         await connection.beginTransaction();
 
         const [result] = await connection.execute(
@@ -67,16 +69,16 @@ router.post('/guardar', authorize({ module: 'traspasos', action: 'write' }), asy
         await connection.commit();
         res.json({ success: true, message: `Orden de traspaso #${traspaso_id} guardada con éxito.` });
     } catch (error) {
-        await connection.rollback();
+        await rollbackTransaction(connection, req.requestId);
         console.error(error);
-        res.status(500).json({ success: false, error: 'Error al guardar en BD: ' + error.message });
+        return sendInternalError(error, req, res);
     } finally {
-        connection.release();
+        releaseConnection(connection, req.requestId);
     }
 });
 // Admin: Listar traspasos
 router.get('/admin_list', authorize({ module: 'admin-traspasos', action: 'read' }), async (req, res) => {
-    if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
+    if (req.user.rol !== 'admin') return denyAccess(res);
     try {
         const sql = `
             SELECT t.id, t.fecha, t.estado, u.usuario as origen,
@@ -90,13 +92,13 @@ router.get('/admin_list', authorize({ module: 'admin-traspasos', action: 'read' 
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
 // Admin: Detalle de traspaso
 router.get('/:id', authorize({ module: 'admin-traspasos', action: 'read' }), async (req, res) => {
-    if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
+    if (req.user.rol !== 'admin') return denyAccess(res);
     try {
         const sql = `
             SELECT d.id as detalle_id, d.clave_sicar, d.cantidad, c.descripcion
@@ -108,19 +110,20 @@ router.get('/:id', authorize({ module: 'admin-traspasos', action: 'read' }), asy
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
 // Admin: Completar y Autorizar
 router.post('/completar', authorize({ module: 'admin-traspasos', action: 'write' }), async (req, res) => {
-    if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
+    if (req.user.rol !== 'admin') return denyAccess(res);
     const { id_traspaso, detalles } = req.body;
     
     if (!id_traspaso || !detalles) return res.status(400).json({ error: 'Datos incompletos' });
 
-    const connection = await pool.getConnection();
+    let connection;
     try {
+        connection = await pool.getConnection();
         await connection.beginTransaction();
 
         // Actualizar cantidades
@@ -137,11 +140,11 @@ router.post('/completar', authorize({ module: 'admin-traspasos', action: 'write'
         await connection.commit();
         res.json({ success: true });
     } catch (error) {
-        await connection.rollback();
+        await rollbackTransaction(connection, req.requestId);
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     } finally {
-        connection.release();
+        releaseConnection(connection, req.requestId);
     }
 });
 

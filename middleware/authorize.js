@@ -15,6 +15,10 @@ const MODULES = Object.freeze([
 const moduleAllowlist = new Set(MODULES);
 const actionAllowlist = new Set(['read', 'write']);
 
+function denyAccess(res) {
+  return res.status(403).json({ success: false, error: 'Acceso denegado.' });
+}
+
 function authorize({ module, action }) {
   if (!moduleAllowlist.has(module)) {
     throw new TypeError(`Módulo de autorización no permitido: ${module}`);
@@ -29,8 +33,8 @@ function authorize({ module, action }) {
       return next();
     }
 
-    return res.status(403).json({ success: false, error: 'Acceso denegado.' });
+    return denyAccess(res);
   };
 }
 
-module.exports = { MODULES, authorize, moduleAllowlist };
+module.exports = { MODULES, authorize, denyAccess, moduleAllowlist };

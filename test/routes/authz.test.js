@@ -56,6 +56,26 @@ test('does not let operational permissions open administrative route modules', a
   }
 });
 
+test('uses the common denial contract after module authorization passes', async () => {
+  const cases = [
+    ['post', '/api/bodega/guardar', 'bodega'],
+    ['get', '/api/usuarios/listar', 'usuarios'],
+    ['get', '/api/traspasos/admin_list', 'admin-traspasos'],
+    ['get', '/api/captura/admin_list', 'auditoria'],
+    ['post', '/api/reclamaciones/validar', 'reclamaciones']
+  ];
+
+  for (const [method, url, module] of cases) {
+    const token = jwt.sign({ id: 7, rol: 'empleado', permisos: [module] }, jwtSecret);
+    const response = await request(createApp())[method](url)
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    assert.equal(response.status, 403, `${method.toUpperCase()} ${url}`);
+    assert.deepEqual(response.body, { success: false, error: 'Acceso denegado.' });
+  }
+});
+
 test('never interpolates a permission module in SQL', async () => {
   await assert.rejects(
     () => savePermissions({ usuario_id: 1, permisos: ["x'); DROP TABLE usuarios; --"] }),

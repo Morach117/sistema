@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
-const { authorize } = require('../middleware/authorize');
+const { authorize, denyAccess } = require('../middleware/authorize');
+const { releaseConnection, rollbackTransaction, sendInternalError } = require('../middleware/errors');
 
 router.use(authMiddleware);
 router.use(authorize({ module: 'bodega', action: 'read' }));
@@ -26,13 +27,13 @@ router.get('/', async (req, res) => {
         const [rows] = await pool.execute(sql, params);
         res.json(rows);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
 router.post('/guardar', authorize({ module: 'bodega', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') {
-        return res.status(403).json({ success: false, error: 'Permiso denegado' });
+        return denyAccess(res);
     }
 
     const clave = req.body.clave_sicar || '';
@@ -46,8 +47,9 @@ router.post('/guardar', authorize({ module: 'bodega', action: 'write' }), async 
         return res.status(400).json({ success: false, error: 'Datos incompletos o cantidad inválida' });
     }
 
-    const connection = await pool.getConnection();
+    let connection;
     try {
+        connection = await pool.getConnection();
         await connection.beginTransaction();
 
         const [catCheck] = await connection.execute('SELECT clave_sicar FROM cat_productos WHERE clave_sicar = ?', [clave]);
@@ -79,33 +81,34 @@ router.post('/guardar', authorize({ module: 'bodega', action: 'write' }), async 
         await connection.commit();
         res.json({ success: true });
     } catch (error) {
-        await connection.rollback();
-        res.status(500).json({ success: false, error: error.message });
+        await rollbackTransaction(connection, req.requestId);
+        return sendInternalError(error, req, res);
     } finally {
-        connection.release();
+        releaseConnection(connection, req.requestId);
     }
 });
 
 router.post('/eliminar', authorize({ module: 'bodega', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') {
-        return res.status(403).json({ success: false, error: 'Permiso denegado' });
+        return denyAccess(res);
     }
 
     const clave = req.body.clave_sicar || '';
     if (!clave) return res.status(400).json({ success: false, error: 'Clave de producto requerida' });
 
-    const connection = await pool.getConnection();
+    let connection;
     try {
+        connection = await pool.getConnection();
         await connection.beginTransaction();
         await connection.execute('DELETE FROM bodega_inventario WHERE clave_sicar = ?', [clave]);
         await connection.execute('INSERT INTO bodega_movimientos (clave_sicar, tipo, cantidad, usuario_id, notas) VALUES (?, "AJUSTE", 0, ?, "Registro de bodega eliminado")', [clave, req.user.id]);
         await connection.commit();
         res.json({ success: true });
     } catch (error) {
-        await connection.rollback();
-        res.status(500).json({ success: false, error: error.message });
+        await rollbackTransaction(connection, req.requestId);
+        return sendInternalError(error, req, res);
     } finally {
-        connection.release();
+        releaseConnection(connection, req.requestId);
     }
 });
 
@@ -123,13 +126,13 @@ router.get('/buscar/:clave', async (req, res) => {
         }
         res.json(rows[0]);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
 router.post('/guardar-lote', authorize({ module: 'bodega', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') {
-        return res.status(403).json({ success: false, error: 'Permiso denegado' });
+        return denyAccess(res);
     }
 
     const { movimientos } = req.body;
@@ -137,8 +140,9 @@ router.post('/guardar-lote', authorize({ module: 'bodega', action: 'write' }), a
         return res.status(400).json({ success: false, error: 'Datos incompletos o inválidos' });
     }
 
-    const connection = await pool.getConnection();
+    let connection;
     try {
+        connection = await pool.getConnection();
         await connection.beginTransaction();
 
         for (const mov of movimientos) {
@@ -170,10 +174,10 @@ router.post('/guardar-lote', authorize({ module: 'bodega', action: 'write' }), a
         await connection.commit();
         res.json({ success: true });
     } catch (error) {
-        await connection.rollback();
-        res.status(500).json({ success: false, error: error.message });
+        await rollbackTransaction(connection, req.requestId);
+        return sendInternalError(error, req, res);
     } finally {
-        connection.release();
+        releaseConnection(connection, req.requestId);
     }
 });
 
@@ -190,13 +194,13 @@ router.get('/:clave/historial', async (req, res) => {
         
         res.json({ success: true, data: rows });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
 router.post('/bajar-lote', authorize({ module: 'bodega', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') {
-        return res.status(403).json({ success: false, error: 'Permiso denegado' });
+        return denyAccess(res);
     }
 
     const { movimientos } = req.body;
@@ -204,8 +208,9 @@ router.post('/bajar-lote', authorize({ module: 'bodega', action: 'write' }), asy
         return res.status(400).json({ success: false, error: 'Datos incompletos o inválidos' });
     }
 
-    const connection = await pool.getConnection();
+    let connection;
     try {
+        connection = await pool.getConnection();
         await connection.beginTransaction();
 
         for (const mov of movimientos) {
@@ -245,10 +250,10 @@ router.post('/bajar-lote', authorize({ module: 'bodega', action: 'write' }), asy
         await connection.commit();
         res.json({ success: true });
     } catch (error) {
-        await connection.rollback();
-        res.status(500).json({ success: false, error: error.message });
+        await rollbackTransaction(connection, req.requestId);
+        return sendInternalError(error, req, res);
     } finally {
-        connection.release();
+        releaseConnection(connection, req.requestId);
     }
 });
 

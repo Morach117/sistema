@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
 const { authorize } = require('../middleware/authorize');
+const { sendInternalError } = require('../middleware/errors');
 
 router.use(authMiddleware);
 router.use(authorize({ module: 'evolucion-precios', action: 'read' }));
@@ -61,7 +62,7 @@ router.get('/', async (req, res) => {
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 

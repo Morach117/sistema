@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
-const { authorize } = require('../middleware/authorize');
+const { authorize, denyAccess } = require('../middleware/authorize');
+const { sendInternalError } = require('../middleware/errors');
 const { logAudit } = require('../utils/audit');
 
 router.use(authMiddleware);
@@ -23,7 +24,7 @@ router.get('/', async (req, res) => {
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -35,7 +36,7 @@ router.get('/:id', async (req, res) => {
         res.json({ success: true, items });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -48,13 +49,13 @@ router.post('/recontar', authorize({ module: 'reclamaciones', action: 'write' })
         res.json({ success: true });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
 // Validar item (admin)
 router.post('/validar', authorize({ module: 'reclamaciones', action: 'write' }), async (req, res) => {
-    if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
+    if (req.user.rol !== 'admin') return denyAccess(res);
     const { id_item } = req.body;
     try {
         await pool.execute(`UPDATE historial_items SET revision_pendiente = 0 WHERE id = ?`, [id_item]);
@@ -62,7 +63,7 @@ router.post('/validar', authorize({ module: 'reclamaciones', action: 'write' }),
         res.json({ success: true });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 

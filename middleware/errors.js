@@ -20,4 +20,36 @@ function errorHandler(error, req, res, next) {
   });
 }
 
-module.exports = { asyncHandler, errorHandler };
+function sendInternalError(error, req, res) {
+  console.error('Unhandled request error', {
+    requestId: req.requestId,
+    error
+  });
+  return errorHandler(error, req, res);
+}
+
+async function rollbackTransaction(connection, requestId) {
+  if (!connection) return;
+  try {
+    await connection.rollback();
+  } catch (error) {
+    console.error('Transaction rollback failed', { requestId, error });
+  }
+}
+
+function releaseConnection(connection, requestId) {
+  if (!connection) return;
+  try {
+    connection.release();
+  } catch (error) {
+    console.error('Database connection release failed', { requestId, error });
+  }
+}
+
+module.exports = {
+  asyncHandler,
+  errorHandler,
+  releaseConnection,
+  rollbackTransaction,
+  sendInternalError
+};

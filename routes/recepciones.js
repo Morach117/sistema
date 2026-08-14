@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
 const { authorize } = require('../middleware/authorize');
+const { releaseConnection, rollbackTransaction, sendInternalError } = require('../middleware/errors');
 const multer = require('multer');
 const xml2js = require('xml2js');
 const fs = require('fs');
@@ -89,7 +90,7 @@ router.post('/generar_excel', authorize({ module: 'recepciones', action: 'write'
         res.send(xml);
     } catch (error) {
         console.error('Error generating Excel:', error);
-        res.status(500).send('Error interno al generar Excel: ' + error.message);
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -107,7 +108,7 @@ router.get('/', async (req, res) => {
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -200,7 +201,7 @@ router.get('/:id', async (req, res) => {
         res.json({ success: true, datos, estado: remision[0].estado, proveedor: remision[0].proveedor });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -227,7 +228,7 @@ router.post('/actualizar_campo', authorize({ module: 'recepciones', action: 'wri
         res.json({ success: true });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -243,7 +244,7 @@ router.post('/asignar_proveedor', authorize({ module: 'recepciones', action: 'wr
         res.json({ success: true });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -257,7 +258,7 @@ router.post('/finalizar', authorize({ module: 'recepciones', action: 'write' }),
         res.json({ success: true });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -271,7 +272,7 @@ router.delete('/item/:id', authorize({ module: 'recepciones', action: 'write' })
         res.json({ success: true });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     }
 });
 
@@ -440,8 +441,9 @@ async function procesarCSV(filePath, connection) {
 }
 
 router.post('/upload', authorize({ module: 'recepciones', action: 'write' }), upload.array('archivo_factura'), async (req, res) => {
-    const connection = await pool.getConnection();
+    let connection;
     try {
+        connection = await pool.getConnection();
         if (!req.files || req.files.length === 0) {
             return res.status(400).json({ success: false, error: 'No se subió ningún archivo' });
         }
@@ -480,11 +482,11 @@ router.post('/upload', authorize({ module: 'recepciones', action: 'write' }), up
         });
 
     } catch (error) {
-        await connection.rollback();
+        await rollbackTransaction(connection, req.requestId);
         console.error('Upload error:', error);
-        res.status(500).json({ success: false, error: error.message });
+        return sendInternalError(error, req, res);
     } finally {
-        connection.release();
+        releaseConnection(connection, req.requestId);
     }
 });
 
