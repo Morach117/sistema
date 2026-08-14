@@ -2,11 +2,12 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
+const { authorize } = require('../middleware/authorize');
 
 router.use(authMiddleware);
 
 // Verificar (Buscar) un código
-router.post('/verificar', async (req, res) => {
+router.post('/verificar', authorize({ module: 'captura', action: 'read' }), async (req, res) => {
     const { codigo } = req.body;
     if (!codigo) return res.status(400).json({ error: 'Código vacío' });
 
@@ -131,7 +132,7 @@ router.post('/verificar', async (req, res) => {
 });
 
 // Agregar Variante
-router.post('/agregar_variante', async (req, res) => {
+router.post('/agregar_variante', authorize({ module: 'captura', action: 'write' }), async (req, res) => {
     const { clave_sicar, descripcion, factor } = req.body;
     try {
         await pool.execute(
@@ -154,7 +155,7 @@ router.post('/agregar_variante', async (req, res) => {
 });
 
 // Revincular (Corregir vínculo)
-router.post('/revincular', async (req, res) => {
+router.post('/revincular', authorize({ module: 'captura', action: 'write' }), async (req, res) => {
     const { codigo_caja, nueva_clave_sicar, nuevo_factor } = req.body;
     try {
         const factor = parseInt(nuevo_factor) || 1;
@@ -185,7 +186,7 @@ router.post('/revincular', async (req, res) => {
 });
 
 // Guardar captura
-router.post('/guardar', async (req, res) => {
+router.post('/guardar', authorize({ module: 'captura', action: 'write' }), async (req, res) => {
     const { 
         codigo, existencia, bultos, factor, clave_sicar, descripcion_actual, tipo_uso, registrar_nuevo 
     } = req.body;
@@ -242,7 +243,7 @@ router.post('/guardar', async (req, res) => {
 });
 
 // Historial (últimos registros)
-router.get('/historial', async (req, res) => {
+router.get('/historial', authorize({ module: 'captura', action: 'read' }), async (req, res) => {
     try {
         const sql = `SELECT h.*, COALESCE(u.nombre, u.usuario, 'Sistema') as capturista 
                      FROM historial_rapido h
@@ -258,7 +259,7 @@ router.get('/historial', async (req, res) => {
 });
 
 // Admin: Listar capturas
-router.get('/admin_list', async (req, res) => {
+router.get('/admin_list', authorize({ module: 'auditoria', action: 'read' }), async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
     const { fecha, todos_pendientes } = req.query; // YYYY-MM-DD
     try {
@@ -290,7 +291,7 @@ router.get('/admin_list', async (req, res) => {
 });
 
 // Admin: Marcar como exportados
-router.post('/marcar_exportados', async (req, res) => {
+router.post('/marcar_exportados', authorize({ module: 'auditoria', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
     const { ids } = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) return res.json({ success: true });
@@ -306,7 +307,7 @@ router.post('/marcar_exportados', async (req, res) => {
 });
 
 // Admin o Dueño: Descartar / Eliminar registro
-router.post('/eliminar', async (req, res) => {
+router.post('/eliminar', authorize({ module: 'captura', action: 'write' }), async (req, res) => {
     const { id } = req.body;
     if (!id) return res.status(400).json({ error: 'ID requerido' });
     try {
@@ -326,7 +327,7 @@ router.post('/eliminar', async (req, res) => {
 });
 
 // Admin: Registrar log de descarga
-router.post('/registrar_descarga', async (req, res) => {
+router.post('/registrar_descarga', authorize({ module: 'auditoria', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
     const { fecha_captura, tipo_exportacion, total_registros, nombre_archivo } = req.body;
     try {
@@ -352,7 +353,7 @@ router.post('/registrar_descarga', async (req, res) => {
 });
 
 // Admin: Listar historial de descargas
-router.get('/historial_descargas', async (req, res) => {
+router.get('/historial_descargas', authorize({ module: 'auditoria', action: 'read' }), async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
     try {
         const sql = `
@@ -371,7 +372,7 @@ router.get('/historial_descargas', async (req, res) => {
 });
 
 // Admin: Ver logs globales del sistema (logs_sistema)
-router.get('/logs_sistema', async (req, res) => {
+router.get('/logs_sistema', authorize({ module: 'auditoria', action: 'read' }), async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
     try {
         const sql = `
@@ -390,7 +391,7 @@ router.get('/logs_sistema', async (req, res) => {
 });
 
 // Obtener factores conocidos (piezas por paquete) de un producto
-router.get('/factores/:clave', async (req, res) => {
+router.get('/factores/:clave', authorize({ module: 'captura', action: 'read' }), async (req, res) => {
     try {
         const sql = `SELECT DISTINCT cantidad_unidades as factor FROM configuracion_cajas WHERE clave_sicar = ? AND estado = 'ACTIVO' ORDER BY cantidad_unidades ASC`;
         const [rows] = await pool.execute(sql, [req.params.clave]);
@@ -403,7 +404,7 @@ router.get('/factores/:clave', async (req, res) => {
 });
 
 // Obtener variantes (CRUD)
-router.get('/variantes/:clave_sicar', async (req, res) => {
+router.get('/variantes/:clave_sicar', authorize({ module: 'captura', action: 'read' }), async (req, res) => {
     try {
         const [rows] = await pool.execute('SELECT * FROM producto_variantes WHERE clave_sicar = ? AND estado = "ACTIVO"', [req.params.clave_sicar]);
         res.json({ success: true, data: rows });
@@ -413,7 +414,7 @@ router.get('/variantes/:clave_sicar', async (req, res) => {
 });
 
 // Eliminar variante (CRUD)
-router.delete('/variante/:id', async (req, res) => {
+router.delete('/variante/:id', authorize({ module: 'captura', action: 'write' }), async (req, res) => {
     try {
         await pool.execute('DELETE FROM producto_variantes WHERE id = ?', [req.params.id]);
         res.json({ success: true });
@@ -423,7 +424,7 @@ router.delete('/variante/:id', async (req, res) => {
 });
 
 // Corregir un registro en historial y su vínculo
-router.post('/corregir_captura', async (req, res) => {
+router.post('/corregir_captura', authorize({ module: 'auditoria', action: 'write' }), async (req, res) => {
     const { id_historial, codigo_barras, nueva_clave_sicar, nuevo_factor } = req.body;
     if (!id_historial || !codigo_barras || !nueva_clave_sicar) {
         return res.status(400).json({ error: 'Faltan datos' });

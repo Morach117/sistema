@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
+const { authorize } = require('../middleware/authorize');
 const multer = require('multer');
 const xml2js = require('xml2js');
 const fs = require('fs');
@@ -9,22 +10,11 @@ const { parse } = require('csv-parse/sync');
 const path = require('path');
 
 const upload = multer({ dest: 'uploads/' });
-const jwt = require('jsonwebtoken');
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_key_12345';
+router.use(authMiddleware);
+router.use(authorize({ module: 'recepciones', action: 'read' }));
 
-// ─────────────────────────────────────────────────
-// GENERATE EXCEL — BEFORE auth middleware (uses form POST, no Bearer header)
-// Validates token from body/query instead
-// ─────────────────────────────────────────────────
-router.post('/generar_excel', async (req, res) => {
-    // Inline token validation (form submissions can't send Authorization header)
-    const token = req.body.token || req.query.token;
-    if (token) {
-        try { jwt.verify(token, JWT_SECRET); } catch (e) {
-            return res.status(401).send('Token inválido');
-        }
-    }
-
+// Generate the inventory export after normal API authentication/authorization.
+router.post('/generar_excel', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
     try {
         const remision_input = req.body.remision_id;
         if (!remision_input) return res.status(400).send('Error: No se especificó la remisión.');
@@ -102,8 +92,6 @@ router.post('/generar_excel', async (req, res) => {
         res.status(500).send('Error interno al generar Excel: ' + error.message);
     }
 });
-
-router.use(authMiddleware);
 
 // ─────────────────────────────────────────────────
 // LIST pending remisiones
@@ -219,7 +207,7 @@ router.get('/:id', async (req, res) => {
 // ─────────────────────────────────────────────────
 // UPDATE a specific field (expanded allowed fields)
 // ─────────────────────────────────────────────────
-router.post('/actualizar_campo', async (req, res) => {
+router.post('/actualizar_campo', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
     const { id_item, campo, valor } = req.body;
     if (!id_item || !campo) return res.status(400).json({ success: false, error: 'Faltan parámetros' });
 
@@ -246,7 +234,7 @@ router.post('/actualizar_campo', async (req, res) => {
 // ─────────────────────────────────────────────────
 // ASSIGN provider
 // ─────────────────────────────────────────────────
-router.post('/asignar_proveedor', async (req, res) => {
+router.post('/asignar_proveedor', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
     const { id_remision, proveedor } = req.body;
     if (!id_remision || !proveedor) return res.status(400).json({ success: false, error: 'Faltan parámetros' });
 
@@ -262,7 +250,7 @@ router.post('/asignar_proveedor', async (req, res) => {
 // ─────────────────────────────────────────────────
 // FINALIZE remision
 // ─────────────────────────────────────────────────
-router.post('/finalizar', async (req, res) => {
+router.post('/finalizar', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
     const { remision_id } = req.body;
     try {
         await pool.execute(`UPDATE historial_remisiones SET estado = 'FINALIZADO' WHERE numero_remision = ?`, [remision_id]);
@@ -276,7 +264,7 @@ router.post('/finalizar', async (req, res) => {
 // ─────────────────────────────────────────────────
 // DELETE single item
 // ─────────────────────────────────────────────────
-router.delete('/item/:id', async (req, res) => {
+router.delete('/item/:id', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
     const { id } = req.params;
     try {
         await pool.execute(`DELETE FROM historial_items WHERE id = ?`, [id]);
@@ -451,7 +439,7 @@ async function procesarCSV(filePath, connection) {
     return { id: ultimoId, prov: 'MANUAL' };
 }
 
-router.post('/upload', upload.array('archivo_factura'), async (req, res) => {
+router.post('/upload', authorize({ module: 'recepciones', action: 'write' }), upload.array('archivo_factura'), async (req, res) => {
     const connection = await pool.getConnection();
     try {
         if (!req.files || req.files.length === 0) {

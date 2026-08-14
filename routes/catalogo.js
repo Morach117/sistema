@@ -2,9 +2,11 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
+const { authorize } = require('../middleware/authorize');
 
 // Middleware to protect routes
 router.use(authMiddleware);
+router.use(authorize({ module: 'catalogo', action: 'read' }));
 
 // Endpoint for DataTables (Server-side processing)
 router.post('/dt', async (req, res) => {

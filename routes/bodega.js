@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
+const { authorize } = require('../middleware/authorize');
 
 router.use(authMiddleware);
+router.use(authorize({ module: 'bodega', action: 'read' }));
 
 router.get('/', async (req, res) => {
     const q = req.query.q || '';
@@ -28,7 +30,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-router.post('/guardar', async (req, res) => {
+router.post('/guardar', authorize({ module: 'bodega', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') {
         return res.status(403).json({ success: false, error: 'Permiso denegado' });
     }
@@ -84,7 +86,7 @@ router.post('/guardar', async (req, res) => {
     }
 });
 
-router.post('/eliminar', async (req, res) => {
+router.post('/eliminar', authorize({ module: 'bodega', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') {
         return res.status(403).json({ success: false, error: 'Permiso denegado' });
     }
@@ -125,7 +127,7 @@ router.get('/buscar/:clave', async (req, res) => {
     }
 });
 
-router.post('/guardar-lote', async (req, res) => {
+router.post('/guardar-lote', authorize({ module: 'bodega', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') {
         return res.status(403).json({ success: false, error: 'Permiso denegado' });
     }
@@ -192,7 +194,7 @@ router.get('/:clave/historial', async (req, res) => {
     }
 });
 
-router.post('/bajar-lote', async (req, res) => {
+router.post('/bajar-lote', authorize({ module: 'bodega', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') {
         return res.status(403).json({ success: false, error: 'Permiso denegado' });
     }

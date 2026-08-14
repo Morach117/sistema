@@ -5,11 +5,16 @@ const fs = require('fs');
 const path = require('path');
 const { errorHandler } = require('./middleware/errors');
 
-function createApp() {
+function createApp({ corsOrigins = [] } = {}) {
   const app = express();
+  const allowedOrigins = new Set(corsOrigins);
 
   app.disable('x-powered-by');
-  app.use(cors());
+  app.use(cors({
+    origin(origin, callback) {
+      callback(null, !origin || allowedOrigins.has(origin));
+    }
+  }));
   app.use((req, res, next) => {
     req.requestId = crypto.randomUUID();
     res.setHeader('X-Request-Id', req.requestId);

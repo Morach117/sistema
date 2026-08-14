@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
+const { authorize } = require('../middleware/authorize');
 
 router.use(authMiddleware);
+router.use(authorize({ module: 'dashboard', action: 'read' }));
 
 router.get('/', async (req, res) => {
     try {

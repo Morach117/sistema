@@ -6,7 +6,11 @@ function loadEnv(source = process.env) {
   return {
     env: source.NODE_ENV || 'development',
     port: Number(source.PORT || 3000),
-    jwtSecret
+    jwtSecret,
+    corsOrigins: String(source.CORS_ORIGINS || '')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean)
   };
 }
 

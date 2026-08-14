@@ -1,21 +1,18 @@
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_key_12345';
 
-module.exports = (req, res, next) => {
-    // Get token from header
-    const authHeader = req.header('Authorization');
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ success: false, error: 'Acceso denegado. Token no proporcionado.' });
-    }
+module.exports = function authMiddleware(req, res, next) {
+  const authHeader = req.header('Authorization');
 
-    const token = authHeader.replace('Bearer ', '');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Acceso denegado. Token no proporcionado.' });
+  }
 
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        req.user = decoded; // Attach user info to request
-        next();
-    } catch (error) {
-        res.status(401).json({ success: false, error: 'Token inválido o expirado.' });
-    }
+  const token = authHeader.slice('Bearer '.length);
+
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    return next();
+  } catch (_error) {
+    return res.status(401).json({ success: false, error: 'Token inválido o expirado.' });
+  }
 };

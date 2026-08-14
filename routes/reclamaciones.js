@@ -2,9 +2,11 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
+const { authorize } = require('../middleware/authorize');
 const { logAudit } = require('../utils/audit');
 
 router.use(authMiddleware);
+router.use(authorize({ module: 'reclamaciones', action: 'read' }));
 
 // Get pendientes
 router.get('/', async (req, res) => {
@@ -38,7 +40,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Recontar item
-router.post('/recontar', async (req, res) => {
+router.post('/recontar', authorize({ module: 'reclamaciones', action: 'write' }), async (req, res) => {
     const { id_item, nuevo_valor } = req.body;
     try {
         await pool.execute(`UPDATE historial_items SET existencia_lapiz = ? WHERE id = ?`, [nuevo_valor, id_item]);
@@ -51,7 +53,7 @@ router.post('/recontar', async (req, res) => {
 });
 
 // Validar item (admin)
-router.post('/validar', async (req, res) => {
+router.post('/validar', authorize({ module: 'reclamaciones', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
     const { id_item } = req.body;
     try {

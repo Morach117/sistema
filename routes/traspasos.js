@@ -2,11 +2,12 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
+const { authorize } = require('../middleware/authorize');
 
 router.use(authMiddleware);
 
 // GET /api/traspasos/buscar?q=
-router.get('/buscar', async (req, res) => {
+router.get('/buscar', authorize({ module: 'traspasos', action: 'read' }), async (req, res) => {
     const q = (req.query.q || '').trim();
     if (!q) return res.status(400).json({ success: false, error: 'Query is empty' });
 
@@ -39,7 +40,7 @@ router.get('/buscar', async (req, res) => {
 });
 
 // POST /api/traspasos/guardar
-router.post('/guardar', async (req, res) => {
+router.post('/guardar', authorize({ module: 'traspasos', action: 'write' }), async (req, res) => {
     const usuario_id = req.user.id;
     const { productos } = req.body;
 
@@ -74,7 +75,7 @@ router.post('/guardar', async (req, res) => {
     }
 });
 // Admin: Listar traspasos
-router.get('/admin_list', async (req, res) => {
+router.get('/admin_list', authorize({ module: 'admin-traspasos', action: 'read' }), async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
     try {
         const sql = `
@@ -94,7 +95,7 @@ router.get('/admin_list', async (req, res) => {
 });
 
 // Admin: Detalle de traspaso
-router.get('/:id', async (req, res) => {
+router.get('/:id', authorize({ module: 'admin-traspasos', action: 'read' }), async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
     try {
         const sql = `
@@ -112,7 +113,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Admin: Completar y Autorizar
-router.post('/completar', async (req, res) => {
+router.post('/completar', authorize({ module: 'admin-traspasos', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
     const { id_traspaso, detalles } = req.body;
     

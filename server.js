@@ -5,4 +5,4 @@ const { loadEnv } = require('./config/env');
 
 const config = loadEnv();
 
-createApp().listen(config.port);
+createApp({ corsOrigins: config.corsOrigins }).listen(config.port);

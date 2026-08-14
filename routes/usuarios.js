@@ -2,10 +2,46 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
+const { authorize, moduleAllowlist } = require('../middleware/authorize');
 const bcrypt = require('bcryptjs');
 const { logAudit } = require('../utils/audit');
 
 router.use(authMiddleware);
+router.use(authorize({ module: 'usuarios', action: 'read' }));
+
+async function savePermissions({ usuario_id, permisos }, database = pool) {
+    if (!Number.isInteger(usuario_id) || usuario_id <= 0) {
+        throw new TypeError('El usuario_id debe ser un entero positivo.');
+    }
+    if (!Array.isArray(permisos)) {
+        throw new TypeError('Los permisos deben ser una lista.');
+    }
+
+    const uniquePermissions = [...new Set(permisos)];
+    for (const module of uniquePermissions) {
+        if (!moduleAllowlist.has(module)) {
+            throw new TypeError(`El módulo no está permitido: ${module}`);
+        }
+    }
+
+    const connection = await database.getConnection();
+    try {
+        await connection.beginTransaction();
+        await connection.execute('DELETE FROM usuario_permisos WHERE usuario_id = ?', [usuario_id]);
+        for (const module of uniquePermissions) {
+            await connection.execute(
+                'INSERT INTO usuario_permisos (usuario_id, modulo, permitido) VALUES (?, ?, 1)',
+                [usuario_id, module]
+            );
+        }
+        await connection.commit();
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
+    }
+}
 
 router.get('/listar', async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
@@ -17,7 +53,7 @@ router.get('/listar', async (req, res) => {
     }
 });
 
-router.post('/guardar', async (req, res) => {
+router.post('/guardar', authorize({ module: 'usuarios', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ success: false, error: 'Denegado' });
     
     const { id, nombre, usuario, rol, password } = req.body;
@@ -45,7 +81,7 @@ router.post('/guardar', async (req, res) => {
     }
 });
 
-router.post('/eliminar', async (req, res) => {
+router.post('/eliminar', authorize({ module: 'usuarios', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ success: false, error: 'Denegado' });
     const { id } = req.body;
     try {
@@ -84,22 +120,20 @@ router.get('/permisos/:id', async (req, res) => {
     }
 });
 
-router.post('/permisos/guardar', async (req, res) => {
+router.post('/permisos/guardar', authorize({ module: 'usuarios', action: 'write' }), async (req, res) => {
     if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Denegado' });
     const { usuario_id, modulos } = req.body;
     try {
-        // Start transaction if possible, or just delete and insert
-        await pool.execute('DELETE FROM usuario_permisos WHERE usuario_id = ?', [usuario_id]);
-        
-        if (modulos && modulos.length > 0) {
-            const values = modulos.map(m => `(${usuario_id}, '${m}', 1)`).join(',');
-            await pool.query(`INSERT INTO usuario_permisos (usuario_id, modulo, permitido) VALUES ${values}`);
-        }
+        await savePermissions({ usuario_id, permisos: modulos });
         await logAudit(req.user.id, 'EDITAR_PERMISOS', `Editados permisos de usuario ID ${usuario_id}`);
         res.json({ success: true });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        if (error instanceof TypeError) {
+            return res.status(400).json({ success: false, error: error.message });
+        }
+        res.status(500).json({ success: false, error: 'Error interno del servidor' });
     }
 });
 
 module.exports = router;
+module.exports.savePermissions = savePermissions;
