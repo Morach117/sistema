@@ -4,6 +4,7 @@ const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
 const { authorize, denyAccess } = require('../middleware/authorize');
 const { releaseConnection, rollbackTransaction, sendInternalError } = require('../middleware/errors');
+const { completeTraspaso } = require('../services/traspasos-service');
 
 router.use(authMiddleware);
 
@@ -121,30 +122,25 @@ router.post('/completar', authorize({ module: 'admin-traspasos', action: 'write'
     
     if (!id_traspaso || !detalles) return res.status(400).json({ error: 'Datos incompletos' });
 
-    let connection;
     try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
-
-        // Actualizar cantidades
-        for (const det of detalles) {
-            await connection.execute(
-                `UPDATE traspaso_detalles SET cantidad = ? WHERE id = ?`,
-                [det.cantidad_recibida, det.detalle_id]
-            );
-        }
-
-        // Marcar como completado
-        await connection.execute(`UPDATE traspasos SET estado = 'COMPLETADO' WHERE id = ?`, [id_traspaso]);
-
-        await connection.commit();
+        await completeTraspaso({
+            pool,
+            traspasoId: id_traspaso,
+            detalles: Array.isArray(detalles)
+                ? detalles.map((detalle) => ({
+                    id: detalle.detalle_id ?? detalle.id,
+                    cantidad_recibida: detalle.cantidad_recibida
+                }))
+                : detalles,
+            actorId: req.user.id
+        });
         res.json({ success: true });
     } catch (error) {
-        await rollbackTransaction(connection, req.requestId);
+        if (error.statusCode === 409 || error.statusCode === 422) {
+            return res.status(error.statusCode).json({ success: false, error: error.message });
+        }
         console.error(error);
         return sendInternalError(error, req, res);
-    } finally {
-        releaseConnection(connection, req.requestId);
     }
 });
 

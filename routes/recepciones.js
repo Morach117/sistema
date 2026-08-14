@@ -5,12 +5,37 @@ const authMiddleware = require('../middleware/auth');
 const { authorize } = require('../middleware/authorize');
 const { releaseConnection, rollbackTransaction, sendInternalError } = require('../middleware/errors');
 const multer = require('multer');
-const xml2js = require('xml2js');
-const fs = require('fs');
-const { parse } = require('csv-parse/sync');
 const path = require('path');
+const {
+    ALLOWED_MIME_TYPES,
+    MAX_UPLOAD_BYTES,
+    parseUpload,
+    UploadValidationError
+} = require('../services/recepciones-service');
 
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({
+    dest: path.resolve(__dirname, '..', 'uploads'),
+    limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+    fileFilter(_req, file, callback) {
+        const extension = path.extname(path.basename(file.originalname)).toLowerCase();
+        const allowedMimeTypes = ALLOWED_MIME_TYPES[extension];
+        if (!allowedMimeTypes || !allowedMimeTypes.has((file.mimetype || '').toLowerCase())) {
+            return callback(new UploadValidationError('Solo se aceptan archivos XML o CSV validos.'));
+        }
+        callback(null, true);
+    }
+});
+
+function receiveUpload(req, res, next) {
+    upload.single('archivo_factura')(req, res, (error) => {
+        if (!error) return next();
+        const tooLarge = error.code === 'LIMIT_FILE_SIZE';
+        return res.status(tooLarge ? 413 : 422).json({
+            success: false,
+            error: tooLarge ? 'El archivo excede el limite de 10 MB.' : 'Solo se permite un archivo XML o CSV valido.'
+        });
+    });
+}
 router.use(authMiddleware);
 router.use(authorize({ module: 'recepciones', action: 'read' }));
 
@@ -303,186 +328,73 @@ async function obtenerOcrearRemision(connection, folio, prov) {
     return result.insertId;
 }
 
-// Helper: Process XML file
-async function procesarXML(filePath, connection) {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const parser = new xml2js.Parser({ explicitArray: false, ignoreAttrs: false, attrkey: '$' });
-    const result = await parser.parseStringPromise(content);
+async function saveParsedReception(connection, parsed) {
+    let ultimoId = 0;
+    let ultimoProv = 'MANUAL';
 
-    // Navigate to the Comprobante node (handle namespace prefixes)
-    let comprobante = result['cfdi:Comprobante'] || result['Comprobante'] || result;
-    if (!comprobante || !comprobante.$) return null;
+    for (const remision of parsed.remisiones) {
+        const idRem = await obtenerOcrearRemision(connection, remision.folio, remision.proveedor);
+        ultimoId = idRem;
+        ultimoProv = remision.proveedor;
 
-    const serie = comprobante.$.Serie || '';
-    const folio = comprobante.$.Folio || '';
-    const folioCompleto = (serie + folio).toUpperCase().replace(/[^A-Z0-9]/g, '');
+        for (const item of remision.items) {
+            const [existing] = await connection.execute(
+                `SELECT id FROM historial_items WHERE remision_id = ? AND codigo_proveedor = ? LIMIT 1`,
+                [idRem, item.codigo_proveedor]
+            );
 
-    // Detect provider
-    let emisorNode = comprobante['cfdi:Emisor'] || comprobante['Emisor'];
-    if (!emisorNode) return null;
-    if (Array.isArray(emisorNode)) emisorNode = emisorNode[0];
-
-    const rfc = (emisorNode.$.Rfc || '').toUpperCase();
-    const nombre = (emisorNode.$.Nombre || '').toUpperCase();
-
-    let prov = 'MANUAL';
-    if (rfc === 'TTI961202IM1' || nombre.includes('TONY')) prov = 'TONY';
-    else if (rfc === 'LOVM900722BD8' || nombre.includes('PAOLA')) prov = 'PAOLA';
-    else if (rfc === 'OTV801119HU2' || nombre.includes('OPTIVOSA')) prov = 'OPTIVOSA';
-    else if (nombre.includes('OPERADORA')) prov = 'PAOLA';
-    else if (rfc === 'GME191105I5A' || nombre.includes('MEGAMER')) prov = 'MEGAMER';
-
-    const idRem = await obtenerOcrearRemision(connection, folioCompleto, prov);
-
-    // Extract concepts
-    let conceptosNode = comprobante['cfdi:Conceptos'] || comprobante['Conceptos'];
-    if (!conceptosNode) return { id: idRem, prov };
-
-    let conceptos = conceptosNode['cfdi:Concepto'] || conceptosNode['Concepto'];
-    if (!Array.isArray(conceptos)) conceptos = [conceptos];
-
-    for (const c of conceptos) {
-        if (!c || !c.$) continue;
-        const cod = c.$.NoIdentificacion || '';
-        const desc = c.$.Descripcion || '';
-        let cant = parseFloat(c.$.Cantidad) || 0;
-        let costo = parseFloat(c.$.ValorUnitario) || 0;
-
-        // Process taxes (IVA)
-        let impuestosNode = c['cfdi:Impuestos'] || c['Impuestos'];
-        if (impuestosNode) {
-            let trasladosNode = impuestosNode['cfdi:Traslados'] || impuestosNode['Traslados'];
-            if (trasladosNode) {
-                let traslados = trasladosNode['cfdi:Traslado'] || trasladosNode['Traslado'];
-                if (!Array.isArray(traslados)) traslados = [traslados];
-                for (const t of traslados) {
-                    if (t && t.$ && t.$.Impuesto === '002' && parseFloat(t.$.TasaOCuota) > 0) {
-                        costo *= (1 + parseFloat(t.$.TasaOCuota));
-                    }
-                }
+            if (existing.length > 0 && parsed.format === 'xml') {
+                await connection.execute(
+                    `UPDATE historial_items SET descripcion_original=?, cantidad=?, costo_unitario=?, aplica_descuento=? WHERE id=?`,
+                    [item.descripcion_original, item.cantidad, item.costo_unitario, item.aplica_descuento, existing[0].id]
+                );
+            } else if (existing.length > 0) {
+                await connection.execute(
+                    `UPDATE historial_items SET descripcion_original=?, cantidad=?, costo_unitario=? WHERE id=?`,
+                    [item.descripcion_original, item.cantidad, item.costo_unitario, existing[0].id]
+                );
+            } else if (parsed.format === 'xml') {
+                await connection.execute(
+                    `INSERT INTO historial_items (remision_id, codigo_proveedor, descripcion_original, cantidad, costo_unitario, existencia_lapiz, es_paquete, piezas_por_paquete, aplica_iva, aplica_descuento) VALUES (?, ?, ?, ?, ?, 0, 0, 1, 0, ?)`,
+                    [idRem, item.codigo_proveedor, item.descripcion_original, item.cantidad, item.costo_unitario, item.aplica_descuento]
+                );
+            } else {
+                await connection.execute(
+                    `INSERT INTO historial_items (remision_id, codigo_proveedor, descripcion_original, cantidad, costo_unitario, existencia_lapiz, es_paquete, piezas_por_paquete, aplica_iva, aplica_descuento) VALUES (?, ?, ?, ?, ?, ?, 0, 1, 1, 0)`,
+                    [idRem, item.codigo_proveedor, item.descripcion_original, item.cantidad, item.costo_unitario, item.existencia_lapiz]
+                );
             }
         }
-
-        const montoDesc = parseFloat(c.$.Descuento) || 0;
-        const traeDescuentoXML = montoDesc > 0 ? 1 : 0;
-
-        // Upsert: check if item already exists
-        const [existing] = await connection.execute(
-            `SELECT id FROM historial_items WHERE remision_id = ? AND codigo_proveedor = ? LIMIT 1`,
-            [idRem, cod]
-        );
-
-        if (existing.length > 0) {
-            await connection.execute(
-                `UPDATE historial_items SET descripcion_original=?, cantidad=?, costo_unitario=?, aplica_descuento=? WHERE id=?`,
-                [desc, cant, costo, traeDescuentoXML, existing[0].id]
-            );
-        } else {
-            await connection.execute(
-                `INSERT INTO historial_items (remision_id, codigo_proveedor, descripcion_original, cantidad, costo_unitario, existencia_lapiz, es_paquete, piezas_por_paquete, aplica_iva, aplica_descuento) VALUES (?, ?, ?, ?, ?, 0, 0, 1, 0, ?)`,
-                [idRem, cod, desc, cant, costo, traeDescuentoXML]
-            );
-        }
     }
 
-    return { id: idRem, prov };
+    return { id: ultimoId, prov: ultimoProv };
 }
 
-// Helper: Process CSV file
-async function procesarCSV(filePath, connection) {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    let records;
-    try {
-        records = parse(content, { skip_empty_lines: true, relax_column_count: true });
-    } catch (e) {
-        console.error('CSV parse error:', e);
-        return null;
-    }
-
-    const cacheRem = {};
-    let ultimoId = 0;
-
-    for (const r of records) {
-        if (!r[0] || r[0].toLowerCase().includes('remision')) continue;
-
-        const remTxt = r[0].toUpperCase().replace(/[^A-Z0-9]/g, '');
-
-        if (!cacheRem[remTxt]) {
-            cacheRem[remTxt] = await obtenerOcrearRemision(connection, remTxt, 'MANUAL');
-        }
-        const idRem = cacheRem[remTxt];
-        ultimoId = idRem;
-
-        const cod = (r[1] || '').trim();
-        const desc = (r[2] || '').trim();
-        const cantidad = parseFloat((r[3] || '0').replace(',', '')) || 0;
-        const costo = parseFloat((r[4] || '0').replace(/[$,]/g, '')) || 0;
-        const exis = r[5] ? parseFloat(r[5].replace(',', '')) || 0 : 0;
-
-        const [existing] = await connection.execute(
-            `SELECT id FROM historial_items WHERE remision_id = ? AND codigo_proveedor = ? LIMIT 1`,
-            [idRem, cod]
-        );
-
-        if (existing.length > 0) {
-            await connection.execute(
-                `UPDATE historial_items SET descripcion_original=?, cantidad=?, costo_unitario=? WHERE id=?`,
-                [desc, cantidad, costo, existing[0].id]
-            );
-        } else {
-            await connection.execute(
-                `INSERT INTO historial_items (remision_id, codigo_proveedor, descripcion_original, cantidad, costo_unitario, existencia_lapiz, es_paquete, piezas_por_paquete, aplica_iva, aplica_descuento) VALUES (?, ?, ?, ?, ?, ?, 0, 1, 1, 0)`,
-                [idRem, cod, desc, cantidad, costo, exis]
-            );
-        }
-    }
-
-    return { id: ultimoId, prov: 'MANUAL' };
-}
-
-router.post('/upload', authorize({ module: 'recepciones', action: 'write' }), upload.array('archivo_factura'), async (req, res) => {
+router.post('/upload', authorize({ module: 'recepciones', action: 'write' }), receiveUpload, async (req, res) => {
     let connection;
     try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, error: 'No se subio ningun archivo' });
+        }
+
+        const parsed = await parseUpload({ file: req.file, maxRows: 10_000 });
         connection = await pool.getConnection();
-        if (!req.files || req.files.length === 0) {
-            return res.status(400).json({ success: false, error: 'No se subió ningún archivo' });
-        }
-
         await connection.beginTransaction();
-
-        let ultimoId = 0;
-        let ultimoProv = 'MANUAL';
-
-        for (const file of req.files) {
-            const ext = path.extname(file.originalname).toLowerCase();
-            let result = null;
-
-            if (ext === '.xml') {
-                result = await procesarXML(file.path, connection);
-            } else if (ext === '.csv') {
-                result = await procesarCSV(file.path, connection);
-            }
-
-            if (result) {
-                ultimoId = result.id;
-                ultimoProv = result.prov;
-            }
-
-            // Clean up temp file
-            try { fs.unlinkSync(file.path); } catch (e) { /* ignore */ }
-        }
-
+        const result = await saveParsedReception(connection, parsed);
         await connection.commit();
 
         res.json({
             success: true,
             mensaje: 'Procesado correctamente.',
-            id_remision: ultimoId,
-            proveedor: ultimoProv
+            id_remision: result.id,
+            proveedor: result.prov
         });
 
     } catch (error) {
         await rollbackTransaction(connection, req.requestId);
+        if (error instanceof UploadValidationError) {
+            return res.status(error.statusCode).json({ success: false, error: error.message });
+        }
         console.error('Upload error:', error);
         return sendInternalError(error, req, res);
     } finally {

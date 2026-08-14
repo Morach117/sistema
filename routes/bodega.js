@@ -18,7 +18,7 @@ router.get('/', async (req, res) => {
         let params = [];
 
         if (q) {
-            sql += ` WHERE c.clave_sicar LIKE ? OR c.descripcion LIKE ?`;
+            sql += ` AND (c.clave_sicar LIKE ? OR c.descripcion LIKE ?)`;
             params = [`%${q}%`, `%${q}%`];
         } else {
             sql += ` ORDER BY b.fecha_actualizacion DESC, c.fecha_actualizacion DESC LIMIT 100`;
