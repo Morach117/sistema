@@ -38,3 +38,5 @@ Thumbs.db
 # Local agent artifacts
 .gemini/
 .agents/
+.worktrees/
+.superpowers/
