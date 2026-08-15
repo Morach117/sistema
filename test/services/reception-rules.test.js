@@ -101,7 +101,7 @@ test('calculateCost trusts the persisted costoIncluyeIva flag after reload', () 
   );
 });
 
-test('calculateCost preserves the safe historical path for known 256e140 Tony XML rows', () => {
+test('calculateCost preserves ambiguous discounted Tony legacy rows as historical taxable behavior', () => {
   assert.deepEqual(
     calculateCost({
       costoUnitario: 29,
@@ -111,10 +111,10 @@ test('calculateCost preserves the safe historical path for known 256e140 Tony XM
     }),
     {
       costoBase: 29,
-      costoConIva: 29,
-      costoFinal: 27.55,
-      costoPorPieza: 27.55,
-      iva: { detectado: true, porcentaje: 0.16, aplicado: false, yaIncluido: true },
+      costoConIva: 33.64,
+      costoFinal: 31.958,
+      costoPorPieza: 31.958,
+      iva: { detectado: true, porcentaje: 0.16, aplicado: true, yaIncluido: false },
       descuento: { aplica: true, porcentaje: 0.05, origen: 'xml' }
     }
   );

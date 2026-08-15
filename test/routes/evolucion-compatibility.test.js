@@ -24,7 +24,7 @@ function authToken() {
   return jwt.sign({ id: 1, rol: 'admin', permisos: ['evolucion-precios'] }, jwtSecret);
 }
 
-test('serves known 256e140 Tony XML rows through the safe historical VAT path', async () => {
+test('preserves ambiguous discounted Tony legacy rows instead of auto-repairing them', async () => {
   const app = express();
   app.use('/api/evolucion-precios', loadRouterWithDatabase({
     async execute() {
@@ -63,9 +63,9 @@ test('serves known 256e140 Tony XML rows through the safe historical VAT path', 
     costo_unitario: 29,
     es_paquete: 0,
     piezas_por_paquete: 1,
-    aplica_iva: 0,
-    iva_tasa: 0.16,
-    costo_incluye_iva: 1,
+    aplica_iva: 1,
+    iva_tasa: null,
+    costo_incluye_iva: 0,
     aplica_descuento: 1,
     aplica_descuento_manual: null,
     sicar: 'SKU-7',

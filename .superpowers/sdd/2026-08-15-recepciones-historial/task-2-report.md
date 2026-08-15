@@ -103,5 +103,33 @@
 
 ### Compatibility Boundary
 
-- The safe historical compatibility path is intentionally narrow and non-destructive: it only normalizes rows that still lack persisted VAT metadata and also match the strongest existing XML-origin evidence in schema data today, namely Tony rows with `aplica_descuento = 1`, which the importer set from XML concept discounts.
-- Ambiguous old rows without that XML-specific signature are left unchanged rather than guessed into `costo_incluye_iva = 1`; they still rely on explicit persisted VAT markers from current imports or later correction/reimport.
+- The durable compatibility contract is now marker-based only: rows are treated as VAT-included after reload only when they carry persisted VAT metadata such as `iva_tasa` or `costo_incluye_iva`.
+- Ambiguous old rows without persisted source markers are left unchanged rather than guessed into `costo_incluye_iva = 1`; they keep historical behavior unless a future explicit repair source is introduced.
+
+## Compatibility Round 3 RED / GREEN
+
+### RED Commands / Results
+
+- `node --test test/services/reception-rules.test.js test/routes/evolucion-compatibility.test.js`
+  - Result: `FAIL`
+  - Evidence:
+    - ambiguous discounted Tony legacy row was still auto-normalized to `aplica_iva = 0`, `iva_tasa = 0.16`, `costo_incluye_iva = 1`
+    - `calculateCost(...)` still returned the repaired path `27.55` instead of preserving historical taxable behavior `31.958`
+
+### GREEN Commands / Results
+
+- `node --test test/services/reception-rules.test.js test/routes/evolucion-compatibility.test.js test/routes/recepciones-upload.test.js`
+  - Result: `PASS`
+  - Evidence: `18` tests passed, `0` failed
+- `git diff --check`
+  - Result: `PASS`
+  - Evidence: no diff errors; only LF->CRLF warnings from Git on this Windows workspace
+- `node --check services/reception-rules.js`
+  - Result: `PASS`
+- `node --check routes/evolucion.js`
+  - Result: `PASS`
+
+### Release History Note
+
+- The earlier `256e140` behavior was a task-local commit, not an independently released migration that wrote durable source markers onto historical rows.
+- Because those ambiguous persisted rows do not carry trustworthy origin markers in schema data, the application does not auto-repair them now; only persisted VAT markers drive VAT-included reload behavior.

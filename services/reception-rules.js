@@ -44,20 +44,6 @@ function normalizeVatPersistence({
     };
   }
 
-  const legacyTonyXmlDiscounted =
-    providerFrom({ nombre: proveedor }) === 'TONY' &&
-    persistedAplicaIva === 1 &&
-    truthyFlag(aplicaDescuento ?? aplica_descuento);
-
-  if (legacyTonyXmlDiscounted) {
-    return {
-      aplica_iva: 0,
-      iva_tasa: 0.16,
-      costo_incluye_iva: 1,
-      compatibilidad: 'legacy-tony-xml-discounted'
-    };
-  }
-
   return {
     aplica_iva: persistedAplicaIva,
     iva_tasa: explicitRate,
