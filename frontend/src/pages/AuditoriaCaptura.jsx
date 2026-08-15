@@ -1,11 +1,19 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from '@/lib/api'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { FileSpreadsheet, Calendar, ScanBarcode, Box, Calculator, CheckCircle2, ShieldAlert, Trash2, History, Download, X } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import EmptyState from '@/components/ui/EmptyState'
+import LoadingState from '@/components/ui/LoadingState'
+import { FileSpreadsheet, Calendar, ScanBarcode, Box, CheckCircle2, ShieldAlert, Trash2, History, Download, X } from 'lucide-react'
 import Swal from 'sweetalert2'
-import * as XLSX from 'xlsx'
 
 const getLocalToday = () => {
   const d = new Date()
@@ -21,17 +29,6 @@ export default function AuditoriaCaptura() {
   const [filtroEstatus, setFiltroEstatus] = useState('todos') // 'todos', 'pendientes', 'exportados'
   const [modalHistorial, setModalHistorial] = useState(false)
   const [modalLogsSistema, setModalLogsSistema] = useState(false)
-
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        setModalHistorial(false)
-        setModalLogsSistema(false)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
 
   const { data: registros, isLoading } = useQuery({
     queryKey: ['admin_captura', fecha],
@@ -272,7 +269,9 @@ export default function AuditoriaCaptura() {
 
           <div className="flex items-center px-3 gap-2 border-l border-slate-700/50">
             <Calendar className="w-4 h-4 text-slate-500" />
+            <label htmlFor="audit-date" className="sr-only">Fecha de auditoría</label>
             <input 
+              id="audit-date"
               type="date" 
               className="bg-transparent text-sm font-bold text-slate-200 focus:outline-none"
               value={fecha}
@@ -280,11 +279,12 @@ export default function AuditoriaCaptura() {
             />
           </div>
           
-          <label className="flex items-center cursor-pointer select-none px-3 gap-2 border-l border-slate-700/50">
+          <label htmlFor="include-physical-stock" className="flex items-center cursor-pointer select-none px-3 gap-2 border-l border-slate-700/50">
             <span className={`text-[10px] font-black uppercase tracking-widest transition-colors ${swIncluirFisico ? 'text-indigo-400' : 'text-slate-500'}`}>
               ¿Sumar Estante Físico?
             </span>
             <input 
+              id="include-physical-stock"
               type="checkbox" 
               className="toggle toggle-indigo toggle-sm"
               checked={swIncluirFisico} 
@@ -305,18 +305,21 @@ export default function AuditoriaCaptura() {
             {/* Filtros de estatus */}
             <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800 text-[10px] font-black uppercase ml-2">
               <button 
+                type="button"
                 onClick={() => setFiltroEstatus('todos')} 
                 className={`px-2.5 py-1 rounded transition-colors ${filtroEstatus === 'todos' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
               >
                 Todos ({registrosProcesados?.length || 0})
               </button>
               <button 
+                type="button"
                 onClick={() => setFiltroEstatus('pendientes')} 
                 className={`px-2.5 py-1 rounded transition-colors ${filtroEstatus === 'pendientes' ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
               >
                 Pendientes ({registrosProcesados?.filter(r=>r.exportado===0).length || 0})
               </button>
               <button 
+                type="button"
                 onClick={() => setFiltroEstatus('exportados')} 
                 className={`px-2.5 py-1 rounded transition-colors ${filtroEstatus === 'exportados' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
               >
@@ -370,7 +373,7 @@ export default function AuditoriaCaptura() {
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {isLoading ? (
-                <tr><td colSpan="6" className="text-center py-20"><span className="loading loading-spinner text-purple-500"></span></td></tr>
+                <tr><td colSpan="6"><LoadingState label="Cargando auditoría…" /></td></tr>
               ) : registrosFiltrados?.length === 0 ? (
                 <tr>
                   <td colSpan="6" className="text-center py-20">
@@ -451,22 +454,22 @@ export default function AuditoriaCaptura() {
       </Card>
 
       {/* Modal Historial de Descargas */}
-      {modalHistorial && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) setModalHistorial(false) }}>
-          <Card className="glass-panel border-purple-500/30 bg-slate-950 w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+      <Dialog open={modalHistorial} onOpenChange={setModalHistorial}>
+        <DialogContent className="glass-panel max-h-[85dvh] max-w-4xl overflow-hidden border-purple-500/30 bg-slate-950 p-0" showCloseButton={false}>
             <div className="p-5 border-b border-slate-800 bg-slate-900/80 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-3">
                 <div className="bg-purple-500/20 p-2 rounded-xl text-purple-400">
                   <History className="w-6 h-6" />
                 </div>
-                <div>
-                  <h2 className="text-lg font-black text-slate-100 uppercase tracking-tight">Historial de Descargas (Logs)</h2>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Registro de archivos exportados e imprevistos</p>
-                </div>
+                <DialogHeader>
+                  <DialogTitle className="text-lg font-black text-slate-100 uppercase tracking-tight">Historial de Descargas (Logs)</DialogTitle>
+                  <DialogDescription className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Registro de archivos exportados e imprevistos</DialogDescription>
+                </DialogHeader>
               </div>
               <Button 
                 variant="ghost" 
                 size="icon" 
+                aria-label="Cerrar historial de descargas"
                 onClick={() => setModalHistorial(false)}
                 className="text-slate-400 hover:text-slate-100 rounded-xl"
               >
@@ -488,9 +491,9 @@ export default function AuditoriaCaptura() {
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {loadingDescargas ? (
-                    <tr><td colSpan="6" className="text-center py-12 text-slate-500"><span className="loading loading-spinner text-purple-500"></span></td></tr>
+                    <tr><td colSpan="6"><LoadingState compact label="Cargando descargas…" className="py-12" /></td></tr>
                   ) : !historialDescargas || historialDescargas.length === 0 ? (
-                    <tr><td colSpan="6" className="text-center py-12 text-slate-500 font-bold uppercase tracking-widest text-xs">Sin registros de descargas previas.</td></tr>
+                    <tr><td colSpan="6"><EmptyState title="Sin registros de descargas previas" className="min-h-32" /></td></tr>
                   ) : (
                     historialDescargas.map(log => (
                       <tr key={log.id} className="hover:bg-slate-900/50 transition-colors">
@@ -535,26 +538,25 @@ export default function AuditoriaCaptura() {
                 </tbody>
               </table>
             </div>
-          </Card>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* Modal Logs del Sistema */}
-      {modalLogsSistema && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
-          <Card className="glass-panel border-indigo-500/30 bg-slate-950 w-full max-w-5xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+      <Dialog open={modalLogsSistema} onOpenChange={setModalLogsSistema}>
+        <DialogContent className="glass-panel max-h-[85dvh] max-w-5xl overflow-hidden border-indigo-500/30 bg-slate-950 p-0" showCloseButton={false}>
             <div className="p-5 border-b border-slate-800 bg-slate-900/80 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-3">
                 <div className="bg-indigo-500/20 p-2 rounded-xl text-indigo-400">
                   <i className="bi bi-journal-text text-xl"></i>
                 </div>
-                <div>
-                  <h2 className="text-lg font-black text-slate-100 uppercase tracking-tight">Logs del Sistema</h2>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Historial completo de acciones</p>
-                </div>
+                <DialogHeader>
+                  <DialogTitle className="text-lg font-black text-slate-100 uppercase tracking-tight">Logs del Sistema</DialogTitle>
+                  <DialogDescription className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Historial completo de acciones</DialogDescription>
+                </DialogHeader>
               </div>
               <Button 
                 variant="ghost" size="icon" 
+                aria-label="Cerrar logs del sistema"
                 onClick={() => setModalLogsSistema(false)}
                 className="text-slate-400 hover:text-slate-100 rounded-xl"
               >
@@ -575,9 +577,9 @@ export default function AuditoriaCaptura() {
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {loadingLogs ? (
-                    <tr><td colSpan="5" className="text-center py-12 text-slate-500"><span className="loading loading-spinner text-indigo-500"></span></td></tr>
+                    <tr><td colSpan="5"><LoadingState compact label="Cargando logs…" className="py-12" /></td></tr>
                   ) : !logsSistema || logsSistema.length === 0 ? (
-                    <tr><td colSpan="5" className="text-center py-12 text-slate-500 font-bold uppercase tracking-widest text-xs">Sin logs registrados.</td></tr>
+                    <tr><td colSpan="5"><EmptyState title="Sin logs registrados" className="min-h-32" /></td></tr>
                   ) : (
                     logsSistema.map(log => {
                       let colorAccion = 'text-slate-400'
@@ -614,9 +616,8 @@ export default function AuditoriaCaptura() {
                 </tbody>
               </table>
             </div>
-          </Card>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
     </div>
   )

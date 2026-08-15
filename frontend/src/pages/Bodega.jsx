@@ -2,6 +2,16 @@ import { useState, useRef, useEffect } from 'react'
 import axios from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import EmptyState from '@/components/ui/EmptyState'
+import LoadingState from '@/components/ui/LoadingState'
 import { Trash2, Box, Save, Barcode, FileSpreadsheet, Search, Database, X, Clock } from 'lucide-react'
 import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
@@ -55,22 +65,6 @@ export default function Bodega() {
     if (activeTab === 'salida') salidaInputRef.current?.focus()
   }, [activeTab])
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        if (historialProducto) {
-          setHistorialProducto(null)
-        } else if (showBajarModal) {
-          setShowBajarModal(false)
-        } else if (scannedItemPendingQuantity) {
-          setScannedItemPendingQuantity(null)
-        }
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [historialProducto, showBajarModal, scannedItemPendingQuantity])
-
   const handleScan = async (e) => {
     e.preventDefault()
     if (!scanInput.trim()) return
@@ -97,7 +91,7 @@ export default function Bodega() {
          mode: 'captura',
          isNew: true
       })
-    } catch (error) {
+    } catch {
       toast.error('Producto no encontrado en el Catálogo Maestro', {
         description: `Clave: ${clave}`
       })
@@ -135,7 +129,7 @@ export default function Bodega() {
          mode: 'salida',
          isNew: true
       })
-    } catch (error) {
+    } catch {
       toast.error('Producto no encontrado en Bodega', {
         description: `Clave: ${clave}`
       })
@@ -319,7 +313,7 @@ export default function Bodega() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-3xl font-black text-slate-100 tracking-tight flex items-center gap-3">
             <Box className="w-8 h-8 text-indigo-500" />
@@ -327,8 +321,10 @@ export default function Bodega() {
           </h1>
           <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">Gestión de existencias en almacén</p>
         </div>
-        <div className="flex bg-slate-900/50 p-1 rounded-xl border border-slate-800/60 shadow-inner">
+        <div className="flex max-w-full overflow-x-auto bg-slate-900/50 p-1 rounded-xl border border-slate-800/60 shadow-inner">
           <button
+            type="button"
+            aria-pressed={activeTab === 'captura'}
             onClick={() => setActiveTab('captura')}
             className={`px-4 py-2 rounded-lg text-sm font-black transition-all ${
               activeTab === 'captura' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'
@@ -337,6 +333,8 @@ export default function Bodega() {
             Modo Captura
           </button>
           <button
+            type="button"
+            aria-pressed={activeTab === 'salida'}
             onClick={() => setActiveTab('salida')}
             className={`px-4 py-2 rounded-lg text-sm font-black transition-all ${
               activeTab === 'salida' ? 'bg-rose-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'
@@ -345,6 +343,8 @@ export default function Bodega() {
             Modo Salida (Bajar)
           </button>
           <button
+            type="button"
+            aria-pressed={activeTab === 'inventario'}
             onClick={() => setActiveTab('inventario')}
             className={`px-4 py-2 rounded-lg text-sm font-black transition-all flex items-center gap-2 ${
               activeTab === 'inventario' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'
@@ -661,7 +661,7 @@ export default function Bodega() {
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {isLoadingInv ? (
-                <tr><td colSpan="6" className="text-center py-20"><span className="loading loading-spinner text-indigo-500"></span></td></tr>
+                <tr><td colSpan="6"><LoadingState label="Cargando inventario…" /></td></tr>
               ) : inventarioGlobal?.length > 0 ? (
                 inventarioGlobal.map((item) => (
                   <tr key={item.clave_sicar} className="hover:bg-slate-800/30 transition-colors">
@@ -703,7 +703,7 @@ export default function Bodega() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan="7" className="py-24 text-center text-slate-500 font-bold">No se encontraron productos en bodega.</td>
+                  <td colSpan="7"><EmptyState title="No se encontraron productos en bodega" /></td>
                 </tr>
               )}
             </tbody>
@@ -713,17 +713,16 @@ export default function Bodega() {
       ) : null}
 
       {/* MODAL HISTORIAL */}
-      {historialProducto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) setHistorialProducto(null); }}>
-          <div className="bg-slate-950 border border-slate-800 shadow-2xl rounded-3xl max-w-3xl w-full max-h-[80vh] flex flex-col overflow-hidden">
+      <Dialog open={Boolean(historialProducto)} onOpenChange={(open) => { if (!open) setHistorialProducto(null) }}>
+        <DialogContent className="max-h-[80dvh] max-w-3xl overflow-hidden border-slate-800 bg-slate-950 p-0" showCloseButton={false}>
             <div className="p-6 border-b border-slate-800/60 bg-slate-900/50 flex justify-between items-start">
-              <div>
-                <h3 className="font-black text-xl text-slate-100 flex items-center gap-3">
+              <DialogHeader>
+                <DialogTitle className="font-black text-xl text-slate-100 flex items-center gap-3">
                   <Clock className="w-5 h-5 text-indigo-400" /> Historial de Movimientos
-                </h3>
-                <p className="text-sm font-bold text-slate-400 mt-1">{historialProducto.clave_sicar} - {historialProducto.descripcion}</p>
-              </div>
-              <button onClick={() => setHistorialProducto(null)} className="text-slate-500 hover:text-slate-300">
+                </DialogTitle>
+                <DialogDescription className="text-sm font-bold text-slate-400 mt-1">{historialProducto?.clave_sicar} - {historialProducto?.descripcion}</DialogDescription>
+              </DialogHeader>
+              <button type="button" aria-label="Cerrar historial de movimientos" onClick={() => setHistorialProducto(null)} className="text-slate-500 hover:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -740,7 +739,7 @@ export default function Bodega() {
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 text-sm">
                   {isLoadingHistorial ? (
-                    <tr><td colSpan="5" className="text-center py-10"><span className="loading loading-spinner text-indigo-500"></span></td></tr>
+                    <tr><td colSpan="5"><LoadingState compact label="Cargando historial…" className="py-10" /></td></tr>
                   ) : historialData?.length > 0 ? (
                     historialData.map((m) => (
                       <tr key={m.id} className="hover:bg-slate-800/30">
@@ -757,25 +756,23 @@ export default function Bodega() {
                 </tbody>
               </table>
             </div>
-            <div className="p-4 bg-slate-900/50 border-t border-slate-800/60 flex justify-end">
+            <DialogFooter className="p-4 bg-slate-900/50 border-t border-slate-800/60">
               <Button onClick={() => setHistorialProducto(null)} variant="outline" className="border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700">Cerrar</Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* MODAL BAJAR INVENTARIO */}
-      {showBajarModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) setShowBajarModal(false); }}>
-          <div className="bg-slate-950 border border-slate-800 shadow-2xl rounded-3xl max-w-4xl w-full max-h-[80vh] flex flex-col overflow-hidden">
+      <Dialog open={showBajarModal} onOpenChange={setShowBajarModal}>
+        <DialogContent className="max-h-[80dvh] max-w-4xl overflow-hidden border-slate-800 bg-slate-950 p-0" showCloseButton={false}>
             <div className="p-6 border-b border-slate-800/60 bg-slate-900/50 flex justify-between items-start">
-              <div>
-                <h3 className="font-black text-xl text-slate-100 flex items-center gap-3">
+              <DialogHeader>
+                <DialogTitle className="font-black text-xl text-slate-100 flex items-center gap-3">
                   <Box className="w-6 h-6 text-rose-400" /> Bajar Productos de Bodega
-                </h3>
-                <p className="text-sm font-bold text-slate-400 mt-1">Especifique la cantidad a restar del inventario físico</p>
-              </div>
-              <button onClick={() => setShowBajarModal(false)} className="text-slate-500 hover:text-slate-300">
+                </DialogTitle>
+                <DialogDescription className="text-sm font-bold text-slate-400 mt-1">Especifique la cantidad a restar del inventario físico</DialogDescription>
+              </DialogHeader>
+              <button type="button" aria-label="Cerrar baja de inventario" onClick={() => setShowBajarModal(false)} className="text-slate-500 hover:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -799,6 +796,7 @@ export default function Bodega() {
                       <td className="px-6 py-4 text-center font-bold text-slate-500">{item.existencia}</td>
                       <td className="px-6 py-4 text-center">
                         <input
+                          aria-label={`Cantidad a bajar de ${item.clave_sicar}`}
                           type="number"
                           min="1"
                           max={item.existencia}
@@ -809,6 +807,7 @@ export default function Bodega() {
                       </td>
                       <td className="px-6 py-4">
                         <input
+                          aria-label={`Notas para ${item.clave_sicar}`}
                           type="text"
                           placeholder="Ej. Traspaso a tienda"
                           className="w-full px-3 py-1.5 font-medium border border-slate-700 rounded-lg bg-slate-950/50 text-slate-200 focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 outline-none transition-all text-xs shadow-inner"
@@ -822,7 +821,7 @@ export default function Bodega() {
               </table>
             </div>
             
-            <div className="p-4 bg-slate-900/50 border-t border-slate-800/60 flex justify-end gap-3">
+            <DialogFooter className="p-4 bg-slate-900/50 border-t border-slate-800/60">
               <Button onClick={() => setShowBajarModal(false)} variant="outline" className="border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold">
                 Cancelar
               </Button>
@@ -833,16 +832,23 @@ export default function Bodega() {
               >
                 {isBajarSaving ? 'Procesando...' : 'Confirmar y Generar Excel'}
               </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* MODAL CANTIDAD ESCÁNER */}
-      {scannedItemPendingQuantity && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) setScannedItemPendingQuantity(null); }}>
-          <form 
-             className="bg-slate-950 border border-slate-800 shadow-2xl rounded-3xl max-w-sm w-full overflow-hidden"
+      <Dialog open={Boolean(scannedItemPendingQuantity)} onOpenChange={(open) => {
+        if (!open && scannedItemPendingQuantity) {
+          const { mode } = scannedItemPendingQuantity
+          setScannedItemPendingQuantity(null)
+          setTimeout(() => {
+            if (mode === 'captura') inputRef.current?.focus()
+            else salidaInputRef.current?.focus()
+          }, 50)
+        }
+      }}>
+        <DialogContent className="max-w-sm overflow-hidden border-slate-800 bg-slate-950 p-0" showCloseButton={false}>
+          <form
              onSubmit={(e) => {
                e.preventDefault()
                const fd = new FormData(e.target)
@@ -879,11 +885,11 @@ export default function Bodega() {
              }}
           >
             <div className="p-6 border-b border-slate-800/60 bg-slate-900/50 flex justify-between items-start">
-              <div>
-                <h3 className="font-black text-xl text-slate-100">Cantidad a procesar</h3>
-                <p className="text-xs font-bold text-slate-400 mt-1">{scannedItemPendingQuantity.product.descripcion}</p>
-              </div>
-              <button type="button" onClick={() => {
+              <DialogHeader>
+                <DialogTitle className="font-black text-xl text-slate-100">Cantidad a procesar</DialogTitle>
+                <DialogDescription className="text-xs font-bold text-slate-400 mt-1">{scannedItemPendingQuantity?.product.descripcion}</DialogDescription>
+              </DialogHeader>
+              <button type="button" aria-label="Cerrar captura de cantidad" onClick={() => {
                  setScannedItemPendingQuantity(null)
                  setTimeout(() => {
                     if (scannedItemPendingQuantity.mode === 'captura') inputRef.current?.focus()
@@ -896,6 +902,8 @@ export default function Bodega() {
             
             <div className="p-6">
               <input
+                id="scanner-quantity"
+                aria-label="Cantidad a procesar"
                 autoFocus
                 name="cantidad"
                 type="number"
@@ -910,9 +918,9 @@ export default function Bodega() {
                 Confirmar (Enter)
               </Button>
             </div>
-          </form>
-        </div>
-      )}
+           </form>
+        </DialogContent>
+      </Dialog>
 
     </div>
   )

@@ -4,19 +4,28 @@ import { useDebounce } from 'use-debounce'
 import api from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import EmptyState from '@/components/ui/EmptyState'
+import LoadingState from '@/components/ui/LoadingState'
+import { useReceptionEditor } from '@/features/recepciones/useReceptionEditor'
 import { PackageOpen, CheckCircle2, FileSpreadsheet, XCircle, Loader2, Upload, Trash2, X } from 'lucide-react'
 import Swal from 'sweetalert2'
 
 // ─────────────────────────────────────────────────
 // SICAR Input with live catalog validation
 // ─────────────────────────────────────────────────
-function SicarInput({ item, onUpdate, esFaltante }) {
-  const [value, setValue] = useState(item.clave_final || '')
+function SicarInput({ item, editor, esFaltante }) {
+  const value = editor.getDraftField(item.id, 'clave_final', item.clave_final || '')
   const [debouncedValue] = useDebounce(value, 600)
   const [description, setDescription] = useState('')
   const [isValidating, setIsValidating] = useState(false)
-
-  useEffect(() => { setValue(item.clave_final || '') }, [item.clave_final])
 
   useEffect(() => {
     if (!debouncedValue || debouncedValue === 'FALTANTE' || debouncedValue === 'DEVOLUCION') {
@@ -47,16 +56,24 @@ function SicarInput({ item, onUpdate, esFaltante }) {
           {item.cod_prov}
         </span>
         <div className="flex items-center border border-slate-700/50 rounded-md overflow-hidden bg-slate-950/50 shadow-inner h-7 flex-1 relative">
-           <span className="bg-slate-800/80 text-slate-400 px-2 flex items-center h-full text-[8px] font-black uppercase tracking-widest border-r border-slate-700/50 shrink-0">SICAR</span>
+           <label htmlFor={`sicar-${item.id}`} className="bg-slate-800/80 text-slate-400 px-2 flex items-center h-full text-[8px] font-black uppercase tracking-widest border-r border-slate-700/50 shrink-0">SICAR</label>
            <input 
+             id={`sicar-${item.id}`}
              type="text" 
              className={`w-full bg-transparent font-mono font-bold text-[11px] outline-none px-2 ${esFaltante ? 'text-red-400' : 'text-slate-200'}`}
              value={value}
              placeholder="---"
-             onChange={(e) => { setValue(e.target.value); onUpdate(item.id, 'clave_final', e.target.value) }}
+             onChange={(e) => editor.setDraftField(item.id, 'clave_final', e.target.value)}
+             onBlur={(e) => editor.saveField(item.id, 'clave_final', e.target.value)}
+             onKeyDown={(e) => {
+               if (e.key === 'Enter') {
+                 e.preventDefault()
+                 editor.saveField(item.id, 'clave_final', e.currentTarget.value)
+               }
+             }}
            />
            {value && !isValidating && (
-             <button onClick={() => { setValue(''); onUpdate(item.id, 'clave_final', '') }} className="absolute right-2 text-slate-500 hover:text-red-400">
+             <button type="button" aria-label="Limpiar clave SICAR" onClick={() => { editor.setDraftField(item.id, 'clave_final', ''); editor.saveField(item.id, 'clave_final', '') }} className="absolute right-2 text-slate-500 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                <X className="w-3 h-3" />
              </button>
            )}
@@ -92,6 +109,7 @@ export default function Recepciones() {
   const [globalDiscount, setGlobalDiscount] = useState(5)
   const [selectedProvider, setSelectedProvider] = useState('custom')
   const [showUploadModal, setShowUploadModal] = useState(false)
+  const editor = useReceptionEditor(selectedRemision)
 
   // ── Queries ──
   const { data: remisiones, isLoading: isLoadingList } = useQuery({
@@ -137,12 +155,6 @@ export default function Recepciones() {
   }, [showUploadModal, selectedRemision])
 
   // ── Mutations ──
-  const updateFieldMutation = useMutation({
-    mutationFn: ({ id_item, campo, valor }) => api.post('/api/recepciones/actualizar_campo', { id_item, campo, valor }),
-    onSuccess: () => queryClient.invalidateQueries(['recepciones_detail', selectedRemision]),
-    onError: (err) => Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: err.response?.data?.error || 'Error', showConfirmButton: false, timer: 1500 })
-  })
-
   const deleteItemMutation = useMutation({
     mutationFn: (id) => api.delete(`/api/recepciones/item/${id}`),
     onSuccess: () => {
@@ -177,7 +189,16 @@ export default function Recepciones() {
   })
 
   // ── Handlers ──
-  const handleUpdate = (id_item, campo, valor) => updateFieldMutation.mutate({ id_item, campo, valor })
+  const handleUpdate = (id_item, campo, valor) => {
+    editor.setDraftField(id_item, campo, valor)
+    editor.saveField(id_item, campo, valor)
+  }
+
+  const saveDraftOnEnter = (event, itemId, field) => {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    editor.saveField(itemId, field, event.currentTarget.value)
+  }
 
   const handleDelete = (id, desc) => {
     Swal.fire({
@@ -248,10 +269,10 @@ export default function Recepciones() {
   const esFinalizada = remisionDetails?.estado === 'FINALIZADO'
 
   return (
-    <div className="flex h-full gap-4 animate-in fade-in duration-500 pb-10">
+    <div className="flex min-h-full flex-col gap-4 animate-in fade-in duration-500 pb-10 lg:h-full lg:flex-row">
       
       {/* ═══ Sidebar ═══ */}
-      <div className="w-72 2xl:w-80 flex-shrink-0 flex flex-col gap-4">
+      <div className="flex w-full flex-shrink-0 flex-col gap-4 lg:w-72 2xl:w-80">
         <div className="flex justify-between items-center">
           <div>
             <h2 className="font-black text-xl tracking-tight text-slate-100">Tareas</h2>
@@ -266,15 +287,14 @@ export default function Recepciones() {
           {isLoadingList ? (
              [...Array(4)].map((_, i) => <div key={i} className="animate-pulse bg-slate-800/50 rounded-2xl h-20 w-full"></div>)
           ) : remisiones?.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-40 opacity-40 text-slate-500">
-              <CheckCircle2 className="w-12 h-12 mb-2" />
-              <span className="font-bold tracking-wide">Todo al día</span>
-            </div>
+            <EmptyState icon={CheckCircle2} title="Todo al día" className="h-40 opacity-60" />
           ) : (
             remisiones?.map((row) => (
-              <div 
+              <button
+                type="button"
                 key={row.id} onClick={() => setSelectedRemision(row.id)}
-                className={`glass-panel border-l-4 shadow-sm hover:shadow-md cursor-pointer transition-all duration-200 rounded-xl p-3 active:scale-95 group ${
+                aria-pressed={selectedRemision === row.id}
+                className={`glass-panel w-full border-l-4 text-left shadow-sm hover:shadow-md transition-all duration-200 rounded-xl p-3 active:scale-95 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                   selectedRemision === row.id ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800/60 bg-slate-900/40 hover:bg-slate-800/50'
                 }`}
               >
@@ -288,7 +308,7 @@ export default function Recepciones() {
                   <span>{new Date(row.fecha_carga).toLocaleDateString()}</span>
                   <span className="bg-slate-800/80 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-widest text-slate-400 border border-slate-700/50">{row.items} items</span>
                 </div>
-              </div>
+              </button>
             ))
           )}
         </div>
@@ -302,9 +322,7 @@ export default function Recepciones() {
              <p className="text-xl font-black tracking-tight text-slate-500">Selecciona una tarea de la lista</p>
            </div>
         ) : isLoadingDetails ? (
-           <div className="flex flex-col items-center justify-center h-full">
-             <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
-           </div>
+           <LoadingState label="Cargando detalle de recepción…" className="h-full" />
         ) : remisionDetails?.datos ? (
            <>
              {/* ── Header Toolbar ── */}
@@ -316,16 +334,16 @@ export default function Recepciones() {
                 <div className="flex gap-2 items-center flex-wrap">
                   {/* Provider Selector */}
                   <div className="flex items-center bg-slate-900 rounded-lg border border-slate-800/60 px-2 py-1 shadow-sm">
-                    <span className="text-[8px] font-extrabold uppercase tracking-widest text-slate-500 mr-1.5">PROV</span>
-                    <select value={selectedProvider} onChange={(e) => handleProviderChange(e.target.value)} className="bg-transparent font-bold text-slate-300 text-[11px] focus:outline-none cursor-pointer">
+                    <label htmlFor="reception-provider" className="text-[8px] font-extrabold uppercase tracking-widest text-slate-500 mr-1.5">PROV</label>
+                    <select id="reception-provider" value={selectedProvider} onChange={(e) => handleProviderChange(e.target.value)} className="bg-transparent font-bold text-slate-300 text-[11px] focus:outline-none cursor-pointer">
                       {PROVEEDORES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
                     </select>
                   </div>
 
                   {/* Discount */}
                   <div className="flex items-center bg-purple-500/10 rounded-lg border border-purple-500/20 px-2 py-1 shadow-sm">
-                    <span className="text-[8px] font-extrabold uppercase tracking-widest text-purple-400 mr-1">DTO %</span>
-                    <input type="number" value={globalDiscount} onChange={(e) => setGlobalDiscount(parseFloat(e.target.value) || 0)} className="w-8 bg-transparent font-black text-purple-400 text-xs focus:outline-none text-center" />
+                    <label htmlFor="reception-discount" className="text-[8px] font-extrabold uppercase tracking-widest text-purple-400 mr-1">DTO %</label>
+                    <input id="reception-discount" type="number" value={globalDiscount} onChange={(e) => setGlobalDiscount(parseFloat(e.target.value) || 0)} className="w-8 bg-transparent font-black text-purple-400 text-xs focus:outline-none text-center" />
                   </div>
 
                   {!esFinalizada && (
@@ -344,7 +362,7 @@ export default function Recepciones() {
              {/* ── Items List ── */}
              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-950/20 custom-scrollbar">
                {items?.map((item) => {
-                 const esFaltante = item.clave_final === 'FALTANTE'
+                 const esFaltante = editor.getDraftField(item.id, 'clave_final', item.clave_final) === 'FALTANTE'
                  const esDevuelto = item.revision_pendiente == 2
 
                  // Cost calculations
@@ -361,7 +379,7 @@ export default function Recepciones() {
                    
                    {/* Delete button (top-right corner) */}
                    {!esFinalizada && (
-                     <button onClick={() => handleDelete(item.id, item.desc)} className="absolute top-2 right-2 z-10 w-6 h-6 rounded-md bg-slate-800/80 text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-slate-700/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all" title="Eliminar ítem">
+                     <button type="button" aria-label={`Eliminar ${item.desc}`} onClick={() => handleDelete(item.id, item.desc)} className="absolute top-2 right-2 z-10 w-6 h-6 rounded-md bg-slate-800/80 text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-slate-700/50 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all" title="Eliminar ítem">
                        <Trash2 className="w-3 h-3" />
                      </button>
                    )}
@@ -370,34 +388,41 @@ export default function Recepciones() {
                      
                      {/* COL 1: Factura */}
                      <div className="flex lg:flex-col items-center gap-2 lg:gap-1 lg:border-r border-slate-700/50 lg:pr-3 lg:w-20">
-                       <label className="text-[9px] text-slate-500 font-black tracking-widest shrink-0">FACTURA</label>
+                       <label htmlFor={`cantidad-${item.id}`} className="text-[9px] text-slate-500 font-black tracking-widest shrink-0">FACTURA</label>
                        <input 
+                         id={`cantidad-${item.id}`}
                          type="number" 
                          className="w-16 h-10 bg-slate-950/50 border border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-lg text-center font-black text-lg text-slate-200 outline-none transition-all shadow-inner"
-                         defaultValue={item.cant}
+                         value={editor.getDraftField(item.id, 'cantidad', item.cant ?? '')}
                          disabled={esFinalizada}
-                         onBlur={(e) => handleUpdate(item.id, 'cantidad', e.target.value)}
+                         onChange={(e) => editor.setDraftField(item.id, 'cantidad', e.target.value)}
+                         onBlur={(e) => editor.saveField(item.id, 'cantidad', e.target.value)}
+                         onKeyDown={(e) => saveDraftOnEnter(e, item.id, 'cantidad')}
                        />
                      </div>
 
                      {/* COL 2: Description + SICAR */}
                      <div className="min-w-0">
                        <div className="font-black text-slate-200 text-[13px] leading-snug mb-2 tracking-tight truncate" title={item.desc}>{item.desc}</div>
-                       <SicarInput item={item} onUpdate={handleUpdate} esFaltante={esFaltante} />
+                       <SicarInput item={item} editor={editor} esFaltante={esFaltante} />
                      </div>
                      
                      {/* COL 3: Físico */}
                      <div className={`flex flex-col items-center bg-slate-950/50 shadow-inner p-2 rounded-xl border ${esFaltante ? 'border-amber-500/50' : 'border-slate-800/80'} w-20 mx-auto relative`}>
-                       <span className={`text-[9px] font-black tracking-widest mb-0.5 ${esFaltante ? 'text-amber-500/70' : 'text-slate-500'}`}>FÍSICO</span>
+                       <label htmlFor={`existencia-${item.id}`} className={`text-[9px] font-black tracking-widest mb-0.5 ${esFaltante ? 'text-amber-500/70' : 'text-slate-500'}`}>FÍSICO</label>
                        <input 
+                         id={`existencia-${item.id}`}
                          type="number" 
                          className={`w-full bg-transparent text-center font-black text-xl focus:outline-none rounded ${esFaltante ? 'text-red-400' : 'text-indigo-400'}`}
-                         defaultValue={item.existencia_lapiz || 0}
+                         value={editor.getDraftField(item.id, 'existencia_lapiz', item.existencia_lapiz || 0)}
                          disabled={esFinalizada}
-                         onBlur={(e) => handleUpdate(item.id, 'existencia_lapiz', e.target.value)}
+                         onChange={(e) => editor.setDraftField(item.id, 'existencia_lapiz', e.target.value)}
+                         onBlur={(e) => editor.saveField(item.id, 'existencia_lapiz', e.target.value)}
+                         onKeyDown={(e) => saveDraftOnEnter(e, item.id, 'existencia_lapiz')}
                        />
-                       <label className="absolute -bottom-2.5 bg-slate-800 border border-slate-700 shadow-md rounded-md px-1.5 py-0.5 flex items-center gap-1 cursor-pointer hover:border-red-500/50 transition-colors">
+                       <label htmlFor={`faltante-${item.id}`} className="absolute -bottom-2.5 bg-slate-800 border border-slate-700 shadow-md rounded-md px-1.5 py-0.5 flex items-center gap-1 cursor-pointer hover:border-red-500/50 transition-colors">
                          <input 
+                           id={`faltante-${item.id}`}
                            type="checkbox" className="w-2.5 h-2.5 accent-amber-500 rounded-sm"
                            checked={esFaltante} disabled={esFinalizada}
                            onChange={(e) => {
@@ -413,8 +438,8 @@ export default function Recepciones() {
                      <div className="flex flex-col gap-1.5 lg:border-l border-slate-800/60 lg:pl-3 min-w-0">
                        {/* Row 1: Checkbox + Reject */}
                        <div className="flex items-center gap-1.5">
-                         <label className="cursor-pointer flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-purple-500/20 bg-purple-500/10 hover:bg-purple-500/20 transition-colors h-6 shrink-0">
-                           <input type="checkbox" className="w-2.5 h-2.5 accent-purple-500 rounded-sm cursor-pointer"
+                         <label htmlFor={`discount-${item.id}`} className="cursor-pointer flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-purple-500/20 bg-purple-500/10 hover:bg-purple-500/20 transition-colors h-6 shrink-0">
+                           <input id={`discount-${item.id}`} type="checkbox" className="w-2.5 h-2.5 accent-purple-500 rounded-sm cursor-pointer"
                              checked={applyDisc} disabled={esFinalizada}
                              onChange={(e) => handleUpdate(item.id, 'aplica_descuento_manual', e.target.checked ? 1 : 0)}
                            />
@@ -422,7 +447,7 @@ export default function Recepciones() {
                          </label>
                          <div className="flex-grow">
                            {!esFinalizada && !esDevuelto ? (
-                             <button onClick={() => handleUpdate(item.id, 'revision_pendiente', 2)} className="w-full py-1 rounded-md border border-red-500/50 text-red-400 font-bold text-[9px] uppercase hover:bg-red-500/10 transition-colors flex items-center justify-center gap-1 h-6">
+                             <button type="button" onClick={() => handleUpdate(item.id, 'revision_pendiente', 2)} className="w-full py-1 rounded-md border border-red-500/50 text-red-400 font-bold text-[9px] uppercase hover:bg-red-500/10 transition-colors flex items-center justify-center gap-1 h-6">
                                <XCircle className="w-3 h-3" /> Rechazar
                              </button>
                            ) : esDevuelto ? (
@@ -435,14 +460,16 @@ export default function Recepciones() {
                        <div className="flex gap-1.5 h-[4.5rem]">
                          {/* Cost Final */}
                          <div className="bg-slate-900/50 p-1.5 rounded-lg border border-slate-800/60 flex flex-col items-center justify-center w-1/2 min-w-0">
-                           <span className="text-[8px] font-black tracking-widest text-slate-500">COSTO FINAL</span>
+                           <label htmlFor={`costo-${item.id}`} className="text-[8px] font-black tracking-widest text-slate-500">COSTO FINAL</label>
                            <div className="flex items-center gap-0.5 mt-0.5 w-full justify-center">
                              <span className="text-slate-500 font-black text-[10px]">$</span>
-                             <input type="number" step="0.01"
+                             <input id={`costo-${item.id}`} type="number" step="0.01"
                                className="w-full bg-transparent p-0 text-sm font-black text-slate-200 text-center leading-none focus:outline-none focus:text-indigo-400 transition-colors"
-                               defaultValue={manualCosto.toFixed(2)}
+                               value={editor.getDraftField(item.id, 'costo_unitario', manualCosto.toFixed(2))}
                                disabled={esFinalizada}
-                               onBlur={(e) => handleUpdate(item.id, 'costo_unitario', e.target.value)}
+                               onChange={(e) => editor.setDraftField(item.id, 'costo_unitario', e.target.value)}
+                               onBlur={(e) => editor.saveField(item.id, 'costo_unitario', e.target.value)}
+                               onKeyDown={(e) => saveDraftOnEnter(e, item.id, 'costo_unitario')}
                              />
                            </div>
                            {costoSis > 0 ? (
@@ -482,27 +509,29 @@ export default function Recepciones() {
       </div>
 
       {/* ═══ Upload Modal ═══ */}
-      {showUploadModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowUploadModal(false)}>
-          <div className="bg-slate-900 border border-slate-800/60 rounded-2xl p-6 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-black text-xl text-slate-100 tracking-tight mb-1">Cargar XML / CSV</h3>
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-6">Sube facturas para crear nuevas tareas</p>
+      <Dialog open={showUploadModal} onOpenChange={setShowUploadModal}>
+        <DialogContent className="max-w-md bg-slate-900 p-6" showCloseButton={false}>
+          <DialogHeader className="mb-6">
+            <DialogTitle className="text-xl text-slate-100">Cargar XML / CSV</DialogTitle>
+            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest">Sube facturas para crear nuevas tareas</DialogDescription>
+          </DialogHeader>
             <form onSubmit={handleUploadSubmit}>
+              <label htmlFor="reception-upload" className="sr-only">Archivos XML o CSV</label>
               <input
+                id="reception-upload"
                 type="file" multiple accept=".csv,.xml"
                 className="w-full bg-slate-950/50 border-2 border-dashed border-slate-700 rounded-xl px-4 py-6 text-slate-400 text-sm font-bold cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white file:font-bold file:text-xs file:cursor-pointer hover:border-indigo-500/50 transition-colors"
               />
-              <div className="flex gap-3 mt-6">
+              <DialogFooter className="mt-6 grid grid-cols-2">
                 <Button type="button" variant="outline" className="flex-1 bg-slate-800 border-slate-700 text-slate-300 font-bold" onClick={() => setShowUploadModal(false)}>Cancelar</Button>
                 <Button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black shadow-lg shadow-indigo-500/20" disabled={uploadMutation.isPending}>
                   {uploadMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}
                   Procesar
                 </Button>
-              </div>
+              </DialogFooter>
             </form>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

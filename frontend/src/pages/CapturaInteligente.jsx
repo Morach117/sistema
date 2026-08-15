@@ -2,7 +2,17 @@ import { useState, useRef, useEffect } from 'react'
 import axios from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { BoxSelect, RotateCcw, Link2, Check, ArrowRight, Trash2, X, Settings } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import EmptyState from '@/components/ui/EmptyState'
+import LoadingState from '@/components/ui/LoadingState'
+import CaptureDetails from '@/features/captura/CaptureDetails'
+import { BoxSelect, RotateCcw, Link2, ArrowRight, Trash2, X, Settings } from 'lucide-react'
 import Swal from 'sweetalert2'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
@@ -59,19 +69,8 @@ export default function CapturaInteligente() {
     }
 
     const handleGlobalKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        if (modalRevincular) {
-          setModalRevincular(false)
-          setHistorialSeleccionado(null)
-          setRevinculoProducto(null)
-        } else if (modalGestionVariantes) {
-          cerrarModalGestion()
-        } else if (modalMultiples) {
-          setModalMultiples(false)
-          resetear()
-        } else {
-          resetear()
-        }
+      if (e.key === 'Escape' && !modalRevincular && !modalGestionVariantes && !modalMultiples) {
+        resetear()
       }
     }
     window.addEventListener('keydown', handleGlobalKeyDown)
@@ -385,7 +384,7 @@ export default function CapturaInteligente() {
         Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Variante guardada', showConfirmButton: false, timer: 1500 });
         setNuevaVariante({ nombre: '', factor: '' });
         cargarVariantes(); // Recargar lista
-    } catch (e) {
+      } catch (e) {
         Swal.fire('Error', e.response?.data?.error || 'Error al guardar variante', 'error');
     }
   }
@@ -417,7 +416,7 @@ export default function CapturaInteligente() {
           } else if (data.match) {
               iniciarProcesoSecuencial(data.match, cod);
           }
-      } catch(e) {}
+      } catch {}
   }
 
   // Navegación Enter secuencial entre inputs
@@ -485,10 +484,11 @@ export default function CapturaInteligente() {
         {/* Paso 1: Código de Barras Principal */}
         <div className="flex flex-col md:flex-row gap-6">
           <div className="w-full md:w-1/3">
-            <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-2 ml-1">
+            <label htmlFor="capture-barcode" className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-2 ml-1">
               1. CÓDIGO DE BARRAS PRINCIPAL
             </label>
             <input 
+              id="capture-barcode"
               ref={inputRef}
               type="text" 
               className="w-full h-20 px-6 text-3xl font-mono font-black text-slate-100 bg-slate-950/60 border-2 border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 rounded-2xl transition-all shadow-inner outline-none placeholder:text-slate-600" 
@@ -522,7 +522,7 @@ export default function CapturaInteligente() {
               <div className="truncate">
                 {estado === 'ESPERA' || estado === 'BUSCANDO' ? '---' : 
                  datosProd?.nombre_suelto ? (
-                   <div dangerouslySetInnerHTML={{ __html: datosProd.nombre_suelto.replace('CAJA:', '<span class="bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded text-[10px] mr-1 uppercase font-mono">CAJA</span>').replace('➔ PIEZA:', '<br/><span class="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-[10px] mr-1 uppercase font-mono">CONTIENE</span>') }} />
+                   <CaptureDetails name={datosProd.nombre_suelto} />
                  ) : datosProd?.descripcion_caja}
               </div>
               
@@ -539,10 +539,10 @@ export default function CapturaInteligente() {
                 <div className="flex-1 flex items-center gap-4">
                     <div className="bg-amber-500/20 p-2.5 rounded-xl text-amber-400"><Link2 className="w-6 h-6" /></div>
                     <div className="flex-1">
-                        <span className="text-amber-400 font-extrabold text-xs block mb-1 tracking-wider uppercase">
+                        <label htmlFor="capture-loose-barcode" className="text-amber-400 font-extrabold text-xs block mb-1 tracking-wider uppercase">
                           2. Escanea la Pieza Suelta que contiene este empaque (Opcional)
-                        </span>
-                        <input type="text" 
+                        </label>
+                        <input id="capture-loose-barcode" type="text"
                             ref={inputVinculoRef}
                             value={codigoSuelto}
                             onChange={(e) => setCodigoSuelto(e.target.value)}
@@ -566,10 +566,11 @@ export default function CapturaInteligente() {
              
              {/* 1. PZ x Bulto (Factor) */}
              <div className="col-span-1 md:col-span-3 relative">
-                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-2 text-center">
+                <label htmlFor="capture-factor" className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-2 text-center">
                   1. PZ x BULTO (FACTOR)
                 </label>
                 <input 
+                  id="capture-factor"
                   type="number" 
                   ref={inputFactorRef}
                   className="w-full h-20 text-center text-4xl font-black text-slate-100 border-2 border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 bg-slate-950/50 rounded-2xl transition-all outline-none disabled:opacity-30 disabled:bg-slate-950"
@@ -587,7 +588,8 @@ export default function CapturaInteligente() {
                        Opciones Conocidas:
                      </span>
                      {factoresConocidos.map((f, idx) => (
-                        <button 
+                         <button
+                           type="button"
                           key={idx}
                           onClick={() => {
                              setFactor(f)
@@ -624,10 +626,11 @@ export default function CapturaInteligente() {
              {/* 2. Bultos / Cajas */}
              <div className="col-span-1 md:col-span-3 relative">
                 <div className="absolute -left-3 top-1/2 -translate-y-1/2 text-slate-600 font-black text-2xl hidden md:block">×</div>
-                <label className="block text-[10px] font-extrabold text-indigo-400 uppercase tracking-widest mb-2 text-center drop-shadow">
+                <label htmlFor="capture-boxes" className="block text-[10px] font-extrabold text-indigo-400 uppercase tracking-widest mb-2 text-center drop-shadow">
                   2. BULTOS / CAJAS
                 </label>
                 <input 
+                  id="capture-boxes"
                   type="number" 
                   ref={inputBultosRef}
                   className="w-full h-20 text-center text-5xl font-black text-indigo-400 border-2 border-indigo-500/40 bg-indigo-500/10 rounded-2xl focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/20 outline-none shadow-inner transition-all disabled:opacity-30 disabled:cursor-not-allowed"
@@ -642,10 +645,11 @@ export default function CapturaInteligente() {
              {/* 3. Piezas Sueltas */}
              <div className="col-span-1 md:col-span-2 relative">
                 <div className="absolute -left-3 top-1/2 -translate-y-1/2 text-slate-600 font-black text-2xl hidden md:block">+</div>
-                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-2 text-center">
+                <label htmlFor="capture-loose-count" className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-2 text-center">
                   3. SUELTOS (PZ)
                 </label>
                 <input 
+                  id="capture-loose-count"
                   type="number" 
                   ref={inputExistenciaRef}
                   className={`w-full h-20 text-center text-3xl font-black bg-slate-950/50 border-2 rounded-2xl outline-none transition-all shadow-inner ${isConsumo ? 'border-orange-500/50 text-orange-400 focus:border-orange-400 focus:ring-4 focus:ring-orange-500/20' : 'border-slate-700 text-slate-100 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20'}`}
@@ -659,11 +663,12 @@ export default function CapturaInteligente() {
              {/* Botón de Confirmación y Switch de Uso Interno */}
              <div className="col-span-1 md:col-span-4 flex flex-col justify-end h-full gap-3 md:pl-2">
                 <div className="flex justify-end items-center pr-2">
-                   <label className="flex items-center cursor-pointer select-none">
+                   <label htmlFor="capture-internal-use" className="flex items-center cursor-pointer select-none">
                       <span className="text-[10px] font-black text-slate-400 hover:text-orange-400 tracking-widest mr-3 transition-colors uppercase">
                         ¿ES PARA USO INTERNO?
                       </span>
                       <input 
+                        id="capture-internal-use"
                         type="checkbox" 
                         className="toggle toggle-warning toggle-sm border-orange-500/50 bg-orange-500/20" 
                         checked={isConsumo} 
@@ -685,7 +690,7 @@ export default function CapturaInteligente() {
                     disabled={calcularTotal() <= 0 || guardarMutation.isPending}
                     onClick={confirmarGuardar}
                   >
-                    {guardarMutation.isPending ? <span className="loading loading-spinner"></span> : isConsumo ? 'REGISTRAR USO' : 'CONFIRMAR (Enter)'}
+                    {guardarMutation.isPending ? <LoadingState compact label="Guardando…" className="py-0 text-white" /> : isConsumo ? 'REGISTRAR USO' : 'CONFIRMAR (Enter)'}
                     <div className="ml-auto bg-black/30 px-3 py-2 rounded-xl flex flex-col items-center leading-none border border-white/10">
                       <span className="text-[8px] font-black uppercase tracking-widest opacity-80 mb-0.5 text-white">TOTAL</span>
                       <span className="font-mono text-2xl text-white">{calcularTotal()}</span>
@@ -722,7 +727,7 @@ export default function CapturaInteligente() {
               </thead>
               <tbody className="divide-y divide-slate-800/60">
                  {loadingHistorial ? (
-                   <tr><td colSpan="6" className="text-center py-12 text-slate-500"><span className="loading loading-spinner"></span></td></tr>
+                   <tr><td colSpan="6"><LoadingState compact label="Cargando historial…" className="py-12" /></td></tr>
                  ) : historial?.length === 0 ? (
                    <tr><td colSpan="6" className="text-center py-12 text-slate-500 font-bold uppercase tracking-widest text-[10px]">Sin registros hoy</td></tr>
                  ) : (
@@ -762,14 +767,22 @@ export default function CapturaInteligente() {
       </Card>
 
       {/* Modal Revincular */}
-      {modalRevincular && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) { setModalRevincular(false); setHistorialSeleccionado(null); setRevinculoProducto(null); } }}>
-          <div className="bg-slate-900 border border-slate-700 shadow-2xl rounded-3xl max-w-md w-full overflow-hidden">
+      <Dialog open={modalRevincular} onOpenChange={(open) => {
+        setModalRevincular(open)
+        if (!open) {
+          setHistorialSeleccionado(null)
+          setRevinculoProducto(null)
+        }
+      }}>
+        <DialogContent className="max-w-md overflow-hidden border-slate-700 bg-slate-900 p-0" showCloseButton={false}>
             <div className="p-6 border-b border-slate-800/60 bg-slate-800/50 flex justify-between items-start">
-              <h3 className="font-black text-xl text-slate-100 flex items-center gap-2">
+              <DialogHeader>
+              <DialogTitle className="font-black text-xl text-slate-100 flex items-center gap-2">
                 <RotateCcw className="w-5 h-5 text-orange-400" /> Corregir Vinculación
-              </h3>
-              <button onClick={() => { setModalRevincular(false); setHistorialSeleccionado(null); setRevinculoProducto(null); }} className="text-slate-500 hover:text-slate-300">
+              </DialogTitle>
+              <DialogDescription className="sr-only">Escanea la pieza correcta y confirma su factor.</DialogDescription>
+              </DialogHeader>
+              <button type="button" aria-label="Cerrar corrección de vinculación" onClick={() => { setModalRevincular(false); setHistorialSeleccionado(null); setRevinculoProducto(null); }} className="text-slate-500 hover:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -777,10 +790,10 @@ export default function CapturaInteligente() {
             <div className="p-6 space-y-6">
               {!revinculoProducto ? (
                 <form onSubmit={handleRevincular}>
-                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
+                  <label htmlFor="relink-barcode" className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
                     Escanear pieza correcta
                   </label>
-                  <input type="text" autoFocus value={revinculoCodigo} onChange={e => setRevinculoCodigo(e.target.value)}
+                  <input id="relink-barcode" type="text" autoFocus value={revinculoCodigo} onChange={e => setRevinculoCodigo(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Escape') {
                         e.stopPropagation()
@@ -803,10 +816,10 @@ export default function CapturaInteligente() {
                     <p className="font-black text-slate-200">{revinculoProducto.descripcion_caja}</p>
                   </div>
                   <div>
-                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
+                    <label htmlFor="relink-factor" className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
                       ¿Cuántas piezas trae la caja? (Factor)
                     </label>
-                    <input type="number" autoFocus value={revinculoFactor} onChange={e => setRevinculoFactor(e.target.value)}
+                    <input id="relink-factor" type="number" autoFocus value={revinculoFactor} onChange={e => setRevinculoFactor(e.target.value)}
                       className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-slate-200 font-black text-xl text-center focus:border-orange-500 outline-none" 
                       min="1" />
                   </div>
@@ -818,24 +831,25 @@ export default function CapturaInteligente() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* Modal Múltiples Opciones */}
-      {modalMultiples && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) { setModalMultiples(false); resetear(); } }}>
-          <div className="bg-slate-900 border border-slate-700 shadow-2xl rounded-3xl max-w-2xl w-full overflow-hidden">
+      <Dialog open={modalMultiples} onOpenChange={(open) => {
+        setModalMultiples(open)
+        if (!open) resetear()
+      }}>
+        <DialogContent className="max-w-2xl overflow-hidden border-slate-700 bg-slate-900 p-0" showCloseButton={false}>
             <div className="p-6 border-b border-slate-800/60 bg-slate-800/50 flex justify-between items-start">
-              <div>
-                  <h3 className="font-black text-xl text-slate-100 flex items-center gap-2">
+              <DialogHeader>
+                  <DialogTitle className="font-black text-xl text-slate-100 flex items-center gap-2">
                     <BoxSelect className="w-5 h-5 text-indigo-400" /> Múltiples Presentaciones Encontradas
-                  </h3>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">
+                  </DialogTitle>
+                  <DialogDescription className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">
                       El código escaneado pertenece a {opcionesMultiples.length} presentaciones diferentes. Selecciona la correcta:
-                  </p>
-              </div>
-              <button onClick={() => {
+                  </DialogDescription>
+              </DialogHeader>
+              <button type="button" aria-label="Cerrar selección de presentación" onClick={() => {
                   setModalMultiples(false)
                   resetear()
               }} className="text-slate-500 hover:text-slate-300">
@@ -846,13 +860,14 @@ export default function CapturaInteligente() {
             <div className="p-6 max-h-[60vh] overflow-y-auto">
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {opcionesMultiples.map((opcion, idx) => (
-                      <div 
+                      <button
+                          type="button"
                           key={idx} 
                           onClick={() => {
                               setModalMultiples(false)
                               iniciarProcesoSecuencial(opcion, codigo.trim())
                           }}
-                          className="border border-slate-700/50 bg-slate-800/30 hover:bg-indigo-900/30 hover:border-indigo-500/50 p-4 rounded-2xl cursor-pointer transition-all hover:scale-[1.02] flex flex-col justify-between"
+                          className="border border-slate-700/50 bg-slate-800/30 hover:bg-indigo-900/30 hover:border-indigo-500/50 p-4 rounded-2xl text-left transition-all hover:scale-[1.02] flex flex-col justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
                           <div>
                               <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md mb-2 inline-block ${
@@ -870,23 +885,27 @@ export default function CapturaInteligente() {
                               </div>
                               <ArrowRight className="w-5 h-5 text-slate-600" />
                           </div>
-                      </div>
+                      </button>
                   ))}
                </div>
             </div>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* Modal Gestionar Variantes (CRUD) */}
-      {modalGestionVariantes && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in" onClick={(e) => { if (e.target === e.currentTarget) cerrarModalGestion(); }}>
-          <div className="bg-slate-900 border border-slate-700 shadow-2xl rounded-3xl max-w-lg w-full overflow-hidden">
+      <Dialog open={modalGestionVariantes} onOpenChange={(open) => {
+        if (open) setModalGestionVariantes(true)
+        else void cerrarModalGestion()
+      }}>
+        <DialogContent className="max-w-lg overflow-hidden border-slate-700 bg-slate-900 p-0" showCloseButton={false}>
             <div className="p-6 border-b border-slate-800/60 bg-slate-800/50 flex justify-between items-start">
-              <h3 className="font-black text-xl text-slate-100 flex items-center gap-2">
+              <DialogHeader>
+              <DialogTitle className="font-black text-xl text-slate-100 flex items-center gap-2">
                 <Settings className="w-5 h-5 text-indigo-400" /> Gestionar Variantes
-              </h3>
-              <button onClick={cerrarModalGestion} className="text-slate-500 hover:text-slate-300">
+              </DialogTitle>
+              <DialogDescription className="sr-only">Selecciona, elimina o agrega variantes de presentación.</DialogDescription>
+              </DialogHeader>
+              <button type="button" aria-label="Cerrar gestión de variantes" onClick={cerrarModalGestion} className="text-slate-500 hover:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -894,12 +913,12 @@ export default function CapturaInteligente() {
             <div className="p-6">
                <h4 className="text-[10px] uppercase tracking-widest font-black text-slate-400 mb-3">TUS VARIANTES ACTUALES</h4>
                {variantesLista.length === 0 ? (
-                  <p className="text-xs text-slate-500 mb-6 italic">No has creado variantes para este código.</p>
+                  <EmptyState title="Sin variantes" description="No has creado variantes para este código." className="min-h-24 py-4" />
                ) : (
                   <div className="space-y-2 mb-6 max-h-[30vh] overflow-y-auto">
                      {variantesLista.map(v => (
                         <div key={v.id} className="flex justify-between items-center bg-slate-950/50 p-3 rounded-xl border border-slate-800">
-                           <div className="flex-1 cursor-pointer" onClick={() => {
+                           <button type="button" className="flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => {
                                // Si le dan click al texto, que actue como seleccionar
                                const fakeMatch = {
                                    clave_sicar: datosProd.clave_sicar_final || datosProd.clave_sicar || codigo.trim(),
@@ -914,9 +933,9 @@ export default function CapturaInteligente() {
                            }}>
                               <span className="text-sm font-bold text-slate-200 hover:text-indigo-400 transition-colors">{v.nombre || 'Sin nombre'}</span>
                               <span className="ml-2 text-xs text-slate-400">({v.factor} pz)</span>
-                           </div>
+                           </button>
                            <div className="flex gap-2">
-                               <button onClick={() => {
+                               <button type="button" onClick={() => {
                                    // Boton seleccionar explicito
                                    const fakeMatch = {
                                        clave_sicar: datosProd.clave_sicar_final || datosProd.clave_sicar || codigo.trim(),
@@ -931,7 +950,7 @@ export default function CapturaInteligente() {
                                }} className="text-indigo-400 hover:text-indigo-300 bg-indigo-400/10 hover:bg-indigo-400/20 px-2 py-1 rounded-md text-[10px] font-bold transition-colors uppercase tracking-widest">
                                   Seleccionar
                                </button>
-                               <button onClick={() => eliminarVariante(v.id)} className="text-red-400 hover:text-red-300 bg-red-400/10 hover:bg-red-400/20 px-2 py-1 rounded-md text-[10px] font-bold transition-colors uppercase tracking-widest">
+                               <button type="button" onClick={() => eliminarVariante(v.id)} className="text-red-400 hover:text-red-300 bg-red-400/10 hover:bg-red-400/20 px-2 py-1 rounded-md text-[10px] font-bold transition-colors uppercase tracking-widest">
                                   Eliminar
                                </button>
                            </div>
@@ -944,20 +963,20 @@ export default function CapturaInteligente() {
                   <h4 className="text-[10px] uppercase tracking-widest font-black text-indigo-400 mb-3">+ AÑADIR NUEVA VARIANTE</h4>
                   <div className="flex gap-3 items-end">
                      <div className="flex-1">
-                        <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                         <label htmlFor="variant-name" className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">
                            Nombre (ej. Delgado 50)
                         </label>
-                        <input type="text" 
+                         <input id="variant-name" type="text"
                            value={nuevaVariante.nombre} onChange={e => setNuevaVariante({...nuevaVariante, nombre: e.target.value})}
                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-200 focus:border-indigo-500 outline-none" 
                            placeholder="Nombre..."
                         />
                      </div>
                      <div className="w-24">
-                        <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                         <label htmlFor="variant-factor" className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">
                            Factor
                         </label>
-                        <input type="number" 
+                         <input id="variant-factor" type="number"
                            value={nuevaVariante.factor} onChange={e => setNuevaVariante({...nuevaVariante, factor: e.target.value})}
                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-center text-slate-200 focus:border-indigo-500 outline-none" 
                            min="1"
@@ -969,9 +988,8 @@ export default function CapturaInteligente() {
                   </div>
                </div>
             </div>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
     </div>
   )
