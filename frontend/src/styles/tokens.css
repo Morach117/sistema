@@ -1,0 +1,64 @@
+@layer base {
+  :root {
+    color-scheme: light;
+
+    --background: 210 40% 98%;
+    --surface: 0 0% 100%;
+    --text-primary: 222.2 47.4% 11.2%;
+    --border: 214.3 31.8% 86%;
+    --focus: 224 76% 48%;
+    --success: 142 71% 35%;
+    --warning: 32 95% 44%;
+    --danger: 0 72% 51%;
+
+    --foreground: var(--text-primary);
+    --card: var(--surface);
+    --card-foreground: var(--text-primary);
+    --popover: var(--surface);
+    --popover-foreground: var(--text-primary);
+    --primary: 224 76% 48%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 214.3 31.8% 91.4%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 40%;
+    --accent: 226 100% 94%;
+    --accent-foreground: 224 76% 35%;
+    --destructive: var(--danger);
+    --destructive-foreground: 210 40% 98%;
+    --input: var(--border);
+    --ring: var(--focus);
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    color-scheme: dark;
+
+    --background: 222.2 84% 4.9%;
+    --surface: 217.2 32.6% 12%;
+    --text-primary: 210 40% 98%;
+    --border: 217.2 25% 28%;
+    --focus: 226 100% 75%;
+    --success: 142 69% 58%;
+    --warning: 38 92% 58%;
+    --danger: 0 91% 71%;
+
+    --foreground: var(--text-primary);
+    --card: var(--surface);
+    --card-foreground: var(--text-primary);
+    --popover: var(--surface);
+    --popover-foreground: var(--text-primary);
+    --primary: 226 100% 75%;
+    --primary-foreground: 222.2 84% 8%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 72%;
+    --accent: 224 50% 24%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: var(--danger);
+    --destructive-foreground: 222.2 84% 8%;
+    --input: var(--border);
+    --ring: var(--focus);
+  }
+}
