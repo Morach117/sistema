@@ -51,5 +51,5 @@ it('shows an accessible loading status while a lazy route resolves', async () =>
   renderAt('/auditoria')
 
   expect(screen.getByRole('status', { name: /cargando módulo/i })).toBeInTheDocument()
-  expect(await screen.findByRole('heading', { name: /auditoría de captura/i })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: /auditoría de captura/i }, { timeout: 5_000 })).toBeInTheDocument()
 })

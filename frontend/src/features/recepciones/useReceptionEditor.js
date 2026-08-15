@@ -6,7 +6,10 @@ import api from '@/lib/api'
 const SAVE_DELAY_MS = 250
 const fieldKey = (itemId, field) => `${itemId}:${field}`
 
-export function useReceptionEditor(remisionId) {
+export function useReceptionEditor(remisionId, {
+  endpoint = '/api/recepciones/actualizar_campo',
+  queryKeyPrefix = 'recepciones_detail',
+} = {}) {
   const queryClient = useQueryClient()
   const [draftFields, setDraftFields] = useState({})
   const [hasPending, setHasPending] = useState(false)
@@ -17,12 +20,9 @@ export function useReceptionEditor(remisionId) {
   const mutationRef = useRef(null)
 
   const mutation = useMutation({
-    mutationFn: ({ id_item, campo, valor }) => api.post(
-      '/api/recepciones/actualizar_campo',
-      { id_item, campo, valor },
-    ),
+    mutationFn: ({ id_item, campo, valor }) => api.post(endpoint, { id_item, campo, valor }),
     onSuccess: (_data, variables) => queryClient.invalidateQueries({
-      queryKey: ['recepciones_detail', variables.remisionId],
+      queryKey: [queryKeyPrefix, variables.remisionId],
     }),
     onError: (error) => {
       Swal.fire({
@@ -99,7 +99,7 @@ export function useReceptionEditor(remisionId) {
 
   const saveField = useCallback((itemId, field, explicitValue) => {
     const key = fieldKey(itemId, field)
-    const value = explicitValue ?? draftFields[key]
+    const value = explicitValue === undefined ? draftFields[key] : explicitValue
     if (value === undefined) return
 
     clearTimeout(timersRef.current.get(key))

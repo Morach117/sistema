@@ -1,9 +1,30 @@
-import { useState, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDebounce } from 'use-debounce'
+import {
+  AlertCircle,
+  Boxes,
+  CheckCircle2,
+  ClipboardCheck,
+  FileSearch,
+  FileSpreadsheet,
+  History,
+  Loader2,
+  PackageCheck,
+  PackageOpen,
+  Save,
+  ShoppingCart,
+  Trash2,
+  Upload,
+  X,
+  XCircle,
+} from 'lucide-react'
+import Swal from 'sweetalert2'
 import api from '@/lib/api'
-import { Card } from '@/components/ui/card'
+import { canAccess } from '@/auth/permissions'
+import { readSession } from '@/auth/session'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -15,215 +36,326 @@ import {
 } from '@/components/ui/dialog'
 import EmptyState from '@/components/ui/EmptyState'
 import LoadingState from '@/components/ui/LoadingState'
+import {
+  buildReceptionSummary,
+  calculateCost,
+  calculatePresentation,
+  displayNumber,
+  invoicePhysicalDifference,
+  validateReceptionItems,
+} from '@/features/recepciones/receptionCalculations'
 import { useReceptionEditor } from '@/features/recepciones/useReceptionEditor'
-import { canAccess } from '@/auth/permissions'
-import { readSession } from '@/auth/session'
-import { PackageOpen, CheckCircle2, FileSpreadsheet, XCircle, Loader2, Upload, Trash2, X } from 'lucide-react'
-import Swal from 'sweetalert2'
 
-// ─────────────────────────────────────────────────
-// SICAR Input with live catalog validation
-// ─────────────────────────────────────────────────
-function SicarInput({ item, editor, esFaltante, canValidateCatalog }) {
-  const value = editor.getDraftField(item.id, 'clave_final', item.clave_final || '')
+const PROVIDERS = [
+  { value: 'custom', label: 'Manual' },
+  { value: 'paola', label: 'Paola / Operadora' },
+  { value: 'tony', label: 'Tony' },
+  { value: 'optivosa', label: 'Optivosa' },
+  { value: 'sindesc', label: 'Sin descuentos' },
+]
+
+const DISCOUNT_PERCENT = 5
+
+const formatMoney = (value) => Number(value || 0).toLocaleString('es-MX', {
+  style: 'currency',
+  currency: 'MXN',
+  minimumFractionDigits: 2,
+})
+
+const formatDate = (value) => {
+  if (!value) return 'Sin fecha'
+  const parsed = new Date(String(value).replace(' ', 'T'))
+  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('es-MX')
+}
+
+function downloadResponse(response, fallbackName) {
+  const disposition = response.headers?.['content-disposition'] || ''
+  const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
+  const blobUrl = URL.createObjectURL(response.data)
+  const link = document.createElement('a')
+  link.href = blobUrl
+  link.download = filenameMatch?.[1] || fallbackName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(blobUrl)
+}
+
+function SicarInput({ item, editor, disabled, canValidateCatalog }) {
+  const value = editor.getDraftField(item.id, 'clave_final', item.clave_final || item.clave_sicar || '')
   const [debouncedValue] = useDebounce(value, 600)
   const [description, setDescription] = useState('')
-  const [isValidating, setIsValidating] = useState(false)
+  const [validating, setValidating] = useState(false)
 
   useEffect(() => {
     if (!debouncedValue || debouncedValue === 'FALTANTE' || debouncedValue === 'DEVOLUCION') {
-      setDescription(''); return
+      setDescription('')
+      return undefined
     }
     if (!canValidateCatalog) {
-      setIsValidating(false)
       setDescription('Validación de catálogo no disponible con tus permisos')
-      return
+      return undefined
     }
+
     let alive = true
-    setIsValidating(true)
-    api.get(`/api/catalogo/list?page=1&limit=1&search=${encodeURIComponent(debouncedValue)}`)
-      .then(res => {
+    setValidating(true)
+    api.get('/api/catalogo/list', { params: { page: 1, limit: 1, search: debouncedValue } })
+      .then((response) => {
         if (!alive) return
-        const r = res.data?.data?.[0]
-        if (r && (
-          (r.clave_sicar || '').toUpperCase() === debouncedValue.toUpperCase() || 
-          (r.codigo_barras || '').toUpperCase() === debouncedValue.toUpperCase()
-        )) {
-          setDescription(r.descripcion)
-        } else { setDescription('⚠ No encontrado en catálogo') }
+        const result = response.data?.data?.[0]
+        const matches = result && [result.clave_sicar, result.codigo_barras]
+          .some((candidate) => String(candidate || '').toUpperCase() === debouncedValue.toUpperCase())
+        setDescription(matches ? result.descripcion : 'No encontrado en catálogo')
       })
-      .catch(() => { if (alive) setDescription('Error al validar') })
-      .finally(() => { if (alive) setIsValidating(false) })
+      .catch(() => { if (alive) setDescription('Error al validar en catálogo') })
+      .finally(() => { if (alive) setValidating(false) })
     return () => { alive = false }
   }, [canValidateCatalog, debouncedValue])
 
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center gap-2">
-        <span className="bg-slate-950/50 text-slate-400 border border-slate-700/50 px-2 py-1 rounded-md font-mono text-[10px] font-bold shadow-inner shrink-0">
-          {item.cod_prov}
+    <div className="space-y-1">
+      <div className="flex min-h-10 items-center overflow-hidden rounded-lg border border-border bg-background">
+        <span className="border-r border-border bg-secondary px-2 py-2 font-mono text-[10px] font-bold text-muted-foreground">
+          {item.cod_prov || 'SIN-CÓDIGO'}
         </span>
-        <div className="flex items-center border border-slate-700/50 rounded-md overflow-hidden bg-slate-950/50 shadow-inner h-7 flex-1 relative">
-           <label htmlFor={`sicar-${item.id}`} className="bg-slate-800/80 text-slate-400 px-2 flex items-center h-full text-[8px] font-black uppercase tracking-widest border-r border-slate-700/50 shrink-0">SICAR</label>
-           <input 
-             id={`sicar-${item.id}`}
-             type="text" 
-             className={`w-full bg-transparent font-mono font-bold text-[11px] outline-none px-2 ${esFaltante ? 'text-red-400' : 'text-slate-200'}`}
-             value={value}
-             placeholder="---"
-             onChange={(e) => editor.setDraftField(item.id, 'clave_final', e.target.value)}
-             onBlur={(e) => editor.saveField(item.id, 'clave_final', e.target.value)}
-             onKeyDown={(e) => {
-               if (e.key === 'Enter') {
-                 e.preventDefault()
-                 editor.saveField(item.id, 'clave_final', e.currentTarget.value)
-               }
-             }}
-           />
-           {value && !isValidating && (
-             <button type="button" aria-label="Limpiar clave SICAR" onClick={() => { editor.setDraftField(item.id, 'clave_final', ''); editor.saveField(item.id, 'clave_final', '') }} className="absolute right-2 text-slate-500 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-               <X className="w-3 h-3" />
-             </button>
-           )}
-           {isValidating && <Loader2 className="w-3 h-3 text-slate-500 animate-spin absolute right-2 shrink-0" />}
-        </div>
+        <label htmlFor={`sicar-${item.id}`} className="sr-only">SICAR</label>
+        <input
+          id={`sicar-${item.id}`}
+          type="text"
+          value={value}
+          disabled={disabled}
+          placeholder="Clave SICAR"
+          onChange={(event) => editor.setDraftField(item.id, 'clave_final', event.target.value)}
+          onBlur={(event) => editor.saveField(item.id, 'clave_final', event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              editor.saveField(item.id, 'clave_final', event.currentTarget.value)
+            }
+          }}
+          className="min-w-0 flex-1 bg-transparent px-3 py-2 font-mono text-xs font-bold outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+        />
+        {validating && <Loader2 aria-hidden="true" className="mr-3 h-4 w-4 animate-spin text-muted-foreground" />}
+        {value && !validating && !disabled && (
+          <button
+            type="button"
+            aria-label="Limpiar clave SICAR"
+            onClick={() => {
+              editor.setDraftField(item.id, 'clave_final', '')
+              editor.saveField(item.id, 'clave_final', '')
+            }}
+            className="mr-1 inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X aria-hidden="true" className="h-4 w-4" />
+          </button>
+        )}
       </div>
-      {description && !esFaltante && (
-        <div className={`text-[9px] mt-1 font-bold tracking-wide px-1 truncate ${description.startsWith('⚠') ? 'text-amber-500' : 'text-emerald-400'}`}>
-          {description}
-        </div>
-      )}
+      {description && <p className="text-[10px] font-bold text-muted-foreground">{description}</p>}
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────
-// PROVIDERS
-// ─────────────────────────────────────────────────
-const PROVEEDORES = [
-  { value: 'custom', label: '🖐 Manual' },
-  { value: 'paola', label: '📄 Paola/Oper.' },
-  { value: 'tony', label: '🐯 Tony' },
-  { value: 'optivosa', label: '👓 Optivosa' },
-  { value: 'sindesc', label: '🚫 Sin Descuentos' },
-]
+function SummaryCard({ label, value, icon: Icon, tone = 'text-primary' }) {
+  return (
+    <Card className="border-border bg-card/80 p-3 shadow-sm">
+      <div className="flex items-center gap-3">
+        <span className={`flex h-9 w-9 items-center justify-center rounded-lg bg-secondary ${tone}`}>
+          <Icon aria-hidden="true" className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">{label}</p>
+          <p className="truncate text-lg font-black">{value}</p>
+        </div>
+      </div>
+    </Card>
+  )
+}
 
-// ─────────────────────────────────────────────────
-// MAIN COMPONENT
-// ─────────────────────────────────────────────────
+function PreviewSummary({ entry }) {
+  const classification = {
+    nuevo: 'Nuevo',
+    'actualiza-pendiente': 'Actualiza pendiente',
+    'folio-finalizado': 'Folio finalizado',
+  }[entry.clasificacion] || entry.clasificacion
+  const summary = entry.resumen || {}
+  const amount = summary.cajas > 0
+    ? `${displayNumber(summary.cajas)} cajas`
+    : `${displayNumber(summary.piezas)} piezas`
+
+  return (
+    <li className={`rounded-xl border p-3 ${entry.puedeGuardar ? 'border-border bg-secondary/40' : 'border-destructive/40 bg-destructive/10'}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-mono text-sm font-black">{entry.folio}</span>
+        <span className="rounded-full border border-border px-2 py-1 text-[10px] font-black uppercase tracking-wider">{classification}</span>
+      </div>
+      <p className="mt-2 text-xs font-bold text-muted-foreground">
+        {summary.productos || 0} {summary.productos === 1 ? 'artículo' : 'artículos'} · {amount} · {formatMoney(summary.costoTotal)}
+      </p>
+      {entry.issues?.length > 0 && (
+        <p className="mt-1 text-xs font-bold text-destructive">{entry.issues.length} incidencias detectadas</p>
+      )}
+    </li>
+  )
+}
+
 export default function Recepciones() {
   const queryClient = useQueryClient()
+  const sessionUser = readSession()?.user
+  const canValidateCatalog = canAccess(sessionUser, 'catalogo')
+  const canViewPriceHistory = canAccess(sessionUser, 'evolucion-precios')
+  const canManageNotes = sessionUser?.rol === 'admin'
   const [selectedRemision, setSelectedRemision] = useState(null)
-  const [globalDiscount, setGlobalDiscount] = useState(5)
   const [selectedProvider, setSelectedProvider] = useState('custom')
+  const [includePhysical, setIncludePhysical] = useState(false)
+  const [selectedItems, setSelectedItems] = useState([])
+  const [bulkPresentation, setBulkPresentation] = useState('pieza')
+  const [bulkPieces, setBulkPieces] = useState(1)
+  const [bulkDiscount, setBulkDiscount] = useState('automatico')
   const [showUploadModal, setShowUploadModal] = useState(false)
+  const [uploadFiles, setUploadFiles] = useState([])
+  const [uploadPreview, setUploadPreview] = useState(null)
+  const [priceHistoryItem, setPriceHistoryItem] = useState(null)
+  const [noteTarget, setNoteTarget] = useState('factura')
+  const [noteText, setNoteText] = useState('')
   const editor = useReceptionEditor(selectedRemision)
-  const canValidateCatalog = canAccess(readSession()?.user, 'catalogo')
 
-  // ── Queries ──
-  const { data: remisiones, isLoading: isLoadingList } = useQuery({
+  const { data: remisiones = [], isLoading: loadingList } = useQuery({
     queryKey: ['recepciones_list'],
-    queryFn: async () => { const res = await api.get('/api/recepciones'); return res.data.data },
-    refetchInterval: 10000
+    queryFn: async () => (await api.get('/api/recepciones')).data.data || [],
+    refetchInterval: 10_000,
   })
 
-  const { data: remisionDetails, isLoading: isLoadingDetails } = useQuery({
+  const { data: remisionDetails, isLoading: loadingDetails } = useQuery({
     queryKey: ['recepciones_detail', selectedRemision],
-    queryFn: async () => {
-      if (!selectedRemision) return null
-      const res = await api.get(`/api/recepciones/${selectedRemision}`)
-      return res.data
-    },
-    enabled: !!selectedRemision
+    queryFn: async () => (await api.get(`/api/recepciones/${selectedRemision}`)).data,
+    enabled: Boolean(selectedRemision),
   })
 
-  // Sync provider from DB when we load a remision
-  useEffect(() => {
-    if (remisionDetails?.proveedor) {
-      const p = (remisionDetails.proveedor || '').toUpperCase()
-      if (p.includes('PAOLA') || p.includes('OPERADORA')) setSelectedProvider('paola')
-      else if (p.includes('TONY')) setSelectedProvider('tony')
-      else if (p.includes('OPTIVOSA')) setSelectedProvider('optivosa')
-      else if (p.includes('SINDESC')) setSelectedProvider('sindesc')
-      else setSelectedProvider('custom')
-    }
-  }, [remisionDetails])
+  const { data: noteDetails } = useQuery({
+    queryKey: ['active_reception_notes', selectedRemision],
+    queryFn: async () => (await api.get(`/api/historial-recepciones/${selectedRemision}`)).data,
+    enabled: Boolean(selectedRemision && canManageNotes),
+  })
+
+  const priceHistoryKey = priceHistoryItem?.clave_final || priceHistoryItem?.clave_sicar || priceHistoryItem?.cod_prov
+  const { data: priceHistory = [], isLoading: loadingPriceHistory } = useQuery({
+    queryKey: ['reception_price_history', priceHistoryKey],
+    queryFn: async () => (await api.get('/api/evolucion-precios', { params: { buscar_codigo: priceHistoryKey } })).data.data || [],
+    enabled: Boolean(canViewPriceHistory && priceHistoryKey),
+  })
 
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        if (showUploadModal) {
-          setShowUploadModal(false)
-        } else if (selectedRemision) {
-          setSelectedRemision(null)
-        }
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [showUploadModal, selectedRemision])
+    const provider = String(remisionDetails?.proveedor || '').toUpperCase()
+    if (!provider) return
+    if (provider.includes('PAOLA') || provider.includes('OPERADORA')) setSelectedProvider('paola')
+    else if (provider.includes('TONY')) setSelectedProvider('tony')
+    else if (provider.includes('OPTIVOSA')) setSelectedProvider('optivosa')
+    else if (provider.includes('SINDESC')) setSelectedProvider('sindesc')
+    else setSelectedProvider('custom')
+  }, [remisionDetails?.proveedor])
 
-  // ── Mutations ──
-  const deleteItemMutation = useMutation({
+  useEffect(() => {
+    setSelectedItems([])
+    setPriceHistoryItem(null)
+    setIncludePhysical(false)
+    setNoteTarget('factura')
+    setNoteText('')
+  }, [selectedRemision])
+
+  const remisionCode = remisionDetails?.datos ? Object.keys(remisionDetails.datos)[0] : null
+  const persistedItems = useMemo(
+    () => (remisionCode ? remisionDetails?.datos?.[remisionCode] || [] : []),
+    [remisionCode, remisionDetails?.datos],
+  )
+  const items = useMemo(() => persistedItems.map((item) => ({
+    ...item,
+    proveedor: remisionDetails?.proveedor,
+    cantidad: editor.getDraftField(item.id, 'cantidad', item.cant ?? item.cantidad ?? 0),
+    cant: editor.getDraftField(item.id, 'cantidad', item.cant ?? item.cantidad ?? 0),
+    costo_unitario: editor.getDraftField(item.id, 'costo_unitario', item.costo_unitario ?? item.costo ?? 0),
+    clave_final: editor.getDraftField(item.id, 'clave_final', item.clave_final || item.clave_sicar || ''),
+    existencia_lapiz: editor.getDraftField(item.id, 'existencia_lapiz', item.existencia_lapiz ?? 0),
+    es_paquete: editor.getDraftField(item.id, 'es_paquete', item.es_paquete ?? 0),
+    piezas_por_paquete: editor.getDraftField(item.id, 'piezas_por_paquete', item.piezas_por_paquete ?? 1),
+    aplica_descuento_manual: editor.getDraftField(item.id, 'aplica_descuento_manual', item.aplica_descuento_manual),
+    revision_pendiente: editor.getDraftField(item.id, 'revision_pendiente', item.revision_pendiente ?? 0),
+  })), [editor, persistedItems, remisionDetails?.proveedor])
+  const finalised = remisionDetails?.estado === 'FINALIZADO'
+  const issues = useMemo(() => validateReceptionItems(items), [items])
+  const blockingIssues = issues.filter((issue) => issue.severity === 'error')
+  const validationBlocksFinalize = blockingIssues.length > 0
+  const summary = useMemo(() => buildReceptionSummary(items, {
+    proveedor: remisionDetails?.proveedor,
+    porcentaje: DISCOUNT_PERCENT,
+  }), [items, remisionDetails?.proveedor])
+
+  const deleteMutation = useMutation({
     mutationFn: (id) => api.delete(`/api/recepciones/item/${id}`),
-    onSuccess: () => {
-      Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Ítem eliminado', showConfirmButton: false, timer: 1500 })
-      queryClient.invalidateQueries(['recepciones_detail', selectedRemision])
-    },
-    onError: (err) => Swal.fire('Error', err.response?.data?.error || 'Fallo al eliminar', 'error')
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['recepciones_detail', selectedRemision] }),
+    onError: (error) => Swal.fire('Error', error.response?.data?.error || 'Fallo al eliminar', 'error'),
   })
-
   const finalizeMutation = useMutation({
-    mutationFn: (numero_remision) => api.post('/api/recepciones/finalizar', { remision_id: numero_remision }),
+    mutationFn: (numeroRemision) => api.post('/api/recepciones/finalizar', { remision_id: numeroRemision }),
     onSuccess: () => {
-      Swal.fire('¡Finalizado!', 'La orden fue cerrada exitosamente.', 'success')
+      Swal.fire('Finalizado', 'La orden fue cerrada exitosamente.', 'success')
       setSelectedRemision(null)
-      queryClient.invalidateQueries(['recepciones_list'])
+      queryClient.invalidateQueries({ queryKey: ['recepciones_list'] })
     },
-    onError: (err) => Swal.fire('Error', err.response?.data?.error || 'Fallo al finalizar', 'error')
+    onError: (error) => Swal.fire('Error', error.response?.data?.error || 'Fallo al finalizar', 'error'),
   })
-
+  const previewMutation = useMutation({
+    mutationFn: async () => {
+      const formData = new FormData()
+      uploadFiles.forEach((file) => formData.append('archivo_factura', file))
+      return api.post('/api/recepciones/preview-upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+    },
+    onSuccess: (response) => setUploadPreview(response.data),
+    onError: (error) => Swal.fire('Error', error.response?.data?.error || 'No se pudo generar la vista previa', 'error'),
+  })
   const uploadMutation = useMutation({
-    mutationFn: (formData) => api.post('/api/recepciones/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
-    onSuccess: (res) => {
-      Swal.fire('¡Procesado!', res.data.mensaje || 'Archivos procesados', 'success')
+    mutationFn: async () => {
+      const formData = new FormData()
+      uploadFiles.forEach((file) => formData.append('archivo_factura', file))
+      return api.post('/api/recepciones/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+    },
+    onSuccess: (response) => {
+      Swal.fire('Procesado', response.data.mensaje || 'Archivos procesados', 'success')
       setShowUploadModal(false)
-      queryClient.invalidateQueries(['recepciones_list'])
-      if (res.data.id_remision) {
-        setSelectedRemision(res.data.id_remision)
-        queryClient.invalidateQueries(['recepciones_detail'])
+      setUploadFiles([])
+      setUploadPreview(null)
+      queryClient.invalidateQueries({ queryKey: ['recepciones_list'] })
+      if (response.data.id_remision) {
+        const importedRemision = String(response.data.id_remision) === String(selectedRemision)
+          ? selectedRemision
+          : response.data.id_remision
+        queryClient.invalidateQueries({ queryKey: ['recepciones_detail', importedRemision] })
+        queryClient.invalidateQueries({ queryKey: ['active_reception_notes', importedRemision] })
+        setSelectedRemision(importedRemision)
       }
     },
-    onError: (err) => Swal.fire('Error', err.response?.data?.error || 'Fallo al subir', 'error')
+    onError: (error) => Swal.fire('Error', error.response?.data?.error || 'Fallo al subir', 'error'),
+  })
+  const noteMutation = useMutation({
+    mutationFn: () => api.post(`/api/historial-recepciones/${selectedRemision}/notas`, {
+      nota: noteText,
+      item_id: noteTarget === 'factura' ? null : Number(noteTarget),
+    }),
+    onSuccess: () => {
+      setNoteText('')
+      queryClient.invalidateQueries({ queryKey: ['active_reception_notes', selectedRemision] })
+    },
+    onError: (error) => Swal.fire('Error', error.response?.data?.error || 'No se pudo guardar la nota', 'error'),
   })
 
-  // ── Handlers ──
-  const handleUpdate = (id_item, campo, valor) => {
-    editor.setDraftField(id_item, campo, valor)
-    editor.saveField(id_item, campo, valor)
-  }
-
-  const saveDraftOnEnter = (event, itemId, field) => {
+  const saveOnEnter = (event, itemId, field) => {
     if (event.key !== 'Enter') return
     event.preventDefault()
     editor.saveField(itemId, field, event.currentTarget.value)
   }
 
-  const handleDelete = async (id, desc) => {
-    const result = await Swal.fire({
-      title: '¿Eliminar ítem?',
-      text: `${desc}\n\nSe borrará permanentemente de la BD.`,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#ef4444',
-      confirmButtonText: 'Sí, Eliminar',
-      cancelButtonText: 'Cancelar'
-    })
-    if (!result.isConfirmed) return
-    editor.runTrackedOperation(
-      `delete:${id}`,
-      () => deleteItemMutation.mutateAsync(id),
-    ).catch(() => undefined)
+  const updateField = (itemId, field, value) => {
+    editor.setDraftField(itemId, field, value)
+    editor.saveField(itemId, field, value)
   }
 
   const waitForSavedEdits = async (actionLabel) => {
@@ -240,345 +372,517 @@ export default function Recepciones() {
     }
   }
 
-  const handleFinalize = async (numero_remision) => {
+  const handleDelete = async (id, description) => {
     const result = await Swal.fire({
-      title: '¿Cerrar Inventario?', text: "Una vez finalizado no se podrá editar.",
-      icon: 'warning', showCancelButton: true, confirmButtonColor: '#10b981',
-      confirmButtonText: 'Sí, Finalizar', cancelButtonText: 'Cancelar'
+      title: '¿Eliminar ítem?',
+      text: `${description}\n\nSe borrará permanentemente de la BD.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, eliminar',
+      cancelButtonText: 'Cancelar',
     })
     if (!result.isConfirmed) return
-    if (await waitForSavedEdits('finalizar la recepción')) {
-      finalizeMutation.mutate(numero_remision)
-    }
+    editor.runTrackedOperation(`delete:${id}`, () => deleteMutation.mutateAsync(id)).catch(() => undefined)
   }
 
-  const handleValidarExcel = async (numero_remision) => {
+  const handleFinalize = async () => {
+    if (validationBlocksFinalize) return
+    const result = await Swal.fire({
+      title: '¿Cerrar Inventario?',
+      text: 'Una vez finalizado no se podrá editar.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, finalizar',
+      cancelButtonText: 'Cancelar',
+    })
+    if (result.isConfirmed && await waitForSavedEdits('finalizar la recepción')) finalizeMutation.mutate(remisionCode)
+  }
+
+  const handleExport = async () => {
     if (!await waitForSavedEdits('generar el Excel')) return
     try {
-      const response = await api.post(
-        '/api/recepciones/generar_excel',
-        { remision_id: numero_remision },
-        { responseType: 'blob' },
-      )
-      const disposition = response.headers['content-disposition'] || ''
-      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
-      const blobUrl = URL.createObjectURL(response.data)
-      const link = document.createElement('a')
-      link.href = blobUrl
-      link.download = filenameMatch?.[1] || `Carga_Sicar_${numero_remision}.xls`
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(blobUrl)
-    } catch (err) {
-      Swal.fire('Error', err.response?.data?.error || 'No se pudo generar el archivo', 'error')
+      const response = await api.post('/api/recepciones/generar_excel', {
+        remision_id: remisionCode,
+        incluir_fisico: includePhysical,
+      }, { responseType: 'blob' })
+      downloadResponse(response, `Carga_Sicar_${remisionCode}.xls`)
+    } catch (error) {
+      Swal.fire('Error', error.response?.data?.error || 'No se pudo generar el archivo', 'error')
     }
   }
 
-  const handleProviderChange = (val) => {
-    const previousProvider = selectedProvider
-    setSelectedProvider(val)
-    if (selectedRemision) {
-      editor.runTrackedOperation(
-        'provider',
-        () => api.post('/api/recepciones/asignar_proveedor', { id_remision: selectedRemision, proveedor: val }),
-      )
-        .then(() => queryClient.invalidateQueries(['recepciones_detail', selectedRemision]))
-        .catch((err) => {
-          setSelectedProvider(previousProvider)
-          Swal.fire('Error', err.response?.data?.error || 'No se pudo cambiar el proveedor', 'error')
-        })
-    }
+  const handleUpload = async () => {
+    if (!await waitForSavedEdits('importar o reimportar archivos')) return
+    uploadMutation.mutate()
   }
 
-  const handleUploadSubmit = (e) => {
-    e.preventDefault()
-    const formData = new FormData()
-    const files = e.target.querySelector('input[type="file"]').files
-    if (!files.length) return Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: 'Selecciona al menos un archivo', showConfirmButton: false, timer: 1500 })
-    for (const f of files) formData.append('archivo_factura', f)
-    uploadMutation.mutate(formData)
+  const handleProviderChange = (provider) => {
+    const previous = selectedProvider
+    setSelectedProvider(provider)
+    editor.runTrackedOperation('provider', () => api.post('/api/recepciones/asignar_proveedor', {
+      id_remision: selectedRemision,
+      proveedor: provider,
+    }))
+      .then(() => queryClient.invalidateQueries({ queryKey: ['recepciones_detail', selectedRemision] }))
+      .catch((error) => {
+        setSelectedProvider(previous)
+        Swal.fire('Error', error.response?.data?.error || 'No se pudo cambiar el proveedor', 'error')
+      })
   }
 
-  const fmtMoney = (n) => parseFloat(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
+  const applyBulk = () => {
+    const packageValue = bulkPresentation === 'caja' ? 1 : 0
+    const discountValue = bulkDiscount === 'automatico' ? null : bulkDiscount === 'aplicar' ? 1 : 0
+    selectedItems.forEach((itemId) => {
+      updateField(itemId, 'es_paquete', packageValue)
+      updateField(itemId, 'piezas_por_paquete', packageValue ? Number(bulkPieces) : 1)
+      updateField(itemId, 'aplica_descuento_manual', discountValue)
+    })
+  }
 
-  // ── Computed ──
-  const remisionCode = remisionDetails?.datos ? Object.keys(remisionDetails.datos)[0] : null
-  const items = remisionCode ? remisionDetails.datos[remisionCode] : []
-  const esFinalizada = remisionDetails?.estado === 'FINALIZADO'
+  const selectAll = (checked) => setSelectedItems(checked ? items.map((item) => item.id) : [])
+  const toggleItem = (itemId, checked) => setSelectedItems((current) => (
+    checked ? [...new Set([...current, itemId])] : current.filter((id) => id !== itemId)
+  ))
 
   return (
-    <Dialog open={showUploadModal} onOpenChange={setShowUploadModal}>
-      <div className="flex min-h-full flex-col gap-4 animate-in fade-in duration-500 pb-10 lg:h-full lg:flex-row">
-      
-      {/* ═══ Sidebar ═══ */}
-      <div className="flex w-full flex-shrink-0 flex-col gap-4 lg:w-72 2xl:w-80">
-        <div className="flex justify-between items-center">
-          <div>
-            <h2 className="font-black text-xl tracking-tight text-slate-100">Tareas</h2>
-            <span className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest">Recepción Activa</span>
+    <Dialog
+      open={showUploadModal}
+      onOpenChange={(open) => {
+        setShowUploadModal(open)
+        if (!open) {
+          setUploadFiles([])
+          setUploadPreview(null)
+        }
+      }}
+    >
+      <div className="mx-auto flex min-h-full max-w-screen-2xl flex-col gap-5 pb-10 xl:flex-row">
+        <aside className="flex w-full shrink-0 flex-col gap-4 xl:w-72">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-black tracking-tight">Tareas</h2>
+              <p className="text-[10px] font-black uppercase tracking-widest text-primary">Recepción activa</p>
+            </div>
+            <DialogTrigger asChild>
+              <Button size="sm" className="min-h-11 gap-2 font-black">
+                <Upload aria-hidden="true" className="h-4 w-4" /> Subir XML
+              </Button>
+            </DialogTrigger>
           </div>
-          <DialogTrigger asChild>
-            <Button size="sm" className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black gap-1.5 h-8 px-3 shadow-lg shadow-indigo-500/20">
-              <Upload className="w-3.5 h-3.5" /> Subir XML
-            </Button>
-          </DialogTrigger>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 custom-scrollbar">
-          {isLoadingList ? (
-             [...Array(4)].map((_, i) => <div key={i} className="animate-pulse bg-slate-800/50 rounded-2xl h-20 w-full"></div>)
-          ) : remisiones?.length === 0 ? (
-            <EmptyState icon={CheckCircle2} title="Todo al día" className="h-40 opacity-60" />
-          ) : (
-            remisiones?.map((row) => (
+
+          <div className="custom-scrollbar flex gap-3 overflow-x-auto pb-2 xl:flex-1 xl:flex-col xl:overflow-y-auto">
+            {loadingList ? (
+              <LoadingState compact label="Cargando recepciones…" />
+            ) : remisiones.length === 0 ? (
+              <EmptyState icon={CheckCircle2} title="Todo al día" className="min-h-40" />
+            ) : remisiones.map((row) => (
               <button
                 type="button"
-                key={row.id} onClick={() => setSelectedRemision(row.id)}
+                key={row.id}
                 aria-pressed={selectedRemision === row.id}
-                className={`glass-panel w-full border-l-4 text-left shadow-sm hover:shadow-md transition-all duration-200 rounded-xl p-3 active:scale-95 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  selectedRemision === row.id ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800/60 bg-slate-900/40 hover:bg-slate-800/50'
+                onClick={() => setSelectedRemision(row.id)}
+                className={`min-w-60 rounded-xl border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:min-w-0 ${
+                  selectedRemision === row.id ? 'border-primary bg-primary/10' : 'border-border bg-card hover:bg-accent'
                 }`}
               >
-                <div className="flex justify-between items-center mb-1.5">
-                  <h3 className="font-black text-slate-200 text-sm tracking-tight">{row.numero_remision}</h3>
-                  <span className={`px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border ${row.estado === 'REVISION' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-slate-800/50 text-slate-400 border-slate-700'}`}>
-                    {row.estado}
-                  </span>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-black">{row.numero_remision}</h3>
+                  <span className="rounded-full border border-border px-2 py-1 text-[9px] font-black uppercase">{row.estado}</span>
                 </div>
-                <div className="flex justify-between items-center text-[10px] text-slate-500 font-bold">
-                  <span>{new Date(row.fecha_carga).toLocaleDateString()}</span>
-                  <span className="bg-slate-800/80 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-widest text-slate-400 border border-slate-700/50">{row.items} items</span>
-                </div>
+                <p className="mt-2 text-xs font-bold text-muted-foreground">{formatDate(row.fecha_carga)} · {row.items} artículos</p>
               </button>
-            ))
-          )}
-        </div>
-      </div>
+            ))}
+          </div>
+        </aside>
 
-      {/* ═══ Main Panel ═══ */}
-      <div className="flex-1 flex flex-col glass-panel shadow-sm rounded-2xl overflow-hidden relative min-w-0">
-        {!selectedRemision ? (
-           <div className="flex flex-col items-center justify-center h-full text-slate-600 mt-32">
-             <PackageOpen className="w-20 h-20 mb-6 opacity-30" />
-             <p className="text-xl font-black tracking-tight text-slate-500">Selecciona una tarea de la lista</p>
-           </div>
-        ) : isLoadingDetails ? (
-           <LoadingState label="Cargando detalle de recepción…" className="h-full" />
-        ) : remisionDetails?.datos ? (
-           <>
-             {/* ── Header Toolbar ── */}
-             <div className="px-4 py-3 border-b border-slate-800/60 bg-slate-900/50 flex flex-wrap gap-3 justify-between items-center backdrop-blur-md shrink-0">
-                <div>
-                  <h1 className="font-black text-lg text-slate-100 leading-none tracking-tight">Orden #{remisionCode}</h1>
-                  <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5 block">Auditoría de Inventario</span>
+        <section className="min-w-0 flex-1">
+          {!selectedRemision ? (
+            <Card className="flex min-h-96 flex-col items-center justify-center border-dashed text-center">
+              <PackageOpen aria-hidden="true" className="mb-4 h-16 w-16 text-muted-foreground/40" />
+              <h1 className="text-xl font-black">Selecciona una tarea</h1>
+              <p className="mt-2 max-w-sm text-sm font-bold text-muted-foreground">Revisa factura, conteo físico, presentación, costo y validaciones antes de finalizar.</p>
+            </Card>
+          ) : loadingDetails ? (
+            <LoadingState label="Cargando detalle de recepción…" className="min-h-96" />
+          ) : remisionDetails?.datos ? (
+            <div className="space-y-4">
+              <Card className="border-border bg-card/90 p-4 shadow-sm">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h1 className="text-2xl font-black tracking-tight">Orden #{remisionCode}</h1>
+                    <p className="mt-1 text-xs font-bold text-muted-foreground">Factura y conteo físico se conservan como valores distintos.</p>
+                  </div>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                      <label htmlFor="reception-provider" className="mb-1 block text-[10px] font-black uppercase tracking-wider text-muted-foreground">PROV</label>
+                      <select
+                        id="reception-provider"
+                        value={selectedProvider}
+                        disabled={finalised || editor.hasPending}
+                        onChange={(event) => handleProviderChange(event.target.value)}
+                        className="min-h-11 rounded-lg border border-input bg-background px-3 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                      >
+                        {PROVIDERS.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}
+                      </select>
+                    </div>
+                    <div aria-label="Descuento automático fijo: 5%" className="flex min-h-11 flex-col justify-center rounded-lg border border-border bg-secondary/50 px-3">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">DTO automático</span>
+                      <span className="text-sm font-black">Descuento automático fijo: 5%</span>
+                    </div>
+                    {!finalised && (
+                      <>
+                        <label className="flex min-h-11 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-bold">
+                          <input
+                            type="checkbox"
+                            checked={includePhysical}
+                            onChange={(event) => setIncludePhysical(event.target.checked)}
+                            className="h-4 w-4 accent-primary"
+                          />
+                          Incluir conteo físico
+                        </label>
+                        <Button variant="outline" className="min-h-11 gap-2 font-black" disabled={editor.hasPending} onClick={handleExport}>
+                          <FileSpreadsheet aria-hidden="true" className="h-4 w-4" /> Excel
+                        </Button>
+                        <Button className="min-h-11 gap-2 font-black" disabled={editor.hasPending || finalizeMutation.isPending || validationBlocksFinalize} onClick={handleFinalize}>
+                          <CheckCircle2 aria-hidden="true" className="h-4 w-4" /> Finalizar
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="flex gap-2 items-center flex-wrap">
-                  {/* Provider Selector */}
-                  <div className="flex items-center bg-slate-900 rounded-lg border border-slate-800/60 px-2 py-1 shadow-sm">
-                    <label htmlFor="reception-provider" className="text-[8px] font-extrabold uppercase tracking-widest text-slate-500 mr-1.5">PROV</label>
-                    <select id="reception-provider" value={selectedProvider} disabled={editor.hasPending} onChange={(e) => handleProviderChange(e.target.value)} className="bg-transparent font-bold text-slate-300 text-[11px] focus:outline-none cursor-pointer disabled:cursor-wait disabled:opacity-60">
-                      {PROVEEDORES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                    </select>
-                  </div>
+                {editor.hasPending && (
+                  <p role="status" className="mt-3 flex items-center gap-2 text-xs font-bold text-muted-foreground">
+                    <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> Guardando cambios…
+                  </p>
+                )}
+              </Card>
 
-                  {/* Discount */}
-                  <div className="flex items-center bg-purple-500/10 rounded-lg border border-purple-500/20 px-2 py-1 shadow-sm">
-                    <label htmlFor="reception-discount" className="text-[8px] font-extrabold uppercase tracking-widest text-purple-400 mr-1">DTO %</label>
-                    <input id="reception-discount" type="number" value={globalDiscount} onChange={(e) => setGlobalDiscount(parseFloat(e.target.value) || 0)} className="w-8 bg-transparent font-black text-purple-400 text-xs focus:outline-none text-center" />
-                  </div>
+              <section aria-label="Resumen de recepción" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                <SummaryCard label="Artículos" value={summary.productos} icon={ShoppingCart} />
+                <SummaryCard label="Cajas" value={displayNumber(summary.cajas)} icon={Boxes} />
+                <SummaryCard label="Piezas" value={displayNumber(summary.piezas)} icon={PackageCheck} />
+                <SummaryCard label="Costo" value={formatMoney(summary.costoTotal)} icon={FileSpreadsheet} />
+                <SummaryCard label="Revisión" value={summary.articulosRevision} icon={ClipboardCheck} tone="text-amber-500" />
+                <SummaryCard label="Errores" value={summary.errores} icon={AlertCircle} tone={summary.errores ? 'text-destructive' : 'text-emerald-500'} />
+              </section>
 
-                  {!esFinalizada && (
-                    <>
-                      {editor.hasPending && (
-                        <span role="status" className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
-                          <Loader2 className="h-3 w-3 animate-spin" /> Guardando cambios…
-                        </span>
+              <section aria-label="Revisión antes de finalizar" className={`rounded-xl border p-4 ${blockingIssues.length ? 'border-destructive/40 bg-destructive/10' : 'border-emerald-500/30 bg-emerald-500/10'}`}>
+                <div className="flex items-center gap-2">
+                  {blockingIssues.length ? <AlertCircle aria-hidden="true" className="h-5 w-5 text-destructive" /> : <CheckCircle2 aria-hidden="true" className="h-5 w-5 text-emerald-500" />}
+                  <h2 className="font-black">Revisión antes de finalizar</h2>
+                </div>
+                {issues.length === 0 ? (
+                  <p className="mt-2 text-sm font-bold text-muted-foreground">Sin errores bloqueantes.</p>
+                ) : (
+                  <ul className="mt-2 space-y-1 text-sm font-bold">
+                    {issues.map((issue) => <li key={`${issue.itemId}-${issue.code}`}>{issue.message}</li>)}
+                  </ul>
+                )}
+              </section>
+
+              {!finalised && items.length > 0 && (
+                <Card className="border-border bg-card/90 p-4 shadow-sm">
+                  <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
+                    <label className="flex min-h-11 items-center gap-2 text-sm font-black">
+                      <input
+                        type="checkbox"
+                        aria-label="Seleccionar todo"
+                        checked={selectedItems.length === items.length}
+                        onChange={(event) => selectAll(event.target.checked)}
+                        className="h-4 w-4 accent-primary"
+                      />
+                      {selectedItems.length} seleccionados
+                    </label>
+                    <div className="grid flex-1 gap-3 sm:grid-cols-3">
+                      <label className="text-xs font-black text-muted-foreground">
+                        Presentación masiva
+                        <select value={bulkPresentation} onChange={(event) => setBulkPresentation(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground">
+                          <option value="pieza">Pieza</option>
+                          <option value="caja">Caja</option>
+                        </select>
+                      </label>
+                      <label className="text-xs font-black text-muted-foreground">
+                        Piezas por caja masiva
+                        <input type="number" min="1" value={bulkPieces} disabled={bulkPresentation !== 'caja'} onChange={(event) => setBulkPieces(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground disabled:opacity-50" />
+                      </label>
+                      <label className="text-xs font-black text-muted-foreground">
+                        Descuento masivo
+                        <select value={bulkDiscount} onChange={(event) => setBulkDiscount(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground">
+                          <option value="automatico">Automático</option>
+                          <option value="aplicar">Aplicar</option>
+                          <option value="no-aplicar">No aplicar</option>
+                        </select>
+                      </label>
+                    </div>
+                    <Button type="button" className="min-h-11 font-black" disabled={selectedItems.length === 0 || editor.hasPending} onClick={applyBulk}>
+                      Aplicar a {selectedItems.length} artículos
+                    </Button>
+                  </div>
+                </Card>
+              )}
+
+              <div className="space-y-4">
+                {items.map((item) => {
+                  let presentation
+                  let difference
+                  try {
+                    presentation = calculatePresentation({ cantidad: item.cantidad, esPaquete: item.es_paquete, piezasPorPaquete: item.piezas_por_paquete })
+                    difference = invoicePhysicalDifference(item)
+                  } catch {
+                    presentation = null
+                    difference = null
+                  }
+                  const cost = calculateCost(item, { proveedor: remisionDetails.proveedor, porcentaje: DISCOUNT_PERCENT })
+                  const rejected = Number(item.revision_pendiente) === 2
+                  const discountLabel = cost.descuento.origen === 'manual'
+                    ? `Excepción manual: ${cost.descuento.aplica ? 'aplicar descuento' : 'sin descuento'}`
+                    : `Descuento automático: ${cost.descuento.origen}`
+                  const unit = presentation?.esPaquete ? 'cajas' : 'piezas'
+                  const differenceSign = difference?.diferencia > 0 ? '+' : ''
+
+                  return (
+                    <Card key={item.id} className={`overflow-hidden border shadow-sm ${rejected ? 'border-destructive/40 bg-destructive/5' : 'border-border bg-card/90'}`}>
+                      <div className="grid gap-4 p-4 xl:grid-cols-[auto_minmax(12rem,1.4fr)_minmax(13rem,1fr)_minmax(13rem,1fr)] xl:items-start">
+                        {!finalised && (
+                          <label className="flex min-h-11 items-center gap-2 text-xs font-black">
+                            <input
+                              type="checkbox"
+                              aria-label={`Seleccionar ${item.desc}`}
+                              checked={selectedItems.includes(item.id)}
+                              onChange={(event) => toggleItem(item.id, event.target.checked)}
+                              className="h-4 w-4 accent-primary"
+                            />
+                            Seleccionar
+                          </label>
+                        )}
+                        <div className="min-w-0 space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <h3 className="truncate text-base font-black" title={item.desc}>{item.desc}</h3>
+                              <p className="mt-1 text-xs font-bold text-muted-foreground">Artículo #{item.id}</p>
+                            </div>
+                            {!finalised && (
+                              <button type="button" aria-label={`Eliminar ${item.desc}`} disabled={editor.hasPending} onClick={() => handleDelete(item.id, item.desc)} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40">
+                                <Trash2 aria-hidden="true" className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                          <SicarInput item={item} editor={editor} disabled={finalised} canValidateCatalog={canValidateCatalog} />
+                          {canViewPriceHistory && (
+                            <Button type="button" variant="ghost" size="sm" className="min-h-11 gap-2 px-2 text-xs font-black" onClick={() => setPriceHistoryItem((current) => current?.id === item.id ? null : item)}>
+                              <History aria-hidden="true" className="h-4 w-4" /> Compras previas de {item.desc}
+                            </Button>
+                          )}
+                        </div>
+
+                        <div className="space-y-3 rounded-xl border border-border bg-secondary/30 p-3">
+                          <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Factura y físico</h4>
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="text-xs font-black text-muted-foreground">
+                              FACTURA
+                              <input
+                                aria-label={`FACTURA ${item.desc}`}
+                                type="number"
+                                value={item.cantidad}
+                                disabled={finalised}
+                                onChange={(event) => editor.setDraftField(item.id, 'cantidad', event.target.value)}
+                                onBlur={(event) => editor.saveField(item.id, 'cantidad', event.target.value)}
+                                onKeyDown={(event) => saveOnEnter(event, item.id, 'cantidad')}
+                                className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-center text-lg font-black text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                              />
+                            </label>
+                            <label className="text-xs font-black text-muted-foreground">
+                              FÍSICO
+                              <input
+                                aria-label={`FÍSICO ${item.desc}`}
+                                type="number"
+                                value={item.existencia_lapiz}
+                                disabled={finalised}
+                                onChange={(event) => editor.setDraftField(item.id, 'existencia_lapiz', event.target.value)}
+                                onBlur={(event) => editor.saveField(item.id, 'existencia_lapiz', event.target.value)}
+                                onKeyDown={(event) => saveOnEnter(event, item.id, 'existencia_lapiz')}
+                                className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-center text-lg font-black text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                              />
+                            </label>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="flex min-h-11 items-center gap-2 text-xs font-black">
+                              <input type="checkbox" checked={Boolean(Number(item.es_paquete))} disabled={finalised} onChange={(event) => updateField(item.id, 'es_paquete', event.target.checked ? 1 : 0)} className="h-4 w-4 accent-primary" />
+                              Es caja
+                            </label>
+                            <label className="text-xs font-black text-muted-foreground">
+                              Piezas por caja
+                              <input type="number" min="1" value={item.piezas_por_paquete} disabled={finalised || !Number(item.es_paquete)} onChange={(event) => editor.setDraftField(item.id, 'piezas_por_paquete', event.target.value)} onBlur={(event) => editor.saveField(item.id, 'piezas_por_paquete', event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-2 text-center text-foreground disabled:opacity-50" />
+                            </label>
+                          </div>
+                          {presentation ? (
+                            <>
+                              {presentation.esPaquete && <p className="text-sm font-black">{displayNumber(presentation.cantidadFacturada)} piezas ÷ {displayNumber(presentation.piezasPorPaquete)} = {displayNumber(presentation.cantidadPresentacion)} cajas</p>}
+                              <p className="text-xs font-bold text-muted-foreground">Factura {displayNumber(presentation.cantidadPresentacion)} {unit} · Físico {displayNumber(difference.fisico)} · Diferencia {differenceSign}{displayNumber(difference.diferencia)} {unit}</p>
+                            </>
+                          ) : <p className="text-xs font-bold text-destructive">La configuración de caja no es válida.</p>}
+                        </div>
+
+                        <div className="space-y-3 rounded-xl border border-border bg-secondary/30 p-3">
+                          <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Costo y decisión</h4>
+                          <label className="block text-xs font-black text-muted-foreground">
+                            COSTO FINAL
+                            <input
+                              aria-label={`COSTO FINAL ${item.desc}`}
+                              type="number"
+                              step="0.01"
+                              value={item.costo_unitario}
+                              disabled={finalised}
+                              onChange={(event) => editor.setDraftField(item.id, 'costo_unitario', event.target.value)}
+                              onBlur={(event) => editor.saveField(item.id, 'costo_unitario', event.target.value)}
+                              onKeyDown={(event) => saveOnEnter(event, item.id, 'costo_unitario')}
+                              className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-center text-base font-black text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                            />
+                          </label>
+                          <label className="block text-xs font-black text-muted-foreground">
+                            Descuento {item.desc}
+                            <select
+                              value={item.aplica_descuento_manual === null || item.aplica_descuento_manual === undefined ? 'automatico' : Number(item.aplica_descuento_manual) === 1 ? 'aplicar' : 'no-aplicar'}
+                              disabled={finalised}
+                              onChange={(event) => updateField(item.id, 'aplica_descuento_manual', event.target.value === 'automatico' ? null : event.target.value === 'aplicar' ? 1 : 0)}
+                              className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground disabled:opacity-60"
+                            >
+                              <option value="automatico">Automático</option>
+                              <option value="aplicar">Aplicar excepción</option>
+                              <option value="no-aplicar">No aplicar</option>
+                            </select>
+                          </label>
+                          <p className="text-xs font-bold text-muted-foreground">{discountLabel}</p>
+                          <p className="text-sm font-black text-primary">Costo neto {formatMoney(cost.costoFinal)}</p>
+                          {!finalised && !rejected ? (
+                            <Button type="button" variant="outline" className="min-h-11 w-full gap-2 border-destructive/40 text-destructive" onClick={() => updateField(item.id, 'revision_pendiente', 2)}>
+                              <XCircle aria-hidden="true" className="h-4 w-4" /> Rechazar
+                            </Button>
+                          ) : rejected && !finalised ? (
+                            <Button type="button" variant="outline" aria-label={`Restaurar ${item.desc}`} className="min-h-11 w-full gap-2 border-amber-500/50 text-amber-700 dark:text-amber-300" onClick={() => updateField(item.id, 'revision_pendiente', 0)}>
+                              <Save aria-hidden="true" className="h-4 w-4" /> Restaurar artículo
+                            </Button>
+                          ) : rejected ? <p className="rounded-lg bg-destructive px-3 py-2 text-center text-xs font-black text-destructive-foreground">REPORTADO</p> : null}
+                        </div>
+                      </div>
+
+                      {priceHistoryItem?.id === item.id && (
+                        <div className="border-t border-border bg-background/60 p-4">
+                          <h4 className="flex items-center gap-2 text-sm font-black"><History aria-hidden="true" className="h-4 w-4" /> Compras previas</h4>
+                          {loadingPriceHistory ? <LoadingState compact label="Cargando compras previas…" /> : priceHistory.length === 0 ? (
+                            <p className="mt-2 text-xs font-bold text-muted-foreground">No hay compras finalizadas previas.</p>
+                          ) : (
+                            <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                              {priceHistory.slice(0, 6).map((purchase) => (
+                                <li key={purchase.id} className="rounded-lg border border-border bg-card p-3 text-xs font-bold">
+                                  <p className="font-mono font-black">{purchase.numero_remision}</p>
+                                  <p className="mt-1 text-muted-foreground">{purchase.proveedor} · {formatMoney(purchase.costo_unitario)}</p>
+                                  <p className="mt-1 text-muted-foreground">{formatDate(purchase.fecha_carga)}</p>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
                       )}
-                      <Button disabled={editor.hasPending} size="sm" variant="outline" className="gap-1.5 font-bold bg-slate-900/50 border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 shadow-inner text-[11px] h-8 px-3" onClick={() => handleValidarExcel(remisionCode)}>
-                        <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
-                      </Button>
-                      <Button disabled={editor.hasPending || finalizeMutation.isPending} size="sm" className="bg-emerald-600 hover:bg-emerald-500 text-white font-black gap-1.5 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all text-[11px] h-8 px-3" onClick={() => handleFinalize(remisionCode)}>
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Finalizar
-                      </Button>
-                    </>
+                    </Card>
+                  )
+                })}
+              </div>
+
+              {canManageNotes && (
+                <Card className="border-border bg-card/90 p-4 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <Save aria-hidden="true" className="h-5 w-5 text-primary" />
+                    <h2 className="font-black">Notas de factura y artículo</h2>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-[12rem_1fr_auto] md:items-end">
+                    <label className="text-xs font-black text-muted-foreground">
+                      Nota para
+                      <select value={noteTarget} onChange={(event) => setNoteTarget(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground">
+                        <option value="factura">Factura completa</option>
+                        {items.map((item) => <option key={item.id} value={item.id}>{item.desc}</option>)}
+                      </select>
+                    </label>
+                    <label className="text-xs font-black text-muted-foreground">
+                      Nota
+                      <input value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Escribe una observación verificable" className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                    </label>
+                    <Button type="button" className="min-h-11 font-black" disabled={!noteText.trim() || noteMutation.isPending || editor.hasPending} onClick={() => noteMutation.mutate()}>
+                      Guardar nota
+                    </Button>
+                  </div>
+                  {noteDetails?.notas?.length > 0 && (
+                    <ul className="mt-4 space-y-2">
+                      {noteDetails.notas.slice(0, 5).map((note) => (
+                        <li key={note.id} className="rounded-lg border border-border bg-secondary/30 p-3 text-xs font-bold">
+                          {note.nota} <span className="text-muted-foreground">· {note.usuario}</span>
+                        </li>
+                      ))}
+                    </ul>
                   )}
-                </div>
-             </div>
-             
-             {/* ── Items List ── */}
-             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-950/20 custom-scrollbar">
-               {items?.map((item) => {
-                 const esFaltante = editor.getDraftField(item.id, 'clave_final', item.clave_final) === 'FALTANTE'
-                 const esDevuelto = item.revision_pendiente == 2
-
-                 // Cost calculations
-                 let baseCost = parseFloat(item.costo_bruto || item.costo || 0)
-                 const applyDisc = item.aplica_descuento_manual == 1
-                 let costoFinal = baseCost
-                 if (applyDisc) costoFinal *= (1 - (globalDiscount / 100))
-                 const manualCosto = parseFloat(item.costo_unitario) || costoFinal
-                 const costoSis = parseFloat(item.costo_sistema_actual) || 0
-                 const ventaSis = parseFloat(item.precio_venta_sistema) || 0
-
-                 return (
-                 <Card key={item.id} className={`border ${esDevuelto ? 'border-red-500/50 bg-red-900/10' : esFaltante ? 'border-amber-500/30 bg-amber-500/5' : 'border-slate-800/50 bg-slate-900/30'} shadow-sm transition-all overflow-hidden rounded-xl relative group`}>
-                   
-                   {/* Delete button (top-right corner) */}
-                   {!esFinalizada && (
-                     <button type="button" aria-label={`Eliminar ${item.desc}`} disabled={editor.hasPending} onClick={() => handleDelete(item.id, item.desc)} className="absolute top-2 right-2 z-10 w-6 h-6 rounded-md bg-slate-800/80 text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-slate-700/50 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 disabled:cursor-wait disabled:opacity-40 transition-all" title="Eliminar ítem">
-                       <Trash2 className="w-3 h-3" />
-                     </button>
-                   )}
-
-                   <div className="p-3 grid grid-cols-1 lg:grid-cols-[auto_1fr_auto_1fr] gap-3 items-center">
-                     
-                     {/* COL 1: Factura */}
-                     <div className="flex lg:flex-col items-center gap-2 lg:gap-1 lg:border-r border-slate-700/50 lg:pr-3 lg:w-20">
-                       <label htmlFor={`cantidad-${item.id}`} className="text-[9px] text-slate-500 font-black tracking-widest shrink-0">FACTURA</label>
-                       <input 
-                         id={`cantidad-${item.id}`}
-                         type="number" 
-                         className="w-16 h-10 bg-slate-950/50 border border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-lg text-center font-black text-lg text-slate-200 outline-none transition-all shadow-inner"
-                         value={editor.getDraftField(item.id, 'cantidad', item.cant ?? '')}
-                         disabled={esFinalizada}
-                         onChange={(e) => editor.setDraftField(item.id, 'cantidad', e.target.value)}
-                         onBlur={(e) => editor.saveField(item.id, 'cantidad', e.target.value)}
-                         onKeyDown={(e) => saveDraftOnEnter(e, item.id, 'cantidad')}
-                       />
-                     </div>
-
-                     {/* COL 2: Description + SICAR */}
-                     <div className="min-w-0">
-                       <div className="font-black text-slate-200 text-[13px] leading-snug mb-2 tracking-tight truncate" title={item.desc}>{item.desc}</div>
-                       <SicarInput item={item} editor={editor} esFaltante={esFaltante} canValidateCatalog={canValidateCatalog} />
-                     </div>
-                     
-                     {/* COL 3: Físico */}
-                     <div className={`flex flex-col items-center bg-slate-950/50 shadow-inner p-2 rounded-xl border ${esFaltante ? 'border-amber-500/50' : 'border-slate-800/80'} w-20 mx-auto relative`}>
-                       <label htmlFor={`existencia-${item.id}`} className={`text-[9px] font-black tracking-widest mb-0.5 ${esFaltante ? 'text-amber-500/70' : 'text-slate-500'}`}>FÍSICO</label>
-                       <input 
-                         id={`existencia-${item.id}`}
-                         type="number" 
-                         className={`w-full bg-transparent text-center font-black text-xl focus:outline-none rounded ${esFaltante ? 'text-red-400' : 'text-indigo-400'}`}
-                         value={editor.getDraftField(item.id, 'existencia_lapiz', item.existencia_lapiz || 0)}
-                         disabled={esFinalizada}
-                         onChange={(e) => editor.setDraftField(item.id, 'existencia_lapiz', e.target.value)}
-                         onBlur={(e) => editor.saveField(item.id, 'existencia_lapiz', e.target.value)}
-                         onKeyDown={(e) => saveDraftOnEnter(e, item.id, 'existencia_lapiz')}
-                       />
-                       <label htmlFor={`faltante-${item.id}`} className="absolute -bottom-2.5 bg-slate-800 border border-slate-700 shadow-md rounded-md px-1.5 py-0.5 flex items-center gap-1 cursor-pointer hover:border-red-500/50 transition-colors">
-                         <input 
-                           id={`faltante-${item.id}`}
-                           type="checkbox" className="w-2.5 h-2.5 accent-amber-500 rounded-sm"
-                           checked={esFaltante} disabled={esFinalizada}
-                           onChange={(e) => {
-                             if(e.target.checked) { handleUpdate(item.id, 'clave_final', 'FALTANTE'); handleUpdate(item.id, 'existencia_lapiz', 0) }
-                             else { handleUpdate(item.id, 'clave_final', '') }
-                           }}
-                         />
-                         <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Faltante</span>
-                       </label>
-                     </div>
-                     
-                     {/* COL 4: Pricing Panel */}
-                     <div className="flex flex-col gap-1.5 lg:border-l border-slate-800/60 lg:pl-3 min-w-0">
-                       {/* Row 1: Checkbox + Reject */}
-                       <div className="flex items-center gap-1.5">
-                         <label htmlFor={`discount-${item.id}`} className="cursor-pointer flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-purple-500/20 bg-purple-500/10 hover:bg-purple-500/20 transition-colors h-6 shrink-0">
-                           <input id={`discount-${item.id}`} type="checkbox" className="w-2.5 h-2.5 accent-purple-500 rounded-sm cursor-pointer"
-                             checked={applyDisc} disabled={esFinalizada}
-                             onChange={(e) => handleUpdate(item.id, 'aplica_descuento_manual', e.target.checked ? 1 : 0)}
-                           />
-                           <span className="font-extrabold text-[8px] text-purple-400 tracking-wider whitespace-nowrap">-{globalDiscount}% DTO</span>
-                         </label>
-                         <div className="flex-grow">
-                           {!esFinalizada && !esDevuelto ? (
-                             <button type="button" onClick={() => handleUpdate(item.id, 'revision_pendiente', 2)} className="w-full py-1 rounded-md border border-red-500/50 text-red-400 font-bold text-[9px] uppercase hover:bg-red-500/10 transition-colors flex items-center justify-center gap-1 h-6">
-                               <XCircle className="w-3 h-3" /> Rechazar
-                             </button>
-                           ) : esDevuelto ? (
-                             <div className="w-full py-1 rounded-md bg-red-600 text-white font-black text-[9px] text-center uppercase tracking-widest h-6 flex items-center justify-center">REPORTADO</div>
-                           ) : null}
-                         </div>
-                       </div>
-
-                       {/* Row 2: Cost + Margins */}
-                       <div className="flex gap-1.5 h-[4.5rem]">
-                         {/* Cost Final */}
-                         <div className="bg-slate-900/50 p-1.5 rounded-lg border border-slate-800/60 flex flex-col items-center justify-center w-1/2 min-w-0">
-                           <label htmlFor={`costo-${item.id}`} className="text-[8px] font-black tracking-widest text-slate-500">COSTO FINAL</label>
-                           <div className="flex items-center gap-0.5 mt-0.5 w-full justify-center">
-                             <span className="text-slate-500 font-black text-[10px]">$</span>
-                             <input id={`costo-${item.id}`} type="number" step="0.01"
-                               className="w-full bg-transparent p-0 text-sm font-black text-slate-200 text-center leading-none focus:outline-none focus:text-indigo-400 transition-colors"
-                               value={editor.getDraftField(item.id, 'costo_unitario', manualCosto.toFixed(2))}
-                               disabled={esFinalizada}
-                               onChange={(e) => editor.setDraftField(item.id, 'costo_unitario', e.target.value)}
-                               onBlur={(e) => editor.saveField(item.id, 'costo_unitario', e.target.value)}
-                               onKeyDown={(e) => saveDraftOnEnter(e, item.id, 'costo_unitario')}
-                             />
-                           </div>
-                           {costoSis > 0 ? (
-                             <span className="text-[8px] text-orange-400 font-bold bg-orange-500/10 px-1.5 py-0.5 rounded border border-orange-500/20 truncate w-full text-center mt-0.5">Ant: {fmtMoney(costoSis)}</span>
-                           ) : (
-                             <span className="text-[8px] bg-slate-800 text-slate-400 font-bold text-center rounded py-0.5 w-full uppercase tracking-widest mt-0.5">Nuevo</span>
-                           )}
-                         </div>
-
-                         {/* VTA + Margins */}
-                         <div className="w-1/2 flex flex-col justify-between min-w-0">
-                           {ventaSis > 0 ? (
-                             <div className="bg-amber-500/10 text-amber-400 text-[9px] font-black text-center rounded-md py-0.5 border border-amber-500/20 shadow-sm truncate">VTA: {fmtMoney(ventaSis)}</div>
-                           ) : (
-                             <div className="text-center text-slate-500 text-[8px] font-bold uppercase tracking-widest">Sin precio Vta</div>
-                           )}
-                           <div className="grid grid-cols-2 gap-1 mt-auto">
-                             <div className="bg-blue-900/20 rounded-md border border-blue-500/20 flex flex-col items-center justify-center py-0.5">
-                               <div className="text-[7px] font-extrabold text-blue-400">20%</div>
-                               <div className="font-black text-blue-400 text-[10px]">{fmtMoney(manualCosto * 1.20)}</div>
-                             </div>
-                             <div className="bg-emerald-900/20 rounded-md border border-emerald-500/20 flex flex-col items-center justify-center py-0.5">
-                               <div className="text-[7px] font-extrabold text-emerald-400">30%</div>
-                               <div className="font-black text-emerald-400 text-[10px]">{fmtMoney(manualCosto * 1.30)}</div>
-                             </div>
-                           </div>
-                         </div>
-                       </div>
-                     </div>
-
-                   </div>
-                 </Card>
-               )})}
-             </div>
-           </>
-        ) : null}
+                </Card>
+              )}
+            </div>
+          ) : (
+            <EmptyState icon={AlertCircle} title="No se pudo cargar la recepción" />
+          )}
+        </section>
       </div>
 
-      </div>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto bg-card p-6" showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>Cargar XML / CSV</DialogTitle>
+          <DialogDescription>Primero revisa folios, clasificación, artículos, costo e incidencias; después confirma la importación.</DialogDescription>
+        </DialogHeader>
+        <form
+          className="mt-5 space-y-5"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (uploadFiles.length === 0) {
+              Swal.fire({ icon: 'error', title: 'Selecciona al menos un archivo' })
+              return
+            }
+            previewMutation.mutate()
+          }}
+        >
+          <label htmlFor="reception-upload" className="block text-sm font-black">
+            Archivos XML o CSV
+          </label>
+          <input
+            id="reception-upload"
+            type="file"
+            multiple
+            accept=".xml,.csv"
+            onChange={(event) => {
+              setUploadFiles(Array.from(event.target.files || []))
+              setUploadPreview(null)
+            }}
+            className="w-full rounded-xl border-2 border-dashed border-border bg-background px-4 py-6 text-sm font-bold file:mr-4 file:rounded-lg file:border-0 file:bg-primary file:px-4 file:py-2 file:font-bold file:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
 
-      {/* ═══ Upload Modal ═══ */}
-        <DialogContent className="max-w-md bg-slate-900 p-6" showCloseButton={false}>
-          <DialogHeader className="mb-6">
-            <DialogTitle className="text-xl text-slate-100">Cargar XML / CSV</DialogTitle>
-            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest">Sube facturas para crear nuevas tareas</DialogDescription>
-          </DialogHeader>
-            <form onSubmit={handleUploadSubmit}>
-              <label htmlFor="reception-upload" className="sr-only">Archivos XML o CSV</label>
-              <input
-                id="reception-upload"
-                type="file" multiple accept=".csv,.xml"
-                className="w-full bg-slate-950/50 border-2 border-dashed border-slate-700 rounded-xl px-4 py-6 text-slate-400 text-sm font-bold cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white file:font-bold file:text-xs file:cursor-pointer hover:border-indigo-500/50 transition-colors"
-              />
-              <DialogFooter className="mt-6 grid grid-cols-2">
-                <Button type="button" variant="outline" className="flex-1 bg-slate-800 border-slate-700 text-slate-300 font-bold" onClick={() => setShowUploadModal(false)}>Cancelar</Button>
-                <Button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black shadow-lg shadow-indigo-500/20" disabled={uploadMutation.isPending}>
-                  {uploadMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}
-                  Procesar
-                </Button>
-              </DialogFooter>
-            </form>
-        </DialogContent>
+          {uploadPreview?.preview?.length > 0 && (
+            <section aria-label="Vista previa de archivos">
+              <div className="mb-3 flex items-center gap-2">
+                <FileSearch aria-hidden="true" className="h-5 w-5 text-primary" />
+                <h3 className="font-black">Vista previa</h3>
+              </div>
+              <ul className="space-y-2">{uploadPreview.preview.map((entry) => <PreviewSummary key={`${entry.folio}-${entry.clasificacion}`} entry={entry} />)}</ul>
+            </section>
+          )}
+
+          <DialogFooter className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Button type="button" variant="outline" className="min-h-11" onClick={() => setShowUploadModal(false)}>Cancelar</Button>
+            <Button type="submit" variant="secondary" className="min-h-11 gap-2 font-black" disabled={uploadFiles.length === 0 || previewMutation.isPending}>
+              {previewMutation.isPending ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <FileSearch aria-hidden="true" className="h-4 w-4" />}
+              Revisar archivos
+            </Button>
+            <Button type="button" className="min-h-11 gap-2 font-black" disabled={!uploadPreview?.puedeGuardar || uploadMutation.isPending || editor.hasPending} onClick={handleUpload}>
+              {uploadMutation.isPending ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Upload aria-hidden="true" className="h-4 w-4" />}
+              Importar {uploadFiles.length} {uploadFiles.length === 1 ? 'archivo' : 'archivos'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
     </Dialog>
   )
 }

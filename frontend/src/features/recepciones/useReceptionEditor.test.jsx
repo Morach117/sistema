@@ -85,6 +85,22 @@ describe('useReceptionEditor', () => {
     )
   })
 
+  it('persists an explicit null when clearing a manual discount override', async () => {
+    const { result } = renderHook(() => useReceptionEditor(19), { wrapper: createWrapper() })
+
+    act(() => {
+      result.current.setDraftField(7, 'aplica_descuento_manual', null)
+      result.current.saveField(7, 'aplica_descuento_manual', null)
+    })
+
+    await act(async () => vi.runAllTimersAsync())
+
+    expect(api.post).toHaveBeenCalledWith(
+      '/api/recepciones/actualizar_campo',
+      { id_item: 7, campo: 'aplica_descuento_manual', valor: null },
+    )
+  })
+
   it('persists a confirmed field when the selected reception changes before debounce ends', async () => {
     const { result, rerender } = renderHook(
       ({ remisionId }) => useReceptionEditor(remisionId),

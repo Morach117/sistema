@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   ArrowLeftRight,
   ArrowRightLeft,
+  History,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -26,6 +27,7 @@ const primaryItems = [
   { name: 'Generar Traspaso', path: '/traspasos', icon: ArrowLeftRight },
   { name: 'Captura Inteligente', path: '/captura', icon: ScanBarcode },
   { name: 'Recepción (Activos)', path: '/recepciones', icon: PackageOpen },
+  { name: 'Historial de Recepciones', path: '/historial-recepciones', icon: History },
   { name: 'Reclamaciones', path: '/reclamaciones', icon: MessageSquareWarning },
 ]
 

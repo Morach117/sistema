@@ -319,7 +319,7 @@ describe('authorized page behavior', () => {
 
     await waitFor(() => expect(exportRequest).not.toBeNull())
     expect(exportRequest.headers.Authorization).toBe('Bearer signed-token')
-    expect(JSON.parse(exportRequest.data)).toEqual({ remision_id: 'REM-3' })
+    expect(JSON.parse(exportRequest.data)).toEqual({ remision_id: 'REM-3', incluir_fisico: false })
     expect(exportRequest.responseType).toBe('blob')
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
     expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1)

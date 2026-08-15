@@ -13,6 +13,7 @@ const AdminTraspasos = lazy(() => import('./pages/AdminTraspasos'))
 const CapturaInteligente = lazy(() => import('./pages/CapturaInteligente'))
 const AuditoriaCaptura = lazy(() => import('./pages/AuditoriaCaptura'))
 const Recepciones = lazy(() => import('./pages/Recepciones'))
+const HistorialRecepciones = lazy(() => import('./pages/HistorialRecepciones'))
 const Reclamaciones = lazy(() => import('./pages/Reclamaciones'))
 const EvolucionPrecios = lazy(() => import('./pages/EvolucionPrecios'))
 
@@ -54,6 +55,7 @@ function App() {
         <Route path="captura" element={<ProtectedModule module="captura"><CapturaInteligente /></ProtectedModule>} />
         <Route path="auditoria" element={<ProtectedModule module="auditoria"><AuditoriaCaptura /></ProtectedModule>} />
         <Route path="recepciones" element={<ProtectedModule module="recepciones"><Recepciones /></ProtectedModule>} />
+        <Route path="historial-recepciones" element={<ProtectedModule module="historial-recepciones"><HistorialRecepciones /></ProtectedModule>} />
         <Route path="reclamaciones" element={<ProtectedModule module="reclamaciones"><Reclamaciones /></ProtectedModule>} />
         <Route path="evolucion-precios" element={<ProtectedModule module="evolucion-precios"><EvolucionPrecios /></ProtectedModule>} />
         <Route path="catalogo" element={<ProtectedModule module="catalogo"><Catalogo /></ProtectedModule>} />
