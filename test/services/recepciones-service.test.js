@@ -236,7 +236,7 @@ test('finalizeReception blocks missing SICAR, physical count, cost, rejected ite
   );
 
   assert.equal(
-    events.some((event) => Array.isArray(event) && /rel_codigos_proveedor|recepcion_bitacora|UPDATE historial_remisiones SET estado = 'FINALIZADO'/i.test(event[1])),
+    events.some((event) => Array.isArray(event) && /INSERT INTO rel_codigos_proveedor|INSERT INTO recepcion_bitacora|UPDATE historial_remisiones SET estado = 'FINALIZADO'/i.test(event[1])),
     false
   );
   assert.deepEqual(events.slice(-2), ['rollback', 'release']);
@@ -323,6 +323,59 @@ test('finalizeReception learns only valid lines and records audit before state t
   assert.notEqual(auditIndex, -1);
   assert.notEqual(finalizeIndex, -1);
   assert.ok(auditIndex < finalizeIndex, `expected audit before final state change: ${JSON.stringify(events)}`);
+  assert.deepEqual(events.slice(-2), ['commit', 'release']);
+});
+
+test('finalizeReception accepts learned provider memory when replayed imports have no explicit SICAR key', async () => {
+  const events = [];
+  const connection = {
+    async beginTransaction() { events.push('begin'); },
+    async execute(sql, params) {
+      const normalized = sql.replace(/\s+/g, ' ').trim();
+      events.push(['execute', normalized, params]);
+      if (/SELECT id, estado FROM historial_remisiones WHERE numero_remision = \? FOR UPDATE/i.test(normalized)) {
+        return [[{ id: 18, estado: 'PENDIENTE' }], []];
+      }
+      if (/SELECT hi\.id, hi\.codigo_proveedor/i.test(normalized)) {
+        return [[{
+          id: 88,
+          codigo_proveedor: 'SKU-MEM',
+          clave_final: '',
+          clave_sicar: '',
+          clave_memoria: 'MEM123',
+          cantidad: 5,
+          costo_unitario: 12.5,
+          existencia_lapiz: 5,
+          revision_pendiente: 0,
+          es_paquete: 0,
+          piezas_por_paquete: 1
+        }], []];
+      }
+      if (/INSERT INTO rel_codigos_proveedor/i.test(normalized)) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (/INSERT INTO recepcion_bitacora/i.test(normalized)) {
+        return [{ insertId: 52 }, []];
+      }
+      if (/UPDATE historial_remisiones SET estado = 'FINALIZADO'/i.test(normalized)) {
+        return [{ affectedRows: 1 }, []];
+      }
+      assert.fail(`unexpected SQL: ${normalized}`);
+    },
+    async commit() { events.push('commit'); },
+    async rollback() { events.push('rollback'); },
+    release() { events.push('release'); }
+  };
+
+  await finalizeReception({
+    pool: { async getConnection() { return connection; } },
+    numeroRemision: 'R-18',
+    actorId: 27
+  });
+
+  const learningStatements = events.filter((event) => Array.isArray(event) && /INSERT INTO rel_codigos_proveedor/i.test(event[1]));
+  assert.equal(learningStatements.length, 1);
+  assert.deepEqual(learningStatements[0][2], ['SKU-MEM', 'MEM123', 0, 1]);
   assert.deepEqual(events.slice(-2), ['commit', 'release']);
 });
 

@@ -88,6 +88,33 @@ test('preview-upload classifies new, pending, and finalized folios without mutat
   );
 });
 
+test('preview-upload uses the remision provider when summarizing Tony XML discounts', async () => {
+  const app = buildApp({
+    async execute(sql, params) {
+      const normalized = sql.replace(/\s+/g, ' ').trim();
+      if (/SELECT id, estado FROM historial_remisiones WHERE numero_remision = \? LIMIT 1/i.test(normalized)) {
+        assert.deepEqual(params, ['T55']);
+        return [[], []];
+      }
+      assert.fail(`unexpected SQL: ${normalized}`);
+    },
+    async getConnection() {
+      assert.fail('preview must not open a write transaction');
+    }
+  });
+
+  const response = await request(app)
+    .post('/api/recepciones/preview-upload')
+    .set('Authorization', `Bearer ${authToken()}`)
+    .attach('archivo_factura', Buffer.from(
+      '<?xml version="1.0"?><cfdi:Comprobante xmlns:cfdi="urn:cfdi" Serie="T" Folio="55"><cfdi:Emisor Rfc="TTI961202IM1" Nombre="Tony"/><cfdi:Conceptos><cfdi:Concepto NoIdentificacion="SKU-TONY" Descripcion="Descuento XML" Cantidad="1" ValorUnitario="100" Descuento="1"><cfdi:Impuestos><cfdi:Traslados><cfdi:Traslado Impuesto="002" TasaOCuota="0.160000" /></cfdi:Traslados></cfdi:Impuestos></cfdi:Concepto></cfdi:Conceptos></cfdi:Comprobante>'
+    ), { filename: 'tony.xml', contentType: 'application/xml' });
+
+  assert.equal(response.status, 200, response.text);
+  assert.equal(response.body.preview[0].proveedor, 'TONY');
+  assert.equal(response.body.preview[0].resumen.costoTotal, 110.2);
+});
+
 test('inventory export excludes physical count by default and includes it when incluir_fisico is true', async () => {
   const app = buildApp({
     async execute(sql) {

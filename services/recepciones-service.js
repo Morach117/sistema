@@ -352,13 +352,28 @@ async function deleteReceptionItem({ pool, itemId }) {
 }
 
 function resolveReceptionKey(item) {
-  return String(item?.clave_final || item?.clave_sicar || '').trim().toUpperCase();
+  return String(
+    item?.clave_final
+    || item?.clave_sicar
+    || item?.clave_memoria
+    || item?.clave_catalogo
+    || ''
+  ).trim().toUpperCase();
 }
 
 function validateFinalizationItems(items) {
-  const issues = [...validateReceptionItems(items)];
+  const normalizedItems = (Array.isArray(items) ? items : []).map((item) => {
+    const resolvedKey = resolveReceptionKey(item);
+    if (!resolvedKey) return item;
+    return {
+      ...item,
+      clave_final: item?.clave_final || null,
+      clave_sicar: item?.clave_sicar || resolvedKey
+    };
+  });
+  const issues = [...validateReceptionItems(normalizedItems)];
 
-  for (const item of Array.isArray(items) ? items : []) {
+  for (const item of normalizedItems) {
     const itemId = item?.id ?? null;
     const clave = resolveReceptionKey(item);
     const rejected = Number(item?.revision_pendiente) === 2;
@@ -391,6 +406,10 @@ async function buildUploadPreview({ pool, parsedFiles }) {
 
   for (const parsed of Array.isArray(parsedFiles) ? parsedFiles : []) {
     for (const remision of parsed.remisiones || []) {
+      const previewItems = remision.items.map((item) => ({
+        ...item,
+        proveedor: item?.proveedor || remision.proveedor
+      }));
       const [rows] = await pool.execute(
         'SELECT id, estado FROM historial_remisiones WHERE numero_remision = ? LIMIT 1',
         [remision.folio]
@@ -400,9 +419,9 @@ async function buildUploadPreview({ pool, parsedFiles }) {
         folio: remision.folio,
         proveedor: remision.proveedor,
         ...classifyPreviewState(existing?.estado),
-        resumen: buildReceptionSummary(remision.items),
-        issues: validateReceptionItems(remision.items),
-        items: remision.items
+        resumen: buildReceptionSummary(previewItems),
+        issues: validateReceptionItems(previewItems),
+        items: previewItems
       });
     }
   }
@@ -490,11 +509,14 @@ async function finalizeReception({ pool, numeroRemision, actorId }) {
     }
 
     const [items] = await connection.execute(
-      `SELECT hi.id, hi.codigo_proveedor, hi.clave_final, hi.clave_sicar, hi.cantidad,
+      `SELECT hi.id, hi.codigo_proveedor, hi.clave_final, hi.clave_sicar,
+              MAX(rcp.clave_sicar) AS clave_memoria, hi.cantidad,
               hi.costo_unitario, hi.existencia_lapiz, hi.revision_pendiente,
               hi.es_paquete, hi.piezas_por_paquete
          FROM historial_items hi
+         LEFT JOIN rel_codigos_proveedor rcp ON hi.codigo_proveedor = rcp.codigo_proveedor
         WHERE hi.remision_id = ?
+        GROUP BY hi.id
         ORDER BY hi.id ASC`,
       [rows[0].id]
     );
