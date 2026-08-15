@@ -124,3 +124,35 @@ test('rolls back the complete multi-file batch when saving any file fails', asyn
   assert.equal(events.includes('commit'), false);
   assert.deepEqual(events.slice(-2), ['rollback', 'release']);
 });
+
+test('rejects reimport into a finalized remision and rolls back the whole upload', async () => {
+  const events = [];
+  const connection = {
+    async beginTransaction() { events.push('begin'); },
+    async execute(sql) {
+      events.push(sql.replace(/\s+/g, ' ').trim());
+      if (/SELECT id, estado FROM historial_remisiones/.test(sql)) {
+        return [[{ id: 20, estado: 'FINALIZADO' }], []];
+      }
+      assert.fail(`unexpected write: ${sql}`);
+    },
+    async commit() { events.push('commit'); },
+    async rollback() { events.push('rollback'); },
+    release() { events.push('release'); }
+  };
+  const app = express();
+  app.use('/api/recepciones', loadRouterWithDatabase({ async getConnection() { return connection; } }));
+  const token = jwt.sign({ id: 1, rol: 'admin', permisos: ['recepciones'] }, jwtSecret);
+
+  const response = await request(app)
+    .post('/api/recepciones/upload')
+    .set('Authorization', `Bearer ${token}`)
+    .attach('archivo_factura', Buffer.from(
+      'REMISION,CODIGO,DESCRIPCION,CANTIDAD,COSTO\nR-8,SKU-1,Producto,1,2\n'
+    ), { filename: 'reimport.csv', contentType: 'text/csv' });
+
+  assert.equal(response.status, 409, response.text);
+  assert.match(response.body.error, /finaliz/i);
+  assert.equal(events.some((event) => typeof event === 'string' && /^(UPDATE|INSERT|DELETE)/.test(event)), false);
+  assert.deepEqual(events.slice(-2), ['rollback', 'release']);
+});

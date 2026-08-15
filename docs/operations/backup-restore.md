@@ -12,6 +12,8 @@ npm.cmd run backup
 
 `backup_bd.js` usa exactamente `DB_HOST`, `DB_PORT` y `DB_NAME` de la configuración validada que consume el pool. Antes de crear un archivo abre esa conexión, comprueba servidor/puerto/base y consulta el motor de cada tabla base. Después ejecuta `mysqldump` sin shell, incluyendo `--host` y `--port`, pasa la contraseña mediante el entorno del proceso, escribe primero un archivo temporal exclusivo, exige salida exitosa y contenido no vacío, y finalmente hace un rename atómico. Usa `--single-transaction`, `--quick`, `--skip-lock-tables`, `utf8mb4` y `--databases`.
 
+En `npm run migrate`, host, puerto, usuario y base se resuelven una sola vez y quedan en un objeto inmutable compartido por el pool y el respaldo. Un cambio posterior en `config/.active_port` no puede redirigir el dump ni la migración en curso; se usa la identidad ya resuelta o se aborta.
+
 `--single-transaction` sólo ofrece la consistencia requerida cuando todas las tablas base son InnoDB. Si la inspección encuentra MyISAM, MEMORY, un motor desconocido o no puede verificar los motores, el comando aborta antes de invocar `mysqldump` y no publica ningún respaldo. No convierta una tabla automáticamente: inventar o cambiar su motor puede bloquear o alterar una sucursal. Registre la tabla, detenga el despliegue y prepare una ventana de mantenimiento revisada o una estrategia de respaldo con bloqueo total probada en una copia aislada.
 
 Verifique de nuevo usando la ruta exacta impresa:

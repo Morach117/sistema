@@ -131,6 +131,9 @@ function fakeMigrationPool({
     };
 
     return {
+        databaseConfig: Object.freeze({
+            host: 'branch-db', port: 3307, user: 'root', password: '', database: 'papeleria'
+        }),
         appliedMigrationIds: applied,
         statements,
         get catalogSnapshotReads() {
@@ -356,6 +359,9 @@ test('validates directory-loaded migrations before sorting them', async (t) => {
 test('does not acquire a database connection when the pre-migration backup fails', async () => {
     let connectionAttempts = 0;
     const pool = {
+        databaseConfig: Object.freeze({
+            host: 'branch-db', port: 3307, user: 'root', password: '', database: 'papeleria'
+        }),
         async getConnection() {
             connectionAttempts += 1;
             throw new Error('database access must not happen');
@@ -372,6 +378,64 @@ test('does not acquire a database connection when the pre-migration backup fails
         /backup failed/i
     );
     assert.equal(connectionAttempts, 0);
+});
+
+test('passes the pool immutable database identity to backup even if active port changes', async () => {
+    const pool = fakeMigrationPool({ catalogSnapshots: [[], []] });
+    const resolvedIdentity = pool.databaseConfig;
+    let activePort = resolvedIdentity.port;
+    let receivedOptions;
+
+    await runMigrationCli({
+        pool,
+        databaseConfig: resolvedIdentity,
+        migrations: [],
+        async createBackupFn(options) {
+            receivedOptions = options;
+            activePort = 3319;
+            return { filePath: 'verified.sql', size: 1024 };
+        },
+    });
+
+    assert.equal(activePort, 3319);
+    assert.strictEqual(receivedOptions.config, resolvedIdentity);
+    assert.equal(receivedOptions.config.port, 3307);
+    assert.equal(Object.isFrozen(receivedOptions.config), true);
+});
+
+test('rejects a backup identity different from the pool identity before backup', async () => {
+    const pool = fakeMigrationPool();
+    const differentIdentity = Object.freeze({ ...pool.databaseConfig, port: 3319 });
+    let backupCalls = 0;
+
+    await assert.rejects(
+        runMigrationCli({
+            pool,
+            databaseConfig: differentIdentity,
+            migrations: [],
+            async createBackupFn() { backupCalls += 1; },
+        }),
+        /identidad|pool|configuracion/i
+    );
+    assert.equal(backupCalls, 0);
+});
+
+test('requires the pool itself to carry the immutable backup identity', async () => {
+    const identity = Object.freeze({
+        host: 'branch-db', port: 3307, user: 'root', password: '', database: 'papeleria'
+    });
+    let backupCalls = 0;
+
+    await assert.rejects(
+        runMigrationCli({
+            pool: { async query() { assert.fail('database access'); } },
+            databaseConfig: identity,
+            migrations: [],
+            async createBackupFn() { backupCalls += 1; },
+        }),
+        /identidad|pool|configuracion/i
+    );
+    assert.equal(backupCalls, 0);
 });
 
 test('fails the operational migration when cat_productos changes', async () => {
@@ -782,4 +846,35 @@ test('fails closed before spawning when a base table is not InnoDB', async (t) =
     );
 
     assert.equal(spawnCalls, 0);
+});
+
+test('keeps the resolved backup port when the active port file changes mid-flight', async (t) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sistema-backup-port-race-'));
+    const activePortPath = path.join(tempDir, '.active_port');
+    fs.writeFileSync(activePortPath, '3307');
+    t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+    const { loadDatabaseConfig, readActiveDatabasePort } = require('../../config/database-config');
+    const resolved = loadDatabaseConfig(
+        { DB_HOST: 'branch-db', DB_USER: 'root', DB_NAME: 'papeleria' },
+        { defaultPort: readActiveDatabasePort({ activePortPath }) }
+    );
+    const calls = [];
+
+    await createBackup({
+        backupDir: tempDir,
+        config: resolved,
+        async inspectSourceFn(config) {
+            fs.writeFileSync(activePortPath, '3319');
+            return verifiedBackupSource(config);
+        },
+        dumpExecutable: 'fake-mysqldump',
+        spawnImpl(command, args) {
+            calls.push({ command, args });
+            return fakeDumpProcess({ content: '-- dump\nCREATE TABLE example;\n' });
+        },
+    });
+
+    assert.equal(fs.readFileSync(activePortPath, 'utf8'), '3319');
+    assert.ok(calls[0].args.includes('--port=3307'));
+    assert.equal(calls[0].args.includes('--port=3319'), false);
 });

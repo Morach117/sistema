@@ -273,12 +273,88 @@ async function updateReceptionItem({ pool, itemId, field, value }) {
   }
 }
 
+async function runLockedReceptionMutation({ pool, lockStatement, lockParameters, mutate }) {
+  let connection;
+  let transactionStarted = false;
+  try {
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    transactionStarted = true;
+    const [rows] = await connection.execute(lockStatement, lockParameters);
+    if (!Array.isArray(rows) || rows.length !== 1) {
+      throw new ReceptionStateError('La remision o el item no existe.', 404);
+    }
+    if (String(rows[0].estado).toUpperCase() === 'FINALIZADO') {
+      throw new ReceptionStateError('La remision ya esta finalizada y no admite cambios.', 409);
+    }
+    await mutate(connection, rows[0]);
+    await connection.commit();
+  } catch (error) {
+    if (transactionStarted) await connection.rollback().catch(() => {});
+    throw error;
+  } finally {
+    connection?.release();
+  }
+}
+
+async function assignReceptionProvider({ pool, remisionId, proveedor }) {
+  const id = Number(remisionId);
+  if (!Number.isInteger(id) || id <= 0 || typeof proveedor !== 'string' || !proveedor.trim()) {
+    throw new ReceptionStateError('Los datos del proveedor no son validos.', 422);
+  }
+  await runLockedReceptionMutation({
+    pool,
+    lockStatement: 'SELECT id, estado FROM historial_remisiones WHERE id = ? FOR UPDATE',
+    lockParameters: [id],
+    mutate: (connection) => connection.execute(
+      'UPDATE historial_remisiones SET proveedor = ? WHERE id = ?',
+      [proveedor.trim(), id]
+    )
+  });
+}
+
+async function deleteReceptionItem({ pool, itemId }) {
+  const id = Number(itemId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new ReceptionStateError('El item no es valido.', 422);
+  }
+  await runLockedReceptionMutation({
+    pool,
+    lockStatement: `SELECT hi.id, hr.estado
+                      FROM historial_items hi
+                      JOIN historial_remisiones hr ON hr.id = hi.remision_id
+                     WHERE hi.id = ?
+                     FOR UPDATE`,
+    lockParameters: [id],
+    mutate: (connection) => connection.execute('DELETE FROM historial_items WHERE id = ?', [id])
+  });
+}
+
+async function finalizeReception({ pool, numeroRemision }) {
+  if (typeof numeroRemision !== 'string' || !numeroRemision.trim()) {
+    throw new ReceptionStateError('La remision no es valida.', 422);
+  }
+  const folio = numeroRemision.trim();
+  await runLockedReceptionMutation({
+    pool,
+    lockStatement: 'SELECT id, estado FROM historial_remisiones WHERE numero_remision = ? FOR UPDATE',
+    lockParameters: [folio],
+    mutate: (connection, row) => connection.execute(
+      "UPDATE historial_remisiones SET estado = 'FINALIZADO' WHERE id = ?",
+      [row.id]
+    )
+  });
+}
+
 module.exports = {
   ALLOWED_MIME_TYPES,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_FILES,
   MAX_TOTAL_UPLOAD_BYTES,
+  assignReceptionProvider,
   cleanupUploadedFiles,
+  deleteReceptionItem,
+  finalizeReception,
   parseUpload,
   parseUploads,
   ReceptionStateError,

@@ -152,3 +152,36 @@ test('reports generic unavailability with request correlation when readiness fai
   });
   assert.doesNotMatch(response.text, /private database endpoint/i);
 });
+
+test('conceals readiness and never touches the pool for non-loopback clients', async () => {
+  let checks = 0;
+  const response = await request(createApp({
+    readinessAccess: () => false,
+    readinessCheck: async () => { checks += 1; }
+  })).get('/health');
+
+  assert.equal(response.status, 404);
+  assert.equal(checks, 0);
+  assert.deepEqual(response.body, {
+    error: 'Not found',
+    requestId: response.headers['x-request-id']
+  });
+});
+
+test('coalesces concurrent readiness requests into one database check', async () => {
+  let checks = 0;
+  let releaseCheck;
+  const gate = new Promise((resolve) => { releaseCheck = resolve; });
+  const app = createApp({
+    readinessCacheMs: 5000,
+    readinessCheck: async () => { checks += 1; await gate; }
+  });
+
+  const requests = [1, 2, 3].map(() => request(app).get('/health'));
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseCheck();
+  const responses = await Promise.all(requests);
+
+  assert.ok(responses.every((response) => response.status === 200));
+  assert.equal(checks, 1);
+});

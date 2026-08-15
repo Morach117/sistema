@@ -15,6 +15,8 @@ function positiveInteger(value, field) {
 }
 
 const MAX_TRANSFER_LINES = 500;
+const MAX_TRANSFER_KEY_LENGTH = 50;
+const MAX_TRANSFER_QUANTITY = 99_999_999.99;
 
 function positiveFiniteNumber(value, field) {
   if (
@@ -24,8 +26,19 @@ function positiveFiniteNumber(value, field) {
     throw new TraspasoError(`${field} debe ser un numero positivo finito.`, 422);
   }
   const number = Number(value);
-  if (!Number.isFinite(number) || number <= 0) {
-    throw new TraspasoError(`${field} debe ser un numero positivo finito.`, 422);
+  const decimalShapeValid = typeof value === 'string'
+    ? /^\d+(?:\.\d{1,2})?$/.test(value.trim())
+    : Math.abs(number * 100 - Math.round(number * 100)) <= 1e-7;
+  if (
+    !Number.isFinite(number) ||
+    number <= 0 ||
+    number > MAX_TRANSFER_QUANTITY ||
+    !decimalShapeValid
+  ) {
+    throw new TraspasoError(
+      `${field} debe ser positivo, no mayor a ${MAX_TRANSFER_QUANTITY} y usar maximo 2 decimales.`,
+      422
+    );
   }
   return number;
 }
@@ -50,7 +63,7 @@ function validateTransferProducts(productos) {
     const clave = typeof producto?.id === 'string' ? producto.id.trim() : '';
     const normalizedKey = clave.toUpperCase();
     const cantidad = positiveFiniteNumber(producto?.cantidad, 'Cada cantidad');
-    if (!clave || clave.length > 100) {
+    if (!clave || clave.length > MAX_TRANSFER_KEY_LENGTH) {
       throw new TraspasoError('Cada producto requiere una clave valida.', 422);
     }
     if (seen.has(normalizedKey)) {
@@ -65,6 +78,10 @@ async function completeTraspaso({ pool, traspasoId, detalles, actorId }) {
   const transferId = positiveInteger(traspasoId, 'El traspaso');
   positiveInteger(actorId, 'El usuario');
   const submittedIds = validateUniqueDetailIds(detalles);
+  const normalizedDetails = detalles.map((detalle) => ({
+    id: positiveInteger(detalle?.id, 'El detalle'),
+    cantidad_recibida: positiveFiniteNumber(detalle?.cantidad_recibida, 'La cantidad recibida')
+  }));
 
   let connection;
   let transactionStarted = false;
@@ -94,12 +111,9 @@ async function completeTraspaso({ pool, traspasoId, detalles, actorId }) {
       throw new TraspasoError('Las lineas enviadas no coinciden con todos los detalles persistidos.', 409);
     }
 
-    for (const detalle of detalles) {
-      const detailId = positiveInteger(detalle?.id, 'El detalle');
-      const quantity = positiveFiniteNumber(
-        detalle?.cantidad_recibida,
-        'La cantidad recibida'
-      );
+    for (const detalle of normalizedDetails) {
+      const detailId = detalle.id;
+      const quantity = detalle.cantidad_recibida;
 
       const [result] = await connection.execute(
         'UPDATE traspaso_detalles SET cantidad = ? WHERE id = ? AND traspaso_id = ?',

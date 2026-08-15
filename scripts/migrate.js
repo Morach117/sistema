@@ -152,13 +152,20 @@ async function captureCatalogSnapshot({ pool } = {}) {
 
 async function runMigrationCli({
     pool,
+    databaseConfig = pool?.databaseConfig,
     createBackupFn = require('../backup_bd').createBackup,
     backupOptions,
     migrationsDir,
     migrations,
     captureCatalogSnapshotFn = captureCatalogSnapshot,
 } = {}) {
-    await createBackupFn(backupOptions);
+    if (!databaseConfig || !Object.isFrozen(databaseConfig)) {
+        throw new TypeError('La migracion requiere la identidad inmutable de la base usada por el pool.');
+    }
+    if (!pool?.databaseConfig || databaseConfig !== pool.databaseConfig) {
+        throw new Error('La identidad del respaldo no coincide con la configuracion del pool.');
+    }
+    await createBackupFn({ ...backupOptions, config: databaseConfig });
     const before = await captureCatalogSnapshotFn({ pool });
     const results = await runMigrations({ pool, migrationsDir, migrations });
     const after = await captureCatalogSnapshotFn({ pool });
@@ -169,7 +176,7 @@ async function runMigrationCli({
 async function main() {
     const pool = require('../config/database');
     try {
-        const results = await runMigrationCli({ pool });
+        const results = await runMigrationCli({ pool, databaseConfig: pool.databaseConfig });
         for (const result of results) {
             console.log(`${result.id}: ${result.status}`);
         }

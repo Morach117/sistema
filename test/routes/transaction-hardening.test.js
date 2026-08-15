@@ -71,6 +71,9 @@ test('transfer creation rejects malformed, duplicate, empty or excessive product
     { productos: [{ id: '', cantidad: 1 }] },
     { productos: [{ id: 'SKU-1', cantidad: Number.POSITIVE_INFINITY }] },
     { productos: [{ id: 'SKU-1', cantidad: true }] },
+    { productos: [{ id: 'X'.repeat(51), cantidad: 1 }] },
+    { productos: [{ id: 'SKU-1', cantidad: '100000000' }] },
+    { productos: [{ id: 'SKU-1', cantidad: '1.001' }] },
     { productos: [{ id: 'SKU-1', cantidad: 1 }, { id: 'sku-1', cantidad: 2 }] },
     { productos: Array.from({ length: 501 }, (_, index) => ({ id: `SKU-${index}`, cantidad: 1 })) }
   ];

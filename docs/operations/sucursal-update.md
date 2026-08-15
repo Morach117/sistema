@@ -213,7 +213,7 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3000/' | Select-Object Stat
 Get-Content '.\logs\pm2-error.log' -Tail 100
 ```
 
-El estado esperado es `online`, readiness `ready`, HTTP `200` y sin errores nuevos. `/health` ejecuta una consulta mínima y no expone host, puerto, nombre de base ni mensajes internos; responde `503` con `requestId` si la API no puede usar la base. Después, con una cuenta de prueba autorizada:
+El estado esperado es `online`, readiness `ready`, HTTP `200` y sin errores nuevos. `/health` sólo acepta conexiones de loopback (`127.0.0.1`/`::1`), por eso el comando debe ejecutarse en la misma PC de la sucursal. Las consultas simultáneas se agrupan y el resultado se conserva cinco segundos para no agotar el pool. El endpoint no expone host, puerto, nombre de base ni mensajes internos; responde `503` con `requestId` si la API no puede usar la base y `404` correlacionado a clientes remotos. Después, con una cuenta de prueba autorizada:
 
 1. iniciar sesión y cerrar sesión;
 2. abrir Dashboard, Bodega, Catálogo, Traspasos, Recepciones y Auditoría según permisos;

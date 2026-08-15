@@ -12,7 +12,10 @@ const CONNECT_TIMEOUT_MS = 10_000;
 const ACQUIRE_TIMEOUT_MS = 10_000;
 const QUEUE_LIMIT = 20;
 
-function createBoundedPool(rawPool, { acquireTimeoutMs = ACQUIRE_TIMEOUT_MS } = {}) {
+function createBoundedPool(rawPool, {
+    acquireTimeoutMs = ACQUIRE_TIMEOUT_MS,
+    databaseConfig: resolvedDatabaseConfig,
+} = {}) {
     async function getConnection() {
         let timeout;
         let timedOut = false;
@@ -55,6 +58,7 @@ function createBoundedPool(rawPool, { acquireTimeoutMs = ACQUIRE_TIMEOUT_MS } = 
 
     return {
         config: rawPool.pool?.config || rawPool.config,
+        databaseConfig: resolvedDatabaseConfig,
         getConnection,
         execute(statement, parameters) {
             return withConnection('execute', statement, parameters);
@@ -87,6 +91,6 @@ const rawPool = mysql.createPool({
     queueLimit: QUEUE_LIMIT
 });
 
-const pool = createBoundedPool(rawPool);
+const pool = createBoundedPool(rawPool, { databaseConfig });
 
 module.exports = pool;

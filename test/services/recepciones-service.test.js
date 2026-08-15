@@ -6,6 +6,9 @@ const path = require('node:path');
 
 const {
   MAX_TOTAL_UPLOAD_BYTES,
+  assignReceptionProvider,
+  deleteReceptionItem,
+  finalizeReception,
   parseUpload,
   parseUploads,
   updateReceptionItem
@@ -177,3 +180,32 @@ test('updates a pending receipt item under the same row lock transaction', async
   assert.deepEqual(events[2], ['execute', 'UPDATE historial_items SET `cantidad` = ? WHERE id = ?', [3, 8]]);
   assert.deepEqual(events.slice(-2), ['commit', 'release']);
 });
+
+function finalizedReceptionPool(lockRow = { id: 8, estado: 'FINALIZADO' }) {
+  const events = [];
+  const connection = {
+    async beginTransaction() { events.push('begin'); },
+    async execute(sql, params) { events.push(['execute', sql, params]); return [[lockRow], []]; },
+    async commit() { events.push('commit'); },
+    async rollback() { events.push('rollback'); },
+    release() { events.push('release'); }
+  };
+  return { events, async getConnection() { return connection; } };
+}
+
+for (const [label, mutate] of [
+  ['provider assignment', (pool) => assignReceptionProvider({ pool, remisionId: 8, proveedor: 'TONY' })],
+  ['item deletion', (pool) => deleteReceptionItem({ pool, itemId: 12 })],
+  ['repeat finalization', (pool) => finalizeReception({ pool, numeroRemision: 'R-8' })]
+]) {
+  test(`rejects ${label} after locking a finalized parent`, async () => {
+    const pool = finalizedReceptionPool();
+    await assert.rejects(
+      () => mutate(pool),
+      (error) => error.statusCode === 409 && /finaliz/i.test(error.message)
+    );
+    assert.match(pool.events[1][1], /FOR UPDATE/i);
+    assert.equal(pool.events.some((event) => Array.isArray(event) && /^(UPDATE|DELETE)/.test(event[1])), false);
+    assert.deepEqual(pool.events.slice(-2), ['rollback', 'release']);
+  });
+}

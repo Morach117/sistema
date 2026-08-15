@@ -56,9 +56,13 @@ Consulta capturas por fecha, separa pendientes/exportadas y calcula el ajuste pa
 
 Lista remisiones, revisa líneas, vincula claves SICAR, calcula presentaciones/costos y genera el archivo final. Las escrituras se serializan para conservar su orden; cerrar un diálogo no guarda silenciosamente cambios pendientes.
 
+Una remisión `FINALIZADO` es inmutable también en el servidor: editar campos, reasignar proveedor, eliminar partidas o reimportar el mismo folio adquiere un bloqueo transaccional sobre la remisión y responde conflicto sin escribir.
+
 ### Traspasos
 
 Registra envíos y permite su recepción por personal autorizado. La cantidad recibida se guarda en la columna histórica `traspaso_detalles.cantidad` para mantener compatibilidad con los esquemas existentes. Al completar, se bloquean todas las líneas persistidas y el conjunto de identificadores enviado debe coincidir exactamente antes de modificar o confirmar la transacción.
+
+Las claves de traspaso admiten hasta 50 caracteres. Las cantidades respetan `DECIMAL(10,2)`: máximo `99999999.99`, hasta dos decimales y siempre mayores que cero; los payloads incompatibles se rechazan antes de adquirir una conexión.
 
 ### Bodega y catálogo
 

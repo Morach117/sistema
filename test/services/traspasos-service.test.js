@@ -83,7 +83,7 @@ test('locks a pending transfer and commits only after every detail and header up
   ]);
 });
 
-test('rejects non-positive received quantities and rolls back the locked transfer', async () => {
+test('rejects non-positive received quantities before acquiring a connection', async () => {
   const pool = transactionPool([
     [[{ id: 4 }], []],
     [[{ id: 9 }], []]
@@ -99,7 +99,7 @@ test('rejects non-positive received quantities and rolls back the locked transfe
     (error) => error.statusCode === 422 && /cantidad/i.test(error.message)
   );
 
-  assert.deepEqual(pool.events.slice(-2), ['rollback', 'release']);
+  assert.deepEqual(pool.events, []);
 });
 
 test('rejects completion unless submitted unique detail IDs exactly match persisted lines', async () => {
@@ -151,8 +151,22 @@ test('rejects boolean received quantities instead of coercing them to one', asyn
     }),
     (error) => error.statusCode === 422 && /cantidad/i.test(error.message)
   );
-  assert.deepEqual(pool.events.slice(-2), ['rollback', 'release']);
+  assert.deepEqual(pool.events, []);
 });
+
+for (const quantity of ['100000000', '1.001', 100000000, 1.001]) {
+  test(`rejects non-DECIMAL(10,2) received quantity ${quantity} before DB`, async () => {
+    await assert.rejects(
+      () => completeTraspaso({
+        pool: { async getConnection() { assert.fail('database access'); } },
+        traspasoId: 4,
+        detalles: [{ id: 9, cantidad_recibida: quantity }],
+        actorId: 1
+      }),
+      (error) => error.statusCode === 422 && /cantidad/i.test(error.message)
+    );
+  });
+}
 
 test('versioned transfer detail DDL declares cantidad as the persistence column', async () => {
   const migrationPath = path.resolve(

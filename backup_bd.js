@@ -64,15 +64,18 @@ async function createBackup({
     spawnImpl = spawn,
     inspectSourceFn = inspectBackupSource,
 } = {}) {
-    const selectedConfig = config
-        ? loadDatabaseConfig({
+    if (!config) {
+        throw new TypeError('El respaldo requiere una configuracion de base resuelta explicitamente.');
+    }
+    const selectedConfig = Object.isFrozen(config)
+        ? config
+        : loadDatabaseConfig({
             DB_HOST: config.host,
             DB_PORT: config.port,
             DB_USER: config.user,
             DB_PASSWORD: config.password,
             DB_NAME: config.database,
-        })
-        : loadDatabaseConfig(process.env, { defaultPort: readActiveDatabasePort() });
+        });
 
     if (!selectedConfig.host || !selectedConfig.user || !selectedConfig.database) {
         throw new TypeError('La configuración del respaldo requiere host, user y database.');
@@ -210,7 +213,8 @@ async function inspectBackupSource(config, { createConnection = mysql.createConn
 
 async function main() {
     require('dotenv').config();
-    const result = await createBackup();
+    const config = loadDatabaseConfig(process.env, { defaultPort: readActiveDatabasePort() });
+    const result = await createBackup({ config });
     console.log(`Respaldo guardado y verificado: ${result.filePath} (${result.size} bytes)`);
 }
 

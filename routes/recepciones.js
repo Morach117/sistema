@@ -10,7 +10,10 @@ const {
     ALLOWED_MIME_TYPES,
     MAX_UPLOAD_BYTES,
     MAX_UPLOAD_FILES,
+    assignReceptionProvider,
     cleanupUploadedFiles,
+    deleteReceptionItem,
+    finalizeReception,
     parseUploads,
     ReceptionStateError,
     updateReceptionItem,
@@ -269,9 +272,12 @@ router.post('/asignar_proveedor', authorize({ module: 'recepciones', action: 'wr
     if (!id_remision || !proveedor) return res.status(400).json({ success: false, error: 'Faltan parámetros' });
 
     try {
-        await pool.execute(`UPDATE historial_remisiones SET proveedor = ? WHERE id = ?`, [proveedor, id_remision]);
+        await assignReceptionProvider({ pool, remisionId: id_remision, proveedor });
         res.json({ success: true });
     } catch (error) {
+        if (error instanceof ReceptionStateError) {
+            return res.status(error.statusCode).json({ success: false, error: error.message });
+        }
         return sendInternalError(error, req, res);
     }
 });
@@ -282,9 +288,12 @@ router.post('/asignar_proveedor', authorize({ module: 'recepciones', action: 'wr
 router.post('/finalizar', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
     const { remision_id } = req.body;
     try {
-        await pool.execute(`UPDATE historial_remisiones SET estado = 'FINALIZADO' WHERE numero_remision = ?`, [remision_id]);
+        await finalizeReception({ pool, numeroRemision: remision_id });
         res.json({ success: true });
     } catch (error) {
+        if (error instanceof ReceptionStateError) {
+            return res.status(error.statusCode).json({ success: false, error: error.message });
+        }
         return sendInternalError(error, req, res);
     }
 });
@@ -295,9 +304,12 @@ router.post('/finalizar', authorize({ module: 'recepciones', action: 'write' }),
 router.delete('/item/:id', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
     const { id } = req.params;
     try {
-        await pool.execute(`DELETE FROM historial_items WHERE id = ?`, [id]);
+        await deleteReceptionItem({ pool, itemId: id });
         res.json({ success: true });
     } catch (error) {
+        if (error instanceof ReceptionStateError) {
+            return res.status(error.statusCode).json({ success: false, error: error.message });
+        }
         return sendInternalError(error, req, res);
     }
 });
@@ -310,11 +322,14 @@ router.delete('/item/:id', authorize({ module: 'recepciones', action: 'write' })
 // Helper: Get or create remision
 async function obtenerOcrearRemision(connection, folio, prov) {
     const [rows] = await connection.execute(
-        `SELECT id FROM historial_remisiones WHERE numero_remision = ? LIMIT 1`,
+        `SELECT id, estado FROM historial_remisiones WHERE numero_remision = ? LIMIT 1 FOR UPDATE`,
         [folio]
     );
 
     if (rows.length > 0) {
+        if (String(rows[0].estado).toUpperCase() === 'FINALIZADO') {
+            throw new ReceptionStateError('La remision ya esta finalizada y no admite cambios.', 409);
+        }
         await connection.execute(
             `UPDATE historial_remisiones SET fecha_carga = NOW(), proveedor = ? WHERE id = ?`,
             [prov, rows[0].id]
@@ -397,6 +412,9 @@ router.post('/upload', authorize({ module: 'recepciones', action: 'write' }), re
     } catch (error) {
         await rollbackTransaction(connection, req.requestId);
         if (error instanceof UploadValidationError) {
+            return res.status(error.statusCode).json({ success: false, error: error.message });
+        }
+        if (error instanceof ReceptionStateError) {
             return res.status(error.statusCode).json({ success: false, error: error.message });
         }
         return sendInternalError(error, req, res);
