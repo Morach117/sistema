@@ -90,6 +90,7 @@ function createApp({
   app.use('/api/traspasos', require('./routes/traspasos'));
   app.use('/api/recepciones', require('./routes/recepciones'));
   app.use('/api/historial-recepciones', require('./routes/historial-recepciones'));
+  app.use('/api/clientes', require('./routes/clientes'));
   app.use('/api/captura', require('./routes/captura'));
   app.use('/api/reclamaciones', require('./routes/reclamaciones'));
   app.use('/api/evolucion-precios', require('./routes/evolucion'));
