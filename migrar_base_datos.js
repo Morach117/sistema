@@ -1,3 +1,4 @@
+// LEGACY: conservado para revisión post-actualización. Los comandos npm ya no lo invocan.
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 

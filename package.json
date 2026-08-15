@@ -6,9 +6,10 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "setup": "npm install && cd frontend && npm install && npm run build && cd .. && node migrar_base_datos.js && npx pm2 start ecosystem.config.js && npx pm2 save && node pm2_autostart_windows.js",
+    "setup": "npm install && cd frontend && npm install && npm run build && cd .. && npm run migrate && npx pm2 start ecosystem.config.js && npx pm2 save && node pm2_autostart_windows.js",
     "backup": "node backup_bd.js",
-    "migrate": "node migrar_base_datos.js",
+    "backup:verify": "node scripts/verify-backup.js",
+    "migrate": "node scripts/migrate.js",
     "pm2:start": "npx pm2 start ecosystem.config.js",
     "pm2:stop": "npx pm2 stop papeleria-sistema",
     "pm2:restart": "npx pm2 restart papeleria-sistema",
