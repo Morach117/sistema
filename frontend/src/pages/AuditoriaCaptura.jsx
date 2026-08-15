@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import axios from 'axios'
+import axios from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { FileSpreadsheet, Calendar, ScanBarcode, Box, Calculator, CheckCircle2, ShieldAlert, Trash2, History, Download, X } from 'lucide-react'

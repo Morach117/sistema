@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import api from '@/lib/api'
+import { saveSession } from '@/auth/session'
 import { BookMarked, AlertCircle, Loader2, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -17,10 +18,9 @@ export default function Login() {
     setError('')
 
     try {
-      const res = await axios.post('/api/auth/login', { usuario, password })
+      const res = await api.post('/api/auth/login', { usuario, password })
       if (res.data.success) {
-        localStorage.setItem('token', res.data.token)
-        localStorage.setItem('user', JSON.stringify(res.data.user))
+        saveSession({ token: res.data.token, user: res.data.user })
         navigate('/dashboard')
       }
     } catch (err) {

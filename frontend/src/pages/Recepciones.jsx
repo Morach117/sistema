@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useDebounce } from 'use-debounce'
-import axios from 'axios'
+import api from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { PackageOpen, CheckCircle2, FileSpreadsheet, XCircle, Loader2, Upload, Trash2, X } from 'lucide-react'
@@ -24,7 +24,7 @@ function SicarInput({ item, onUpdate, esFaltante }) {
     }
     let alive = true
     setIsValidating(true)
-    axios.get(`/api/catalogo/list?page=1&limit=1&search=${encodeURIComponent(debouncedValue)}`)
+    api.get(`/api/catalogo/list?page=1&limit=1&search=${encodeURIComponent(debouncedValue)}`)
       .then(res => {
         if (!alive) return
         const r = res.data?.data?.[0]
@@ -96,7 +96,7 @@ export default function Recepciones() {
   // ── Queries ──
   const { data: remisiones, isLoading: isLoadingList } = useQuery({
     queryKey: ['recepciones_list'],
-    queryFn: async () => { const res = await axios.get('/api/recepciones'); return res.data.data },
+    queryFn: async () => { const res = await api.get('/api/recepciones'); return res.data.data },
     refetchInterval: 10000
   })
 
@@ -104,7 +104,7 @@ export default function Recepciones() {
     queryKey: ['recepciones_detail', selectedRemision],
     queryFn: async () => {
       if (!selectedRemision) return null
-      const res = await axios.get(`/api/recepciones/${selectedRemision}`)
+      const res = await api.get(`/api/recepciones/${selectedRemision}`)
       return res.data
     },
     enabled: !!selectedRemision
@@ -138,13 +138,13 @@ export default function Recepciones() {
 
   // ── Mutations ──
   const updateFieldMutation = useMutation({
-    mutationFn: ({ id_item, campo, valor }) => axios.post('/api/recepciones/actualizar_campo', { id_item, campo, valor }),
+    mutationFn: ({ id_item, campo, valor }) => api.post('/api/recepciones/actualizar_campo', { id_item, campo, valor }),
     onSuccess: () => queryClient.invalidateQueries(['recepciones_detail', selectedRemision]),
     onError: (err) => Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: err.response?.data?.error || 'Error', showConfirmButton: false, timer: 1500 })
   })
 
   const deleteItemMutation = useMutation({
-    mutationFn: (id) => axios.delete(`/api/recepciones/item/${id}`),
+    mutationFn: (id) => api.delete(`/api/recepciones/item/${id}`),
     onSuccess: () => {
       Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Ítem eliminado', showConfirmButton: false, timer: 1500 })
       queryClient.invalidateQueries(['recepciones_detail', selectedRemision])
@@ -153,7 +153,7 @@ export default function Recepciones() {
   })
 
   const finalizeMutation = useMutation({
-    mutationFn: (numero_remision) => axios.post('/api/recepciones/finalizar', { remision_id: numero_remision }),
+    mutationFn: (numero_remision) => api.post('/api/recepciones/finalizar', { remision_id: numero_remision }),
     onSuccess: () => {
       Swal.fire('¡Finalizado!', 'La orden fue cerrada exitosamente.', 'success')
       setSelectedRemision(null)
@@ -163,7 +163,7 @@ export default function Recepciones() {
   })
 
   const uploadMutation = useMutation({
-    mutationFn: (formData) => axios.post('/api/recepciones/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+    mutationFn: (formData) => api.post('/api/recepciones/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
     onSuccess: (res) => {
       Swal.fire('¡Procesado!', res.data.mensaje || 'Archivos procesados', 'success')
       setShowUploadModal(false)
@@ -201,28 +201,32 @@ export default function Recepciones() {
     }).then((result) => { if (result.isConfirmed) finalizeMutation.mutate(numero_remision) })
   }
 
-  const handleValidarExcel = (numero_remision) => {
-    // Submit as form to trigger file download
-    const form = document.createElement('form')
-    form.method = 'POST'
-    form.action = '/api/recepciones/generar_excel'
-    form.target = '_blank'
-    const input = document.createElement('input')
-    input.type = 'hidden'; input.name = 'remision_id'; input.value = numero_remision
-    // Add auth token
-    const tokenInput = document.createElement('input')
-    tokenInput.type = 'hidden'; tokenInput.name = 'token'; tokenInput.value = localStorage.getItem('token') || ''
-    form.appendChild(input)
-    form.appendChild(tokenInput)
-    document.body.appendChild(form)
-    form.submit()
-    document.body.removeChild(form)
+  const handleValidarExcel = async (numero_remision) => {
+    try {
+      const response = await api.post(
+        '/api/recepciones/generar_excel',
+        { remision_id: numero_remision },
+        { responseType: 'blob' },
+      )
+      const disposition = response.headers['content-disposition'] || ''
+      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
+      const blobUrl = URL.createObjectURL(response.data)
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = filenameMatch?.[1] || `Carga_Sicar_${numero_remision}.xls`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(blobUrl)
+    } catch (err) {
+      Swal.fire('Error', err.response?.data?.error || 'No se pudo generar el archivo', 'error')
+    }
   }
 
   const handleProviderChange = (val) => {
     setSelectedProvider(val)
     if (selectedRemision) {
-      axios.post('/api/recepciones/asignar_proveedor', { id_remision: selectedRemision, proveedor: val })
+      api.post('/api/recepciones/asignar_proveedor', { id_remision: selectedRemision, proveedor: val })
         .then(() => queryClient.invalidateQueries(['recepciones_detail', selectedRemision]))
     }
   }

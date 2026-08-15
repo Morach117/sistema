@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import axios from 'axios'
+import api from '@/lib/api'
+import { canAccess } from '@/auth/permissions'
+import { readSession } from '@/auth/session'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { AlertOctagon, CheckCircle2, ShieldCheck, Check, Save } from 'lucide-react'
@@ -10,14 +12,14 @@ export default function Reclamaciones() {
   const queryClient = useQueryClient()
   const [selectedIncidencia, setSelectedIncidencia] = useState(null)
   
-  // Fake admin mode for testing UI. En prod se lee del auth token.
-  const isAdmin = true 
+  const session = readSession()
+  const isAdmin = canAccess(session?.user, 'reclamaciones') && session.user.rol === 'admin'
 
   // Fetch list of incidencias
   const { data: incidencias, isLoading: loadingList } = useQuery({
     queryKey: ['reclamaciones_list'],
     queryFn: async () => {
-      const res = await axios.get('/api/reclamaciones')
+      const res = await api.get('/api/reclamaciones')
       return res.data.data
     },
     refetchInterval: 10000 // Real-time
@@ -28,14 +30,14 @@ export default function Reclamaciones() {
     queryKey: ['reclamaciones_detail', selectedIncidencia?.id],
     queryFn: async () => {
       if (!selectedIncidencia) return null
-      const res = await axios.get(`/api/reclamaciones/${selectedIncidencia.id}`)
+      const res = await api.get(`/api/reclamaciones/${selectedIncidencia.id}`)
       return res.data.items
     },
     enabled: !!selectedIncidencia
   })
 
   const guardarConteoMutation = useMutation({
-    mutationFn: ({ id_item, nuevo_valor }) => axios.post('/api/reclamaciones/recontar', { id_item, nuevo_valor }),
+    mutationFn: ({ id_item, nuevo_valor }) => api.post('/api/reclamaciones/recontar', { id_item, nuevo_valor }),
     onSuccess: () => {
       Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Guardado', showConfirmButton: false, timer: 1500 })
       queryClient.invalidateQueries(['reclamaciones_detail', selectedIncidencia?.id])
@@ -44,7 +46,7 @@ export default function Reclamaciones() {
   })
 
   const validarItemMutation = useMutation({
-    mutationFn: (id_item) => axios.post('/api/reclamaciones/validar', { id_item }),
+    mutationFn: (id_item) => api.post('/api/reclamaciones/validar', { id_item }),
     onSuccess: () => {
       queryClient.invalidateQueries(['reclamaciones_detail', selectedIncidencia?.id])
       queryClient.invalidateQueries(['reclamaciones_list'])

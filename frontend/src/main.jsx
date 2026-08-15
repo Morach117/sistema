@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { ThemeProvider } from 'next-themes'
 import { Toaster } from 'sonner'
 import App from './App.jsx'
+import './lib/api'
 import './index.css'
 
 const queryClient = new QueryClient({

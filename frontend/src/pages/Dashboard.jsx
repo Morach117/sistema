@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
-import axios from 'axios'
+import axios from '@/lib/api'
+import { readSession } from '@/auth/session'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Activity, Clock, Box, TrendingUp, AlertOctagon, ScanBarcode, CheckCircle2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 export default function Dashboard() {
-  const user = JSON.parse(localStorage.getItem('user') || '{}')
+  const user = readSession()?.user || {}
   const isAdmin = user.rol === 'admin'
 
   const { data, isLoading, error } = useQuery({

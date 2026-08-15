@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import axios from 'axios'
+import axios from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { BoxSelect, RotateCcw, Link2, Check, ArrowRight, Trash2, X, Settings } from 'lucide-react'

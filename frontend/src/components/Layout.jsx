@@ -1,16 +1,15 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Package, Search, Users, LogOut, ArrowLeftRight, ScanBarcode, PackageOpen, MessageSquareWarning, TrendingUp, Moon, Sun, ShieldAlert, ArrowRightLeft } from 'lucide-react'
 import { useTheme } from 'next-themes'
+import { canAccess } from '@/auth/permissions'
+import { clearSession, readSession } from '@/auth/session'
 
 export default function Layout() {
   const location = useLocation()
   const navigate = useNavigate()
   const { theme, setTheme } = useTheme()
   
-  let user = { nombre: 'Usuario', rol: 'empleado' }
-  try {
-    user = JSON.parse(localStorage.getItem('user')) || user
-  } catch (e) {}
+  const user = readSession()?.user || { nombre: 'Usuario', rol: 'empleado', permisos: [] }
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
@@ -20,9 +19,8 @@ export default function Layout() {
     { name: 'Recepción (Activos)', path: '/recepciones', icon: PackageOpen },
     { name: 'Reclamaciones', path: '/reclamaciones', icon: MessageSquareWarning, color: 'text-red-500 dark:text-red-400' },
   ].filter(item => {
-    if (user.rol === 'admin') return true;
     const modName = item.path.replace('/', '');
-    return user.permisos && user.permisos.includes(modName);
+    return canAccess(user, modName);
   });
 
   const adminItems = [
@@ -34,8 +32,7 @@ export default function Layout() {
   ]
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+    clearSession()
     navigate('/login')
   }
 
