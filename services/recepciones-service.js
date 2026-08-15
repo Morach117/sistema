@@ -3,6 +3,7 @@ const path = require('node:path');
 const xml2js = require('xml2js');
 const { parse } = require('csv-parse/sync');
 const { providerFrom } = require('./reception-rules');
+const { buildReceptionSummary, validateReceptionItems } = require('./reception-rules');
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_UPLOAD_FILES = 5;
@@ -18,6 +19,20 @@ class UploadValidationError extends Error {
     this.name = 'UploadValidationError';
     this.statusCode = statusCode;
   }
+}
+
+function numeric(value) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function truthyFlag(value) {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
+function round(value, decimals = 2) {
+  const factor = 10 ** decimals;
+  return Math.round((numeric(value) + Number.EPSILON) * factor) / factor;
 }
 
 function validateFile(file) {
@@ -220,10 +235,11 @@ async function parseUploads({ files, maxRows }) {
 }
 
 class ReceptionStateError extends Error {
-  constructor(message, statusCode) {
+  constructor(message, statusCode, details = undefined) {
     super(message);
     this.name = 'ReceptionStateError';
     this.statusCode = statusCode;
+    this.details = details;
   }
 }
 
@@ -335,20 +351,181 @@ async function deleteReceptionItem({ pool, itemId }) {
   });
 }
 
-async function finalizeReception({ pool, numeroRemision }) {
+function resolveReceptionKey(item) {
+  return String(item?.clave_final || item?.clave_sicar || '').trim().toUpperCase();
+}
+
+function validateFinalizationItems(items) {
+  const issues = [...validateReceptionItems(items)];
+
+  for (const item of Array.isArray(items) ? items : []) {
+    const itemId = item?.id ?? null;
+    const clave = resolveReceptionKey(item);
+    const rejected = Number(item?.revision_pendiente) === 2;
+    const skippedPhysical = clave === 'FALTANTE' || clave === 'DEVOLUCION';
+
+    if (!skippedPhysical && numeric(item?.existencia_lapiz) <= 0) {
+      issues.push({ itemId, code: 'missing-physical-count', severity: 'error' });
+    }
+    if (rejected) {
+      issues.push({ itemId, code: 'rejected-item', severity: 'error' });
+    }
+  }
+
+  return issues.filter((issue) => issue.severity === 'error');
+}
+
+function classifyPreviewState(state) {
+  const normalized = typeof state === 'string' ? state.trim().toUpperCase() : '';
+  if (normalized === 'FINALIZADO') {
+    return { clasificacion: 'folio-finalizado', estadoActual: normalized, puedeGuardar: false };
+  }
+  if (normalized) {
+    return { clasificacion: 'actualiza-pendiente', estadoActual: normalized, puedeGuardar: true };
+  }
+  return { clasificacion: 'nuevo', estadoActual: null, puedeGuardar: true };
+}
+
+async function buildUploadPreview({ pool, parsedFiles }) {
+  const preview = [];
+
+  for (const parsed of Array.isArray(parsedFiles) ? parsedFiles : []) {
+    for (const remision of parsed.remisiones || []) {
+      const [rows] = await pool.execute(
+        'SELECT id, estado FROM historial_remisiones WHERE numero_remision = ? LIMIT 1',
+        [remision.folio]
+      );
+      const existing = rows[0] || null;
+      preview.push({
+        folio: remision.folio,
+        proveedor: remision.proveedor,
+        ...classifyPreviewState(existing?.estado),
+        resumen: buildReceptionSummary(remision.items),
+        issues: validateReceptionItems(remision.items),
+        items: remision.items
+      });
+    }
+  }
+
+  return preview;
+}
+
+function buildInventoryExportRows(items, { includePhysical = false } = {}) {
+  const grouped = {};
+
+  for (const row of Array.isArray(items) ? items : []) {
+    const clave = String(row?.clave_definitiva || 'SIN_CLAVE').trim().toUpperCase();
+    if (clave === 'FALTANTE' || clave === 'DEVOLUCION') continue;
+
+    const cantidadFacturada = numeric(row?.cantidad);
+    const fisico = includePhysical ? numeric(row?.existencia_lapiz) : 0;
+    const esPaquete = Number.parseInt(row?.es_paquete, 10) || 0;
+    const piezasPorCaja = numeric(row?.piezas_por_paquete) || 1;
+    const cantidadCalculada = (esPaquete === 1 && piezasPorCaja > 0)
+      ? cantidadFacturada / piezasPorCaja
+      : cantidadFacturada;
+
+    grouped[clave] = (grouped[clave] || 0) + cantidadCalculada + fisico;
+  }
+
+  return Object.entries(grouped).map(([clave, cantidad]) => ({
+    clave,
+    cantidad: round(cantidad, 2)
+  }));
+}
+
+async function learnReceptionRelationships(connection, items) {
+  for (const item of Array.isArray(items) ? items : []) {
+    const clave = resolveReceptionKey(item);
+    if (!clave || clave === 'FALTANTE' || clave === 'DEVOLUCION') continue;
+    if (Number(item?.revision_pendiente) === 2) continue;
+
+    const codigoProveedor = String(item?.codigo_proveedor || '').trim();
+    if (!codigoProveedor) continue;
+
+    const esPaquete = truthyFlag(item?.es_paquete) ? 1 : 0;
+    const piezasPorPaquete = esPaquete ? Math.max(1, numeric(item?.piezas_por_paquete)) : 1;
+
+    await connection.execute(
+      `INSERT INTO rel_codigos_proveedor (codigo_proveedor, clave_sicar, es_paquete, piezas_por_paquete)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         clave_sicar = VALUES(clave_sicar),
+         es_paquete = VALUES(es_paquete),
+         piezas_por_paquete = VALUES(piezas_por_paquete)`,
+      [codigoProveedor, clave, esPaquete, piezasPorPaquete]
+    );
+  }
+}
+
+async function insertReceptionAudit(connection, { remisionId, actorId, previousValue, nextValue }) {
+  await connection.execute(
+    `INSERT INTO recepcion_bitacora (remision_id, item_id, usuario_id, campo, valor_anterior, valor_nuevo)
+     VALUES (?, NULL, ?, 'estado', ?, ?)`,
+    [remisionId, Number.isInteger(actorId) && actorId > 0 ? actorId : 0, previousValue, nextValue]
+  );
+}
+
+async function finalizeReception({ pool, numeroRemision, actorId }) {
   if (typeof numeroRemision !== 'string' || !numeroRemision.trim()) {
     throw new ReceptionStateError('La remision no es valida.', 422);
   }
   const folio = numeroRemision.trim();
-  await runLockedReceptionMutation({
-    pool,
-    lockStatement: 'SELECT id, estado FROM historial_remisiones WHERE numero_remision = ? FOR UPDATE',
-    lockParameters: [folio],
-    mutate: (connection, row) => connection.execute(
+  let connection;
+  let transactionStarted = false;
+  try {
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    transactionStarted = true;
+
+    const [rows] = await connection.execute(
+      'SELECT id, estado FROM historial_remisiones WHERE numero_remision = ? FOR UPDATE',
+      [folio]
+    );
+    if (!Array.isArray(rows) || rows.length !== 1) {
+      throw new ReceptionStateError('La remision o el item no existe.', 404);
+    }
+    if (String(rows[0].estado).toUpperCase() === 'FINALIZADO') {
+      throw new ReceptionStateError('La remision ya esta finalizada y no admite cambios.', 409);
+    }
+
+    const [items] = await connection.execute(
+      `SELECT hi.id, hi.codigo_proveedor, hi.clave_final, hi.clave_sicar, hi.cantidad,
+              hi.costo_unitario, hi.existencia_lapiz, hi.revision_pendiente,
+              hi.es_paquete, hi.piezas_por_paquete
+         FROM historial_items hi
+        WHERE hi.remision_id = ?
+        ORDER BY hi.id ASC`,
+      [rows[0].id]
+    );
+
+    const blockingIssues = validateFinalizationItems(items);
+    if (blockingIssues.length > 0) {
+      throw new ReceptionStateError(
+        'La remision tiene errores bloqueantes y no se puede finalizar.',
+        422,
+        blockingIssues
+      );
+    }
+
+    await learnReceptionRelationships(connection, items);
+    await insertReceptionAudit(connection, {
+      remisionId: rows[0].id,
+      actorId,
+      previousValue: rows[0].estado,
+      nextValue: 'FINALIZADO'
+    });
+    await connection.execute(
       "UPDATE historial_remisiones SET estado = 'FINALIZADO' WHERE id = ?",
-      [row.id]
-    )
-  });
+      [rows[0].id]
+    );
+    await connection.commit();
+  } catch (error) {
+    if (transactionStarted) await connection.rollback().catch(() => {});
+    throw error;
+  } finally {
+    connection?.release();
+  }
 }
 
 module.exports = {
@@ -357,6 +534,8 @@ module.exports = {
   MAX_UPLOAD_FILES,
   MAX_TOTAL_UPLOAD_BYTES,
   assignReceptionProvider,
+  buildInventoryExportRows,
+  buildUploadPreview,
   cleanupUploadedFiles,
   deleteReceptionItem,
   finalizeReception,

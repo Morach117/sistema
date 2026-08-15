@@ -11,6 +11,8 @@ const {
     MAX_UPLOAD_BYTES,
     MAX_UPLOAD_FILES,
     assignReceptionProvider,
+    buildInventoryExportRows,
+    buildUploadPreview,
     cleanupUploadedFiles,
     deleteReceptionItem,
     finalizeReception,
@@ -44,14 +46,31 @@ function receiveUpload(req, res, next) {
         });
     });
 }
+
+function sendReceptionState(res, error) {
+    const payload = { success: false, error: error.message };
+    if (Array.isArray(error.details) && error.details.length > 0) {
+        payload.details = error.details;
+    }
+    return res.status(error.statusCode).json(payload);
+}
+
+function parseIncludePhysicalFlag(value) {
+    if (value === undefined) return false;
+    if (value === true || value === false) return value;
+    if (value === 1 || value === '1' || value === 'true') return true;
+    if (value === 0 || value === '0' || value === 'false') return false;
+    throw new ReceptionStateError('El parametro incluir_fisico debe ser booleano.', 422);
+}
 router.use(authMiddleware);
 router.use(authorize({ module: 'recepciones', action: 'read' }));
 
 // Generate the inventory export after normal API authentication/authorization.
 router.post('/generar_excel', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
     try {
-        const remision_input = req.body.remision_id;
+        const remision_input = req.body?.remision_id;
         if (!remision_input) return res.status(400).send('Error: No se especificó la remisión.');
+        const incluirFisico = parseIncludePhysicalFlag(req.body?.incluir_fisico);
 
         const [remRows] = await pool.execute(
             `SELECT id, numero_remision FROM historial_remisiones WHERE numero_remision = ? OR id = ? LIMIT 1`,
@@ -85,22 +104,7 @@ router.post('/generar_excel', authorize({ module: 'recepciones', action: 'write'
                     ORDER BY hi.id ASC`;
 
         const [items] = await pool.execute(sql, [id_db]);
-
-        const agrupados = {};
-        for (const row of items) {
-            const clave = (row.clave_definitiva || 'SIN_CLAVE').toUpperCase();
-            if (clave === 'FALTANTE' || clave === 'DEVOLUCION') continue;
-
-            const cantidadBD = parseFloat(row.cantidad) || 0;
-            const fisico = parseFloat(row.existencia_lapiz) || 0;
-            const esPaquete = parseInt(row.es_paquete) || 0;
-            const piezasPorCaja = parseFloat(row.piezas_por_paquete) || 1;
-
-            let cantidadCalculada = (esPaquete === 1 && piezasPorCaja > 0) ? cantidadBD / piezasPorCaja : cantidadBD;
-            const totalProducto = cantidadCalculada + fisico;
-
-            agrupados[clave] = (agrupados[clave] || 0) + totalProducto;
-        }
+        const exportRows = buildInventoryExportRows(items, { includePhysical: incluirFisico });
 
         let xml = `<?xml version="1.0"?>\n<?mso-application progid="Excel.Sheet"?>\n`;
         xml += `<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n`;
@@ -109,9 +113,9 @@ router.post('/generar_excel', authorize({ module: 'recepciones', action: 'write'
         xml += `<Column ss:Width="150"/><Column ss:Width="100"/>\n`;
         xml += `<Row><Cell ss:StyleID="sH"><Data ss:Type="String">Clave</Data></Cell><Cell ss:StyleID="sH"><Data ss:Type="String">Existencia</Data></Cell></Row>\n`;
 
-        for (const [clave, cant] of Object.entries(agrupados)) {
+        for (const { clave, cantidad } of exportRows) {
             const esc = clave.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            xml += `<Row><Cell ss:StyleID="sT"><Data ss:Type="String">${esc}</Data></Cell><Cell><Data ss:Type="Number">${Math.round(cant * 100) / 100}</Data></Cell></Row>\n`;
+            xml += `<Row><Cell ss:StyleID="sT"><Data ss:Type="String">${esc}</Data></Cell><Cell><Data ss:Type="Number">${cantidad}</Data></Cell></Row>\n`;
         }
 
         xml += `</Table></Worksheet></Workbook>`;
@@ -122,6 +126,9 @@ router.post('/generar_excel', authorize({ module: 'recepciones', action: 'write'
         res.setHeader('Expires', '0');
         res.send(xml);
     } catch (error) {
+        if (error instanceof ReceptionStateError) {
+            return sendReceptionState(res, error);
+        }
         return sendInternalError(error, req, res);
     }
 });
@@ -139,6 +146,31 @@ router.get('/', async (req, res) => {
         const [rows] = await pool.execute(sql);
         res.json({ success: true, data: rows });
     } catch (error) {
+        return sendInternalError(error, req, res);
+    }
+});
+
+router.post('/preview-upload', authorize({ module: 'recepciones', action: 'write' }), receiveUpload, async (req, res) => {
+    try {
+        if (!Array.isArray(req.files) || req.files.length === 0) {
+            return res.status(400).json({ success: false, error: 'No se subio ningun archivo' });
+        }
+
+        const parsedFiles = await parseUploads({ files: req.files, maxRows: 10_000 });
+        const preview = await buildUploadPreview({ pool, parsedFiles });
+
+        res.json({
+            success: true,
+            puedeGuardar: preview.every((entry) => entry.puedeGuardar),
+            preview
+        });
+    } catch (error) {
+        if (error instanceof UploadValidationError) {
+            return res.status(error.statusCode).json({ success: false, error: error.message });
+        }
+        if (error instanceof ReceptionStateError) {
+            return sendReceptionState(res, error);
+        }
         return sendInternalError(error, req, res);
     }
 });
@@ -290,11 +322,11 @@ router.post('/asignar_proveedor', authorize({ module: 'recepciones', action: 'wr
 router.post('/finalizar', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
     const { remision_id } = req.body;
     try {
-        await finalizeReception({ pool, numeroRemision: remision_id });
+        await finalizeReception({ pool, numeroRemision: remision_id, actorId: req.user?.id });
         res.json({ success: true });
     } catch (error) {
         if (error instanceof ReceptionStateError) {
-            return res.status(error.statusCode).json({ success: false, error: error.message });
+            return sendReceptionState(res, error);
         }
         return sendInternalError(error, req, res);
     }
@@ -310,7 +342,7 @@ router.delete('/item/:id', authorize({ module: 'recepciones', action: 'write' })
         res.json({ success: true });
     } catch (error) {
         if (error instanceof ReceptionStateError) {
-            return res.status(error.statusCode).json({ success: false, error: error.message });
+            return sendReceptionState(res, error);
         }
         return sendInternalError(error, req, res);
     }
@@ -420,7 +452,7 @@ router.post('/upload', authorize({ module: 'recepciones', action: 'write' }), re
             return res.status(error.statusCode).json({ success: false, error: error.message });
         }
         if (error instanceof ReceptionStateError) {
-            return res.status(error.statusCode).json({ success: false, error: error.message });
+            return sendReceptionState(res, error);
         }
         return sendInternalError(error, req, res);
     } finally {

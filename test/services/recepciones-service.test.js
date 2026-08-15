@@ -189,6 +189,143 @@ test('updates a pending receipt item under the same row lock transaction', async
   assert.deepEqual(events.slice(-2), ['commit', 'release']);
 });
 
+test('finalizeReception blocks missing SICAR, physical count, cost, rejected items, and invalid boxes', async () => {
+  const events = [];
+  const connection = {
+    async beginTransaction() { events.push('begin'); },
+    async execute(sql, params) {
+      const normalized = sql.replace(/\s+/g, ' ').trim();
+      events.push(['execute', normalized, params]);
+      if (/SELECT id, estado FROM historial_remisiones WHERE numero_remision = \? FOR UPDATE/i.test(normalized)) {
+        return [[{ id: 8, estado: 'PENDIENTE' }], []];
+      }
+      if (/SELECT hi\.id, hi\.codigo_proveedor/i.test(normalized)) {
+        return [[{
+          id: 41,
+          codigo_proveedor: 'SKU-BLOCKED',
+          clave_final: '',
+          clave_sicar: '',
+          cantidad: 12,
+          costo_unitario: 0,
+          existencia_lapiz: 0,
+          revision_pendiente: 2,
+          es_paquete: 1,
+          piezas_por_paquete: 0
+        }], []];
+      }
+      assert.fail(`unexpected SQL: ${normalized}`);
+    },
+    async commit() { events.push('commit'); },
+    async rollback() { events.push('rollback'); },
+    release() { events.push('release'); }
+  };
+
+  await assert.rejects(
+    () => finalizeReception({
+      pool: { async getConnection() { return connection; } },
+      numeroRemision: 'R-8',
+      actorId: 91
+    }),
+    (error) => error.statusCode === 422
+      && Array.isArray(error.details)
+      && error.details.some((issue) => issue.code === 'missing-sicar')
+      && error.details.some((issue) => issue.code === 'missing-physical-count')
+      && error.details.some((issue) => issue.code === 'zero-cost')
+      && error.details.some((issue) => issue.code === 'rejected-item')
+      && error.details.some((issue) => issue.code === 'invalid-package-config')
+  );
+
+  assert.equal(
+    events.some((event) => Array.isArray(event) && /rel_codigos_proveedor|recepcion_bitacora|UPDATE historial_remisiones SET estado = 'FINALIZADO'/i.test(event[1])),
+    false
+  );
+  assert.deepEqual(events.slice(-2), ['rollback', 'release']);
+});
+
+test('finalizeReception learns only valid lines and records audit before state transition', async () => {
+  const events = [];
+  const connection = {
+    async beginTransaction() { events.push('begin'); },
+    async execute(sql, params) {
+      const normalized = sql.replace(/\s+/g, ' ').trim();
+      events.push(['execute', normalized, params]);
+      if (/SELECT id, estado FROM historial_remisiones WHERE numero_remision = \? FOR UPDATE/i.test(normalized)) {
+        return [[{ id: 15, estado: 'PENDIENTE' }], []];
+      }
+      if (/SELECT hi\.id, hi\.codigo_proveedor/i.test(normalized)) {
+        return [[
+          {
+            id: 1,
+            codigo_proveedor: 'SKU-OK',
+            clave_final: 'ABC123',
+            clave_sicar: '',
+            cantidad: 12,
+            costo_unitario: 14.5,
+            existencia_lapiz: 12,
+            revision_pendiente: 0,
+            es_paquete: 1,
+            piezas_por_paquete: 6
+          },
+          {
+            id: 2,
+            codigo_proveedor: 'SKU-FALT',
+            clave_final: 'FALTANTE',
+            clave_sicar: '',
+            cantidad: 3,
+            costo_unitario: 9,
+            existencia_lapiz: 0,
+            revision_pendiente: 0,
+            es_paquete: 0,
+            piezas_por_paquete: 1
+          },
+          {
+            id: 3,
+            codigo_proveedor: 'SKU-DEV',
+            clave_final: 'DEVOLUCION',
+            clave_sicar: '',
+            cantidad: 2,
+            costo_unitario: 9,
+            existencia_lapiz: 0,
+            revision_pendiente: 0,
+            es_paquete: 0,
+            piezas_por_paquete: 1
+          }
+        ], []];
+      }
+      if (/INSERT INTO rel_codigos_proveedor/i.test(normalized)) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (/INSERT INTO recepcion_bitacora/i.test(normalized)) {
+        return [{ insertId: 44 }, []];
+      }
+      if (/UPDATE historial_remisiones SET estado = 'FINALIZADO'/i.test(normalized)) {
+        return [{ affectedRows: 1 }, []];
+      }
+      assert.fail(`unexpected SQL: ${normalized}`);
+    },
+    async commit() { events.push('commit'); },
+    async rollback() { events.push('rollback'); },
+    release() { events.push('release'); }
+  };
+
+  await finalizeReception({
+    pool: { async getConnection() { return connection; } },
+    numeroRemision: 'R-15',
+    actorId: 19
+  });
+
+  const learningStatements = events.filter((event) => Array.isArray(event) && /INSERT INTO rel_codigos_proveedor/i.test(event[1]));
+  assert.equal(learningStatements.length, 1);
+  assert.deepEqual(learningStatements[0][2], ['SKU-OK', 'ABC123', 1, 6]);
+
+  const auditIndex = events.findIndex((event) => Array.isArray(event) && /INSERT INTO recepcion_bitacora/i.test(event[1]));
+  const finalizeIndex = events.findIndex((event) => Array.isArray(event) && /UPDATE historial_remisiones SET estado = 'FINALIZADO'/i.test(event[1]));
+  assert.notEqual(auditIndex, -1);
+  assert.notEqual(finalizeIndex, -1);
+  assert.ok(auditIndex < finalizeIndex, `expected audit before final state change: ${JSON.stringify(events)}`);
+  assert.deepEqual(events.slice(-2), ['commit', 'release']);
+});
+
 function finalizedReceptionPool(lockRow = { id: 8, estado: 'FINALIZADO' }) {
   const events = [];
   const connection = {
