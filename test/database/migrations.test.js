@@ -18,6 +18,7 @@ const {
     verifyBackupFile,
 } = require('../../scripts/verify-backup');
 const safeIndexMigration = require('../../database/migrations/002_safe_indexes');
+const receptionHistoryAuditMigration = require('../../database/migrations/003_reception_history_audit');
 
 function verifiedBackupSource(config) {
     return {
@@ -153,6 +154,40 @@ function fakeMigrationPool({
     };
 }
 
+function loadServerModule({
+    createAppImpl,
+    loadEnvImpl,
+    pool,
+    runMigrationsImpl,
+} = {}) {
+    const serverPath = path.join(__dirname, '..', '..', 'server.js');
+    const source = fs.readFileSync(serverPath, 'utf8');
+    const module = { exports: {} };
+
+    function requireStub(request) {
+        if (request === 'dotenv') return { config() {} };
+        if (request === './app') return { createApp: createAppImpl };
+        if (request === './config/env') return { loadEnv: loadEnvImpl };
+        if (request === './config/database') return pool;
+        if (request === './scripts/migrate') return { runMigrations: runMigrationsImpl };
+        return require(request);
+    }
+
+    requireStub.main = {};
+
+    vm.runInNewContext(source, {
+        __dirname: path.dirname(serverPath),
+        __filename: serverPath,
+        console,
+        exports: module.exports,
+        module,
+        process,
+        require: requireStub,
+    });
+
+    return module.exports;
+}
+
 test('records an idempotent migration once without modifying cat_productos', async () => {
     const pool = fakeMigrationPool();
 
@@ -161,6 +196,34 @@ test('records an idempotent migration once without modifying cat_productos', asy
 
     assert.deepEqual([...pool.appliedMigrationIds.keys()], [safeIndexMigration.id]);
     assert.equal(pool.catalogWriteStatements.length, 0);
+});
+
+test('records the reception history audit migration once and creates idempotent notes and audit tables', async () => {
+    const pool = fakeMigrationPool();
+
+    await runMigrations({ pool, migrations: [receptionHistoryAuditMigration] });
+    await runMigrations({ pool, migrations: [receptionHistoryAuditMigration] });
+
+    assert.deepEqual(
+        [...pool.appliedMigrationIds.keys()],
+        [receptionHistoryAuditMigration.id]
+    );
+
+    const notesStatements = pool.statements.filter(({ sql }) =>
+        /CREATE TABLE IF NOT EXISTS `recepcion_notas`/i.test(sql)
+    );
+    const auditStatements = pool.statements.filter(({ sql }) =>
+        /CREATE TABLE IF NOT EXISTS `recepcion_bitacora`/i.test(sql)
+    );
+
+    assert.equal(notesStatements.length, 1);
+    assert.equal(auditStatements.length, 1);
+    assert.match(notesStatements[0].sql, /INDEX `idx_recepcion_notas_remision` \(`remision_id`\)/i);
+    assert.match(notesStatements[0].sql, /INDEX `idx_recepcion_notas_item` \(`item_id`\)/i);
+    assert.match(notesStatements[0].sql, /INDEX `idx_recepcion_notas_fecha` \(`fecha`\)/i);
+    assert.match(auditStatements[0].sql, /INDEX `idx_recepcion_bitacora_remision` \(`remision_id`\)/i);
+    assert.match(auditStatements[0].sql, /INDEX `idx_recepcion_bitacora_item` \(`item_id`\)/i);
+    assert.match(auditStatements[0].sql, /INDEX `idx_recepcion_bitacora_fecha` \(`fecha`\)/i);
 });
 
 test('inspects information_schema before adding each missing allowlisted index', async () => {
@@ -877,4 +940,82 @@ test('keeps the resolved backup port when the active port file changes mid-fligh
     assert.equal(fs.readFileSync(activePortPath, 'utf8'), '3319');
     assert.ok(calls[0].args.includes('--port=3307'));
     assert.equal(calls[0].args.includes('--port=3319'), false);
+});
+
+test('runs migrations before opening the configured HTTP port', async () => {
+    const events = [];
+    const pool = {
+        async end() {
+            events.push('pool:end');
+        },
+    };
+    const serverModule = loadServerModule({
+        createAppImpl(options) {
+            events.push({ type: 'createApp', options });
+            return {
+                listen(port) {
+                    events.push({ type: 'listen', port });
+                    return 'listening-server';
+                },
+            };
+        },
+        loadEnvImpl() {
+            events.push('loadEnv');
+            return {
+                corsOrigins: ['https://allowed.example'],
+                env: 'production',
+                port: 4312,
+            };
+        },
+        pool,
+        async runMigrationsImpl({ pool: receivedPool }) {
+            events.push({ type: 'runMigrations', samePool: receivedPool === pool });
+        },
+    });
+
+    const result = await serverModule.startServer();
+
+    assert.equal(result, 'listening-server');
+    assert.equal(events[0], 'loadEnv');
+    assert.equal(events[1].type, 'runMigrations');
+    assert.equal(events[1].samePool, true);
+    assert.equal(events[2].type, 'createApp');
+    assert.deepEqual(Array.from(events[2].options.corsOrigins), ['https://allowed.example']);
+    assert.equal(events[2].options.environment, 'production');
+    assert.deepEqual(events[3], { type: 'listen', port: 4312 });
+});
+
+test('closes the pool and never opens the port when startup migrations fail', async () => {
+    const events = [];
+    const pool = {
+        async end() {
+            events.push('pool:end');
+        },
+    };
+    const serverModule = loadServerModule({
+        createAppImpl() {
+            events.push('createApp');
+            return {
+                listen() {
+                    events.push('listen');
+                },
+            };
+        },
+        loadEnvImpl() {
+            events.push('loadEnv');
+            return {
+                corsOrigins: [],
+                env: 'development',
+                port: 3000,
+            };
+        },
+        pool,
+        async runMigrationsImpl() {
+            events.push('runMigrations');
+            throw new Error('migration failed');
+        },
+    });
+
+    await assert.rejects(serverModule.startServer(), /migration failed/i);
+    assert.deepEqual(events, ['loadEnv', 'runMigrations', 'pool:end']);
 });

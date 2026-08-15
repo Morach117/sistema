@@ -4,6 +4,7 @@ const MODULES = Object.freeze([
   'traspasos',
   'captura',
   'recepciones',
+  'historial-recepciones',
   'reclamaciones',
   'catalogo',
   'evolucion-precios',

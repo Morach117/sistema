@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from '@/lib/api'
+import { EMPLOYEE_PERMISSION_OPTIONS } from '@/auth/permissions'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Users, UserPlus, Trash2, Edit2, ShieldAlert, Check } from 'lucide-react'
+import { UserPlus, Trash2, Edit2, ShieldAlert, Check } from 'lucide-react'
 import Swal from 'sweetalert2'
 
 export default function Usuarios() {
@@ -156,17 +157,17 @@ export default function Usuarios() {
                     <div className="pt-2 border-t border-slate-700/50">
                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Módulos Permitidos</label>
                       <div className="grid grid-cols-2 gap-2">
-                        {['dashboard', 'bodega', 'traspasos', 'captura', 'recepciones', 'reclamaciones'].map(mod => (
-                          <label key={mod} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                        {EMPLOYEE_PERMISSION_OPTIONS.map(({ module, label }) => (
+                          <label key={module} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                             <input type="checkbox" className="rounded border-slate-700 bg-slate-900 text-indigo-500 focus:ring-indigo-500"
-                              checked={formData.permisos.includes(mod)}
+                              checked={formData.permisos.includes(module)}
                               onChange={(e) => {
-                                const newPerms = e.target.checked 
-                                  ? [...formData.permisos, mod] 
-                                  : formData.permisos.filter(p => p !== mod);
+                                const newPerms = e.target.checked
+                                  ? [...formData.permisos, module]
+                                  : formData.permisos.filter(p => p !== module);
                                 setFormData({...formData, permisos: newPerms})
                               }} />
-                            <span className="capitalize">{mod === 'dashboard' ? 'Dashboard' : mod === 'bodega' ? 'Bodega' : mod === 'traspasos' ? 'Traspasos' : mod === 'captura' ? 'Captura' : mod === 'recepciones' ? 'Recepciones' : 'Reclamaciones'}</span>
+                            <span>{label}</span>
                           </label>
                         ))}
                       </div>
