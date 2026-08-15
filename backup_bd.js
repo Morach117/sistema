@@ -4,6 +4,8 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { finished } = require('node:stream/promises');
+const mysql = require('mysql2/promise');
+const { loadDatabaseConfig, readActiveDatabasePort } = require('./config/database-config');
 
 function safeFileSegment(value) {
     return String(value).replace(/[^a-z0-9_-]+/gi, '_');
@@ -60,17 +62,24 @@ async function createBackup({
     dumpExecutable,
     now = new Date(),
     spawnImpl = spawn,
+    inspectSourceFn = inspectBackupSource,
 } = {}) {
-    const selectedConfig = {
-        host: config?.host ?? process.env.DB_HOST ?? '127.0.0.1',
-        user: config?.user ?? process.env.DB_USER ?? 'root',
-        password: config?.password ?? process.env.DB_PASSWORD ?? '',
-        database: config?.database ?? process.env.DB_NAME ?? 'importador_papeleria',
-    };
+    const selectedConfig = config
+        ? loadDatabaseConfig({
+            DB_HOST: config.host,
+            DB_PORT: config.port,
+            DB_USER: config.user,
+            DB_PASSWORD: config.password,
+            DB_NAME: config.database,
+        })
+        : loadDatabaseConfig(process.env, { defaultPort: readActiveDatabasePort() });
 
     if (!selectedConfig.host || !selectedConfig.user || !selectedConfig.database) {
         throw new TypeError('La configuración del respaldo requiere host, user y database.');
     }
+
+    const inspected = await inspectSourceFn(selectedConfig);
+    assertBackupSource(selectedConfig, inspected);
 
     const absoluteBackupDir = path.resolve(backupDir);
     await fsPromises.mkdir(absoluteBackupDir, { recursive: true });
@@ -80,6 +89,7 @@ async function createBackup({
     const tempPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
     const args = [
         `--host=${selectedConfig.host}`,
+        `--port=${selectedConfig.port}`,
         `--user=${selectedConfig.user}`,
         '--default-character-set=utf8mb4',
         '--single-transaction',
@@ -153,6 +163,51 @@ async function createBackup({
     }
 }
 
+function assertBackupSource(expected, inspected) {
+    if (
+        !inspected ||
+        inspected.host !== expected.host ||
+        Number(inspected.port) !== expected.port ||
+        inspected.database !== expected.database
+    ) {
+        throw new Error('La identidad de servidor, puerto o base no coincide; respaldo cancelado.');
+    }
+    if (!Array.isArray(inspected.tables)) {
+        throw new Error('No se pudieron verificar los motores de las tablas; respaldo cancelado.');
+    }
+    const unsafeTables = inspected.tables.filter(
+        ({ engine }) => String(engine || '').toUpperCase() !== 'INNODB'
+    );
+    if (unsafeTables.length > 0) {
+        const names = unsafeTables.map(({ tableName }) => tableName).join(', ');
+        throw new Error(`--single-transaction no garantiza consistencia fuera de InnoDB: ${names}.`);
+    }
+}
+
+async function inspectBackupSource(config, { createConnection = mysql.createConnection } = {}) {
+    const connection = await createConnection(config);
+    try {
+        const [identityRows] = await connection.query(
+            'SELECT @@port AS port, DATABASE() AS database'
+        );
+        const [tableRows] = await connection.query(
+            `SELECT TABLE_NAME AS tableName, ENGINE AS engine
+               FROM information_schema.TABLES
+              WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'
+              ORDER BY TABLE_NAME`,
+            [config.database]
+        );
+        return {
+            host: connection.config?.host ?? config.host,
+            port: Number(identityRows?.[0]?.port),
+            database: identityRows?.[0]?.database,
+            tables: tableRows,
+        };
+    } finally {
+        await connection.end();
+    }
+}
+
 async function main() {
     require('dotenv').config();
     const result = await createBackup();
@@ -167,5 +222,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+    assertBackupSource,
     createBackup,
+    inspectBackupSource,
 };

@@ -19,6 +19,15 @@ const {
 } = require('../../scripts/verify-backup');
 const safeIndexMigration = require('../../database/migrations/002_safe_indexes');
 
+function verifiedBackupSource(config) {
+    return {
+        host: config.host,
+        port: config.port,
+        database: config.database,
+        tables: [{ tableName: 'historial_items', engine: 'InnoDB' }],
+    };
+}
+
 function fakeMigrationPool({
     catalogSnapshots = [],
     indexDefinitions = [],
@@ -529,6 +538,13 @@ test('importing the backup module neither creates credentials nor starts a dump'
             };
         }
         if (request === 'dotenv') return { config() {} };
+        if (request === 'mysql2/promise') return { createConnection() { childProcesses.push('connection'); } };
+        if (request === './config/database-config') {
+            return {
+                loadDatabaseConfig() { return {}; },
+                readActiveDatabasePort() { return 3306; },
+            };
+        }
         return require(request);
     };
     sandboxRequire.main = {};
@@ -571,10 +587,12 @@ test('publishes a non-empty backup atomically using spawn arguments', async (t) 
         backupDir: tempDir,
         config: {
             host: 'db host & echo unsafe',
+            port: 4407,
             user: 'backup-user',
             password: 'not-in-arguments',
             database: 'papeleria',
         },
+        inspectSourceFn: verifiedBackupSource,
         dumpExecutable: 'fake-mysqldump',
         now: new Date('2026-08-14T12:34:56.000Z'),
         spawnImpl(command, args, options) {
@@ -589,6 +607,7 @@ test('publishes a non-empty backup atomically using spawn arguments', async (t) 
     assert.equal(calls[0].command, 'fake-mysqldump');
     assert.ok(Array.isArray(calls[0].args));
     assert.ok(calls[0].args.includes('--host=db host & echo unsafe'));
+    assert.ok(calls[0].args.includes('--port=4407'));
     assert.equal(calls[0].args.some((argument) => argument.includes('not-in-arguments')), false);
     assert.equal(calls[0].options.shell, false);
 });
@@ -600,7 +619,8 @@ test('removes the temporary dump when backup verification fails', async (t) => {
     await assert.rejects(
         createBackup({
             backupDir: tempDir,
-            config: { host: 'localhost', user: 'root', password: '', database: 'papeleria' },
+            config: { host: 'localhost', port: 3306, user: 'root', password: '', database: 'papeleria' },
+            inspectSourceFn: verifiedBackupSource,
             dumpExecutable: 'fake-mysqldump',
             spawnImpl() {
                 return fakeDumpProcess();
@@ -621,7 +641,8 @@ test('caps mysqldump stderr details at exactly 16 KiB', async (t) => {
     try {
         await createBackup({
             backupDir: tempDir,
-            config: { host: 'localhost', user: 'root', password: '', database: 'papeleria' },
+            config: { host: 'localhost', port: 3306, user: 'root', password: '', database: 'papeleria' },
+            inspectSourceFn: verifiedBackupSource,
             dumpExecutable: 'fake-mysqldump',
             spawnImpl() {
                 return fakeDumpProcess({ exitCode: 2, stderr: oversizedStderr });
@@ -649,7 +670,8 @@ test('keeps rendered stderr within 16 KiB at a truncated UTF-8 boundary', async 
     try {
         await createBackup({
             backupDir: tempDir,
-            config: { host: 'localhost', user: 'root', password: '', database: 'papeleria' },
+            config: { host: 'localhost', port: 3306, user: 'root', password: '', database: 'papeleria' },
+            inspectSourceFn: verifiedBackupSource,
             dumpExecutable: 'fake-mysqldump',
             spawnImpl() {
                 return fakeDumpProcess({ exitCode: 2, stderr: splitMultibyteStderr });
@@ -696,7 +718,8 @@ test('terminates the dump process before cleaning up after an output failure', a
     await assert.rejects(
         createBackup({
             backupDir: tempDir,
-            config: { host: 'localhost', user: 'root', password: '', database: 'papeleria' },
+            config: { host: 'localhost', port: 3306, user: 'root', password: '', database: 'papeleria' },
+            inspectSourceFn: verifiedBackupSource,
             dumpExecutable: 'fake-mysqldump',
             spawnImpl() {
                 return child;
@@ -707,4 +730,56 @@ test('terminates the dump process before cleaning up after an output failure', a
 
     assert.equal(killCalled, true);
     assert.deepEqual(fs.readdirSync(tempDir), []);
+});
+
+test('fails closed before spawning when the inspected database identity differs', async (t) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sistema-backup-identity-'));
+    t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+    let spawnCalls = 0;
+
+    await assert.rejects(
+        createBackup({
+            backupDir: tempDir,
+            config: { host: 'branch-db', port: 3308, user: 'root', password: '', database: 'papeleria' },
+            async inspectSourceFn() {
+                return { host: 'branch-db', port: 3309, database: 'papeleria', tables: [] };
+            },
+            spawnImpl() {
+                spawnCalls += 1;
+                return fakeDumpProcess();
+            },
+        }),
+        /identidad|puerto|port/i
+    );
+
+    assert.equal(spawnCalls, 0);
+    assert.deepEqual(fs.readdirSync(tempDir), []);
+});
+
+test('fails closed before spawning when a base table is not InnoDB', async (t) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sistema-backup-engine-'));
+    t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+    let spawnCalls = 0;
+
+    await assert.rejects(
+        createBackup({
+            backupDir: tempDir,
+            config: { host: 'branch-db', port: 3308, user: 'root', password: '', database: 'papeleria' },
+            async inspectSourceFn(config) {
+                return {
+                    host: config.host,
+                    port: config.port,
+                    database: config.database,
+                    tables: [{ tableName: 'tabla_sucursal', engine: 'MyISAM' }],
+                };
+            },
+            spawnImpl() {
+                spawnCalls += 1;
+                return fakeDumpProcess();
+            },
+        }),
+        /InnoDB|tabla_sucursal/i
+    );
+
+    assert.equal(spawnCalls, 0);
 });

@@ -4,7 +4,11 @@ const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
 const { authorize, denyAccess } = require('../middleware/authorize');
 const { releaseConnection, rollbackTransaction, sendInternalError } = require('../middleware/errors');
-const { completeTraspaso } = require('../services/traspasos-service');
+const {
+    completeTraspaso,
+    TraspasoError,
+    validateTransferProducts
+} = require('../services/traspasos-service');
 
 router.use(authMiddleware);
 
@@ -43,10 +47,14 @@ router.get('/buscar', authorize({ module: 'traspasos', action: 'read' }), async 
 // POST /api/traspasos/guardar
 router.post('/guardar', authorize({ module: 'traspasos', action: 'write' }), async (req, res) => {
     const usuario_id = req.user.id;
-    const { productos } = req.body;
-
-    if (!productos || productos.length === 0) {
-        return res.status(400).json({ success: false, error: 'No hay productos para traspasar' });
+    let productos;
+    try {
+        productos = validateTransferProducts(req.body?.productos);
+    } catch (error) {
+        if (error instanceof TraspasoError) {
+            return res.status(error.statusCode).json({ success: false, error: error.message });
+        }
+        throw error;
     }
 
     let connection;

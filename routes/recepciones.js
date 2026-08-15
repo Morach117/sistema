@@ -9,13 +9,17 @@ const path = require('path');
 const {
     ALLOWED_MIME_TYPES,
     MAX_UPLOAD_BYTES,
-    parseUpload,
+    MAX_UPLOAD_FILES,
+    cleanupUploadedFiles,
+    parseUploads,
+    ReceptionStateError,
+    updateReceptionItem,
     UploadValidationError
 } = require('../services/recepciones-service');
 
 const upload = multer({
     dest: path.resolve(__dirname, '..', 'uploads'),
-    limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+    limits: { fileSize: MAX_UPLOAD_BYTES, files: MAX_UPLOAD_FILES },
     fileFilter(_req, file, callback) {
         const extension = path.extname(path.basename(file.originalname)).toLowerCase();
         const allowedMimeTypes = ALLOWED_MIME_TYPES[extension];
@@ -27,8 +31,9 @@ const upload = multer({
 });
 
 function receiveUpload(req, res, next) {
-    upload.single('archivo_factura')(req, res, (error) => {
+    upload.array('archivo_factura', MAX_UPLOAD_FILES)(req, res, async (error) => {
         if (!error) return next();
+        await cleanupUploadedFiles(req.files).catch(() => {});
         const tooLarge = error.code === 'LIMIT_FILE_SIZE';
         return res.status(tooLarge ? 413 : 422).json({
             success: false,
@@ -246,9 +251,12 @@ router.post('/actualizar_campo', authorize({ module: 'recepciones', action: 'wri
     if (campo === 'cantidad_real') dbField = 'cantidad';
 
     try {
-        await pool.execute(`UPDATE historial_items SET \`${dbField}\` = ? WHERE id = ?`, [valor, id_item]);
+        await updateReceptionItem({ pool, itemId: id_item, field: dbField, value: valor });
         res.json({ success: true });
     } catch (error) {
+        if (error instanceof ReceptionStateError) {
+            return res.status(error.statusCode).json({ success: false, error: error.message });
+        }
         return sendInternalError(error, req, res);
     }
 });
@@ -366,14 +374,17 @@ async function saveParsedReception(connection, parsed) {
 router.post('/upload', authorize({ module: 'recepciones', action: 'write' }), receiveUpload, async (req, res) => {
     let connection;
     try {
-        if (!req.file) {
+        if (!Array.isArray(req.files) || req.files.length === 0) {
             return res.status(400).json({ success: false, error: 'No se subio ningun archivo' });
         }
 
-        const parsed = await parseUpload({ file: req.file, maxRows: 10_000 });
+        const parsedFiles = await parseUploads({ files: req.files, maxRows: 10_000 });
         connection = await pool.getConnection();
         await connection.beginTransaction();
-        const result = await saveParsedReception(connection, parsed);
+        let result = { id: 0, prov: 'MANUAL' };
+        for (const parsed of parsedFiles) {
+            result = await saveParsedReception(connection, parsed);
+        }
         await connection.commit();
 
         res.json({

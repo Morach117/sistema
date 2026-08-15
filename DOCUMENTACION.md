@@ -58,7 +58,7 @@ Lista remisiones, revisa líneas, vincula claves SICAR, calcula presentaciones/c
 
 ### Traspasos
 
-Registra envíos y permite su recepción por personal autorizado. La cantidad recibida se guarda en la columna histórica `traspaso_detalles.cantidad` para mantener compatibilidad con los esquemas existentes. Las actualizaciones validan la pertenencia del detalle y se ejecutan dentro de una transacción.
+Registra envíos y permite su recepción por personal autorizado. La cantidad recibida se guarda en la columna histórica `traspaso_detalles.cantidad` para mantener compatibilidad con los esquemas existentes. Al completar, se bloquean todas las líneas persistidas y el conjunto de identificadores enviado debe coincidir exactamente antes de modificar o confirmar la transacción.
 
 ### Bodega y catálogo
 
@@ -74,7 +74,9 @@ npm.cmd run verify
 
 `npm run verify` ejecuta pruebas backend, pruebas frontend, lint y build. No crea respaldos, no ejecuta migraciones y no inicia PM2.
 
-Para una actualización real no use solamente `npm run setup`: siga el runbook de sucursales, que separa explícitamente respaldo, verificación, migración y recuperación.
+`npm run setup` sólo instala dependencias y construye el frontend. Nunca ejecuta migraciones ni inicia, reinicia o guarda PM2. Para una actualización real siga el runbook de sucursales, que separa explícitamente respaldo, verificación, migración y recuperación.
+
+La configuración de base se valida una sola vez a partir de `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` y `DB_NAME`; el pool, el migrador y el respaldo comparten esos valores. Los puertos deben ser enteros entre 1 y 65535.
 
 ## Regla de datos
 

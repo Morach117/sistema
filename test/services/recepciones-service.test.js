@@ -4,7 +4,12 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
-const { parseUpload } = require('../../services/recepciones-service');
+const {
+  MAX_TOTAL_UPLOAD_BYTES,
+  parseUpload,
+  parseUploads,
+  updateReceptionItem
+} = require('../../services/recepciones-service');
 
 async function temporaryUpload(name, content, mimetype) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'recepcion-test-'));
@@ -85,4 +90,90 @@ test('parses the accepted CFDI XML format and removes the temporary file', async
     }]
   });
   await assert.rejects(() => fs.access(upload.file.path), { code: 'ENOENT' });
+});
+
+test('removes every temporary file when one file in a bounded batch is invalid', async (t) => {
+  const first = await temporaryUpload(
+    'valid.csv',
+    'REMISION,CODIGO,DESCRIPCION,CANTIDAD,COSTO\nR-1,SKU-1,Uno,1,1\n',
+    'text/csv'
+  );
+  const second = await temporaryUpload('invalid.exe', 'bad', 'application/octet-stream');
+  t.after(() => fs.rm(first.directory, { recursive: true, force: true }));
+  t.after(() => fs.rm(second.directory, { recursive: true, force: true }));
+
+  await assert.rejects(
+    () => parseUploads({ files: [first.file, second.file], maxRows: 10 }),
+    /XML|CSV/i
+  );
+  await assert.rejects(() => fs.access(first.file.path), { code: 'ENOENT' });
+  await assert.rejects(() => fs.access(second.file.path), { code: 'ENOENT' });
+});
+
+test('rejects aggregate upload size before parsing and removes the full batch', async (t) => {
+  const first = await temporaryUpload('one.csv', 'a', 'text/csv');
+  const second = await temporaryUpload('two.csv', 'b', 'text/csv');
+  first.file.size = MAX_TOTAL_UPLOAD_BYTES;
+  second.file.size = 1;
+  t.after(() => fs.rm(first.directory, { recursive: true, force: true }));
+  t.after(() => fs.rm(second.directory, { recursive: true, force: true }));
+
+  await assert.rejects(
+    () => parseUploads({ files: [first.file, second.file], maxRows: 10 }),
+    (error) => error.statusCode === 413
+  );
+  await assert.rejects(() => fs.access(first.file.path), { code: 'ENOENT' });
+  await assert.rejects(() => fs.access(second.file.path), { code: 'ENOENT' });
+});
+
+test('rejects receipt item updates after the parent remision is finalized', async () => {
+  const events = [];
+  const connection = {
+    async beginTransaction() { events.push('begin'); },
+    async execute(sql, params) {
+      events.push(['execute', sql, params]);
+      return [[{ id: 8, estado: 'FINALIZADO' }], []];
+    },
+    async commit() { events.push('commit'); },
+    async rollback() { events.push('rollback'); },
+    release() { events.push('release'); }
+  };
+
+  await assert.rejects(
+    () => updateReceptionItem({
+      pool: { async getConnection() { return connection; } },
+      itemId: 8,
+      field: 'cantidad',
+      value: 3
+    }),
+    (error) => error.statusCode === 409 && /finaliz/i.test(error.message)
+  );
+  assert.equal(events.includes('commit'), false);
+  assert.deepEqual(events.slice(-2), ['rollback', 'release']);
+});
+
+test('updates a pending receipt item under the same row lock transaction', async () => {
+  const events = [];
+  const results = [
+    [[{ id: 8, estado: 'PENDIENTE' }], []],
+    [{ affectedRows: 1 }, []]
+  ];
+  const connection = {
+    async beginTransaction() { events.push('begin'); },
+    async execute(sql, params) { events.push(['execute', sql, params]); return results.shift(); },
+    async commit() { events.push('commit'); },
+    async rollback() { events.push('rollback'); },
+    release() { events.push('release'); }
+  };
+
+  await updateReceptionItem({
+    pool: { async getConnection() { return connection; } },
+    itemId: 8,
+    field: 'cantidad',
+    value: 3
+  });
+
+  assert.match(events[1][1], /FOR UPDATE/i);
+  assert.deepEqual(events[2], ['execute', 'UPDATE historial_items SET `cantidad` = ? WHERE id = ?', [3, 8]]);
+  assert.deepEqual(events.slice(-2), ['commit', 'release']);
 });

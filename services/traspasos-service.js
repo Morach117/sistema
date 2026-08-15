@@ -14,12 +14,57 @@ function positiveInteger(value, field) {
   return number;
 }
 
+const MAX_TRANSFER_LINES = 500;
+
+function positiveFiniteNumber(value, field) {
+  if (
+    (typeof value !== 'number' && typeof value !== 'string') ||
+    (typeof value === 'string' && value.trim() === '')
+  ) {
+    throw new TraspasoError(`${field} debe ser un numero positivo finito.`, 422);
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    throw new TraspasoError(`${field} debe ser un numero positivo finito.`, 422);
+  }
+  return number;
+}
+
+function validateUniqueDetailIds(detalles) {
+  if (!Array.isArray(detalles) || detalles.length === 0 || detalles.length > MAX_TRANSFER_LINES) {
+    throw new TraspasoError(`Los detalles deben contener entre 1 y ${MAX_TRANSFER_LINES} lineas.`, 422);
+  }
+  const ids = detalles.map((detalle) => positiveInteger(detalle?.id, 'El detalle'));
+  if (new Set(ids).size !== ids.length) {
+    throw new TraspasoError('No se permiten detalles duplicados.', 422);
+  }
+  return ids;
+}
+
+function validateTransferProducts(productos) {
+  if (!Array.isArray(productos) || productos.length === 0 || productos.length > MAX_TRANSFER_LINES) {
+    throw new TraspasoError(`Los productos deben contener entre 1 y ${MAX_TRANSFER_LINES} lineas.`, 422);
+  }
+  const seen = new Set();
+  return productos.map((producto) => {
+    const clave = typeof producto?.id === 'string' ? producto.id.trim() : '';
+    const normalizedKey = clave.toUpperCase();
+    const cantidad = positiveFiniteNumber(producto?.cantidad, 'Cada cantidad');
+    if (!clave || clave.length > 100) {
+      throw new TraspasoError('Cada producto requiere una clave valida.', 422);
+    }
+    if (seen.has(normalizedKey)) {
+      throw new TraspasoError('No se permiten claves de producto duplicadas.', 422);
+    }
+    seen.add(normalizedKey);
+    return { id: clave, cantidad };
+  });
+}
+
 async function completeTraspaso({ pool, traspasoId, detalles, actorId }) {
   const transferId = positiveInteger(traspasoId, 'El traspaso');
   positiveInteger(actorId, 'El usuario');
-  if (!Array.isArray(detalles) || detalles.length === 0) {
-    throw new TraspasoError('Debe incluir al menos un detalle.', 422);
-  }
+  const submittedIds = validateUniqueDetailIds(detalles);
 
   let connection;
   let transactionStarted = false;
@@ -36,12 +81,25 @@ async function completeTraspaso({ pool, traspasoId, detalles, actorId }) {
       throw new TraspasoError('El traspaso no esta pendiente o ya no existe.', 409);
     }
 
+    const [persistedDetails] = await connection.execute(
+      'SELECT id FROM traspaso_detalles WHERE traspaso_id = ? ORDER BY id FOR UPDATE',
+      [transferId]
+    );
+    const persistedIds = persistedDetails.map(({ id }) => Number(id));
+    const submittedSorted = [...submittedIds].sort((left, right) => left - right);
+    if (
+      persistedIds.length !== submittedSorted.length ||
+      persistedIds.some((id, index) => id !== submittedSorted[index])
+    ) {
+      throw new TraspasoError('Las lineas enviadas no coinciden con todos los detalles persistidos.', 409);
+    }
+
     for (const detalle of detalles) {
       const detailId = positiveInteger(detalle?.id, 'El detalle');
-      const quantity = Number(detalle?.cantidad_recibida);
-      if (!Number.isFinite(quantity) || quantity <= 0) {
-        throw new TraspasoError('La cantidad recibida debe ser un numero positivo.', 422);
-      }
+      const quantity = positiveFiniteNumber(
+        detalle?.cantidad_recibida,
+        'La cantidad recibida'
+      );
 
       const [result] = await connection.execute(
         'UPDATE traspaso_detalles SET cantidad = ? WHERE id = ? AND traspaso_id = ?',
@@ -75,4 +133,10 @@ async function completeTraspaso({ pool, traspasoId, detalles, actorId }) {
   }
 }
 
-module.exports = { completeTraspaso, TraspasoError };
+module.exports = {
+  completeTraspaso,
+  MAX_TRANSFER_LINES,
+  TraspasoError,
+  validateTransferProducts,
+  validateUniqueDetailIds
+};

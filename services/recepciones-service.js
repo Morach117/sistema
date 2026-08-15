@@ -4,6 +4,8 @@ const xml2js = require('xml2js');
 const { parse } = require('csv-parse/sync');
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_UPLOAD_FILES = 5;
+const MAX_TOTAL_UPLOAD_BYTES = 20 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = {
   '.csv': new Set(['text/csv', 'application/csv', 'application/vnd.ms-excel', 'text/plain']),
   '.xml': new Set(['application/xml', 'text/xml'])
@@ -167,9 +169,119 @@ async function parseUpload({ file, maxRows }) {
   }
 }
 
+async function cleanupUploadedFiles(files) {
+  await Promise.all((Array.isArray(files) ? files : []).map(async (file) => {
+    if (!file?.path) return;
+    try {
+      await fs.unlink(file.path);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }));
+}
+
+async function parseUploads({ files, maxRows }) {
+  const selectedFiles = Array.isArray(files) ? files : [];
+  try {
+    if (selectedFiles.length === 0) {
+      throw new UploadValidationError('No se recibieron archivos validos.', 400);
+    }
+    if (selectedFiles.length > MAX_UPLOAD_FILES) {
+      throw new UploadValidationError(`Solo se permiten ${MAX_UPLOAD_FILES} archivos por carga.`);
+    }
+    let totalBytes = 0;
+    for (const file of selectedFiles) {
+      const size = Number.isFinite(file?.size) ? file.size : (await fs.stat(file.path)).size;
+      totalBytes += size;
+      if (totalBytes > MAX_TOTAL_UPLOAD_BYTES) {
+        throw new UploadValidationError('La carga completa excede el limite de 20 MB.', 413);
+      }
+    }
+
+    const parsedFiles = [];
+    let totalRows = 0;
+    for (const file of selectedFiles) {
+      const parsed = await parseUpload({ file, maxRows });
+      totalRows += parsed.remisiones.reduce((sum, remision) => sum + remision.items.length, 0);
+      if (totalRows > maxRows) {
+        throw new UploadValidationError(`La carga excede el limite total de ${maxRows} filas.`);
+      }
+      parsedFiles.push(parsed);
+    }
+    return parsedFiles;
+  } finally {
+    await cleanupUploadedFiles(selectedFiles);
+  }
+}
+
+class ReceptionStateError extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    this.name = 'ReceptionStateError';
+    this.statusCode = statusCode;
+  }
+}
+
+const UPDATABLE_ITEM_FIELDS = new Set([
+  'existencia_lapiz', 'clave_final', 'es_paquete', 'piezas_por_paquete',
+  'costo_unitario', 'aplica_descuento', 'aplica_descuento_manual',
+  'cantidad', 'revision_pendiente'
+]);
+
+async function updateReceptionItem({ pool, itemId, field, value }) {
+  const normalizedItemId = Number(itemId);
+  if (!Number.isInteger(normalizedItemId) || normalizedItemId <= 0) {
+    throw new ReceptionStateError('El item no es valido.', 422);
+  }
+  if (!UPDATABLE_ITEM_FIELDS.has(field)) {
+    throw new ReceptionStateError('Campo no permitido.', 422);
+  }
+
+  let connection;
+  let transactionStarted = false;
+  try {
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    transactionStarted = true;
+    const [rows] = await connection.execute(
+      `SELECT hi.id, hr.estado
+         FROM historial_items hi
+         JOIN historial_remisiones hr ON hr.id = hi.remision_id
+        WHERE hi.id = ?
+        FOR UPDATE`,
+      [normalizedItemId]
+    );
+    if (rows.length !== 1) {
+      throw new ReceptionStateError('El item no existe.', 404);
+    }
+    if (String(rows[0].estado).toUpperCase() === 'FINALIZADO') {
+      throw new ReceptionStateError('La remision ya esta finalizada y no admite cambios.', 409);
+    }
+    const [result] = await connection.execute(
+      `UPDATE historial_items SET \`${field}\` = ? WHERE id = ?`,
+      [value, normalizedItemId]
+    );
+    if (result.affectedRows !== 1) {
+      throw new ReceptionStateError('El item cambio durante la actualizacion.', 409);
+    }
+    await connection.commit();
+  } catch (error) {
+    if (transactionStarted) await connection.rollback().catch(() => {});
+    throw error;
+  } finally {
+    connection?.release();
+  }
+}
+
 module.exports = {
   ALLOWED_MIME_TYPES,
   MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_FILES,
+  MAX_TOTAL_UPLOAD_BYTES,
+  cleanupUploadedFiles,
   parseUpload,
+  parseUploads,
+  ReceptionStateError,
+  updateReceptionItem,
   UploadValidationError
 };

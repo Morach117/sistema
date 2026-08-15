@@ -27,6 +27,7 @@ function transactionPool(results) {
 test('rolls back when a detail does not belong to its transfer', async () => {
   const pool = transactionPool([
     [[{ id: 4 }], []],
+    [[{ id: 9 }], []],
     [{ affectedRows: 0 }, []]
   ]);
 
@@ -43,7 +44,8 @@ test('rolls back when a detail does not belong to its transfer', async () => {
   assert.equal(pool.events.includes('rollback'), true);
   assert.equal(pool.events.includes('commit'), false);
   assert.deepEqual(pool.events.at(-1), 'release');
-  assert.deepEqual(pool.events[2], [
+  assert.match(pool.events[2][1], /SELECT id FROM traspaso_detalles.*FOR UPDATE/i);
+  assert.deepEqual(pool.events[3], [
     'execute',
     'UPDATE traspaso_detalles SET cantidad = ? WHERE id = ? AND traspaso_id = ?',
     [2, 9, 4]
@@ -53,6 +55,7 @@ test('rolls back when a detail does not belong to its transfer', async () => {
 test('locks a pending transfer and commits only after every detail and header update match', async () => {
   const pool = transactionPool([
     [[{ id: 4 }], []],
+    [[{ id: 9 }, { id: 10 }], []],
     [{ affectedRows: 1 }, []],
     [{ affectedRows: 1 }, []],
     [{ affectedRows: 1 }, []]
@@ -71,6 +74,7 @@ test('locks a pending transfer and commits only after every detail and header up
   assert.deepEqual(pool.events, [
     'begin',
     ['execute', "SELECT id FROM traspasos WHERE id = ? AND estado = 'PENDIENTE' FOR UPDATE", [4]],
+    ['execute', 'SELECT id FROM traspaso_detalles WHERE traspaso_id = ? ORDER BY id FOR UPDATE', [4]],
     ['execute', 'UPDATE traspaso_detalles SET cantidad = ? WHERE id = ? AND traspaso_id = ?', [2.5, 9, 4]],
     ['execute', 'UPDATE traspaso_detalles SET cantidad = ? WHERE id = ? AND traspaso_id = ?', [1, 10, 4]],
     ['execute', "UPDATE traspasos SET estado = 'COMPLETADO' WHERE id = ? AND estado = 'PENDIENTE'", [4]],
@@ -81,7 +85,8 @@ test('locks a pending transfer and commits only after every detail and header up
 
 test('rejects non-positive received quantities and rolls back the locked transfer', async () => {
   const pool = transactionPool([
-    [[{ id: 4 }], []]
+    [[{ id: 4 }], []],
+    [[{ id: 9 }], []]
   ]);
 
   await assert.rejects(
@@ -94,6 +99,58 @@ test('rejects non-positive received quantities and rolls back the locked transfe
     (error) => error.statusCode === 422 && /cantidad/i.test(error.message)
   );
 
+  assert.deepEqual(pool.events.slice(-2), ['rollback', 'release']);
+});
+
+test('rejects completion unless submitted unique detail IDs exactly match persisted lines', async () => {
+  const pool = transactionPool([
+    [[{ id: 4 }], []],
+    [[{ id: 9 }, { id: 10 }], []]
+  ]);
+
+  await assert.rejects(
+    () => completeTraspaso({
+      pool,
+      traspasoId: 4,
+      detalles: [{ id: 9, cantidad_recibida: 2 }],
+      actorId: 1
+    }),
+    (error) => error.statusCode === 409 && /detalle|linea/i.test(error.message)
+  );
+  assert.equal(pool.events.some((event) => Array.isArray(event) && /^UPDATE/.test(event[1])), false);
+  assert.deepEqual(pool.events.slice(-2), ['rollback', 'release']);
+});
+
+test('rejects duplicate submitted detail IDs before acquiring a connection', async () => {
+  await assert.rejects(
+    () => completeTraspaso({
+      pool: { async getConnection() { assert.fail('database access'); } },
+      traspasoId: 4,
+      detalles: [
+        { id: 9, cantidad_recibida: 2 },
+        { id: 9, cantidad_recibida: 3 }
+      ],
+      actorId: 1
+    }),
+    (error) => error.statusCode === 422 && /duplic/i.test(error.message)
+  );
+});
+
+test('rejects boolean received quantities instead of coercing them to one', async () => {
+  const pool = transactionPool([
+    [[{ id: 4 }], []],
+    [[{ id: 9 }], []]
+  ]);
+
+  await assert.rejects(
+    () => completeTraspaso({
+      pool,
+      traspasoId: 4,
+      detalles: [{ id: 9, cantidad_recibida: true }],
+      actorId: 1
+    }),
+    (error) => error.statusCode === 422 && /cantidad/i.test(error.message)
+  );
   assert.deepEqual(pool.events.slice(-2), ['rollback', 'release']);
 });
 

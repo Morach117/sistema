@@ -1,3 +1,5 @@
+const { loadDatabaseConfig, parsePort } = require('./database-config');
+
 function loadEnv(source = process.env) {
   const jwtSecret = source.JWT_SECRET;
   if (source.NODE_ENV !== 'test' && (!jwtSecret || jwtSecret.length < 32)) {
@@ -5,8 +7,9 @@ function loadEnv(source = process.env) {
   }
   return {
     env: source.NODE_ENV || 'development',
-    port: Number(source.PORT || 3000),
+    port: parsePort(source.PORT || 3000, 'PORT'),
     jwtSecret,
+    database: loadDatabaseConfig(source),
     corsOrigins: String(source.CORS_ORIGINS || '')
       .split(',')
       .map((origin) => origin.trim())

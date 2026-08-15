@@ -55,6 +55,8 @@ Avise a los usuarios que comienza la ventana y evite nuevas capturas. Ejecute:
 npm.cmd run backup
 ```
 
+El respaldo valida que la conexión corresponde exactamente al host, puerto y base configurados, y falla antes del dump si alguna tabla base no es InnoDB. Este fallo es un criterio de parada: no cambie motores ni use `--force` durante el despliegue.
+
 El comando imprime la ruta absoluta del archivo terminado. Copie exactamente esa ruta en el siguiente comando:
 
 ```powershell
@@ -205,11 +207,13 @@ Compruebe proceso y entrega HTTP:
 
 ```powershell
 npm.cmd run pm2:status
+$ready = Invoke-RestMethod 'http://127.0.0.1:3000/health'
+if ($ready.status -ne 'ready') { throw 'La API o la base no está lista' }
 Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3000/' | Select-Object StatusCode
 Get-Content '.\logs\pm2-error.log' -Tail 100
 ```
 
-El estado esperado es `online`, HTTP `200` y sin errores nuevos. Después, con una cuenta de prueba autorizada:
+El estado esperado es `online`, readiness `ready`, HTTP `200` y sin errores nuevos. `/health` ejecuta una consulta mínima y no expone host, puerto, nombre de base ni mensajes internos; responde `503` con `requestId` si la API no puede usar la base. Después, con una cuenta de prueba autorizada:
 
 1. iniciar sesión y cerrar sesión;
 2. abrir Dashboard, Bodega, Catálogo, Traspasos, Recepciones y Auditoría según permisos;

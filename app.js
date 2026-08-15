@@ -4,8 +4,19 @@ const fs = require('fs');
 const path = require('path');
 const { errorHandler } = require('./middleware/errors');
 const { requestContext } = require('./middleware/request-context');
+const { log } = require('./utils/logger');
 
-function createApp({ corsOrigins = [] } = {}) {
+async function defaultReadinessCheck() {
+  await require('./config/database').query('SELECT 1');
+}
+
+function createApp({
+  corsOrigins = [],
+  environment = process.env.NODE_ENV || 'development',
+  frontendDistPath = path.join(__dirname, 'frontend', 'dist'),
+  developmentPublicPath,
+  readinessCheck = defaultReadinessCheck,
+} = {}) {
   const app = express();
   const allowedOrigins = new Set(corsOrigins);
 
@@ -19,12 +30,25 @@ function createApp({ corsOrigins = [] } = {}) {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-  const distPath = path.join(__dirname, 'frontend', 'dist');
-  if (fs.existsSync(distPath)) {
-    app.use(express.static(distPath));
-  } else {
-    app.use(express.static(path.join(__dirname, '/')));
+  app.get('/health', async (req, res) => {
+    try {
+      await readinessCheck();
+      return res.json({ status: 'ready' });
+    } catch (error) {
+      log('error', 'Readiness check failed', { requestId: req.requestId, error });
+      return res.status(503).json({ status: 'unavailable', requestId: req.requestId });
+    }
+  });
+
+  const distPath = path.resolve(frontendDistPath);
+  const hasFrontendBuild = fs.existsSync(path.join(distPath, 'index.html'));
+  if (!hasFrontendBuild && environment === 'production') {
+    throw new Error(`No se encontro el build frontend requerido en ${distPath}.`);
   }
+  const safeStaticPath = hasFrontendBuild
+    ? distPath
+    : developmentPublicPath && path.resolve(developmentPublicPath);
+  if (safeStaticPath) app.use(express.static(safeStaticPath));
 
   app.use('/api/auth', require('./routes/auth'));
   app.use('/api/catalogo', require('./routes/catalogo'));
@@ -41,11 +65,13 @@ function createApp({ corsOrigins = [] } = {}) {
     if (req.path.startsWith('/api/')) {
       return res.status(404).json({ error: 'Endpoint not found' });
     }
-    if (fs.existsSync(distPath)) {
-      res.sendFile(path.join(distPath, 'index.html'));
-    } else {
-      res.sendFile(path.join(__dirname, 'index.html'));
+    if (path.extname(req.path)) {
+      return res.status(404).json({ error: 'Asset not found' });
     }
+    if (safeStaticPath && fs.existsSync(path.join(safeStaticPath, 'index.html'))) {
+      return res.sendFile(path.join(safeStaticPath, 'index.html'));
+    }
+    return res.status(404).json({ error: 'Frontend not available' });
   });
 
   app.use(errorHandler);
