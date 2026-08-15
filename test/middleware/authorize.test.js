@@ -51,6 +51,34 @@ test('allows the reception history module for a permitted employee', () => {
   assert.equal(called, true);
 });
 
+test('allows a permitted employee to use clients', () => {
+  let called = false;
+
+  authorize({ module: 'clientes', action: 'write' })(
+    { user: { rol: 'empleado', permisos: ['clientes'] } },
+    {},
+    () => { called = true; }
+  );
+
+  assert.equal(called, true);
+});
+
+test('keeps clients configuration administrator-only despite a stored employee permission', () => {
+  const req = {
+    user: { rol: 'empleado', permisos: ['clientes-configuracion'] },
+  };
+  const res = responseRecorder();
+
+  authorize({ module: 'clientes-configuracion', action: 'write' })(
+    req,
+    res,
+    () => assert.fail('next')
+  );
+
+  assert.equal(res.statusCode, 403);
+  assert.deepEqual(res.body, { success: false, error: 'Acceso denegado.' });
+});
+
 test('frontend permissions expose reception history as routable and assignable', async () => {
   const permissionsModule = await import(
     `${pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'src', 'auth', 'permissions.js')).href}?t=${Date.now()}`
@@ -78,5 +106,29 @@ test('frontend permissions expose reception history as routable and assignable',
       module: 'historial-recepciones',
       label: 'Historial Recepciones',
     }
+  );
+});
+
+test('frontend permissions make clients assignable but keep its configuration administrator-only', async () => {
+  const permissionsModule = await import(
+    `${pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'src', 'auth', 'permissions.js')).href}?clients=${Date.now()}`
+  );
+  const employee = {
+    rol: 'empleado',
+    permisos: ['clientes', 'clientes-configuracion'],
+  };
+
+  assert.equal(permissionsModule.canAccess(employee, 'clientes'), true);
+  assert.equal(permissionsModule.canAccess(employee, 'clientes-configuracion'), false);
+  assert.equal(permissionsModule.defaultPathFor(employee), '/clientes');
+  assert.deepEqual(
+    permissionsModule.EMPLOYEE_PERMISSION_OPTIONS.find(({ module }) => module === 'clientes'),
+    { module: 'clientes', label: 'Clientes' }
+  );
+  assert.equal(
+    permissionsModule.EMPLOYEE_PERMISSION_OPTIONS.some(
+      ({ module }) => module === 'clientes-configuracion'
+    ),
+    false
   );
 });

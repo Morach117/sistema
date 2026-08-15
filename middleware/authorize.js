@@ -10,10 +10,13 @@ const MODULES = Object.freeze([
   'evolucion-precios',
   'usuarios',
   'auditoria',
-  'admin-traspasos'
+  'admin-traspasos',
+  'clientes',
+  'clientes-configuracion'
 ]);
 
 const moduleAllowlist = new Set(MODULES);
+const adminOnlyModules = new Set(['clientes-configuracion']);
 const actionAllowlist = new Set(['read', 'write']);
 
 function denyAccess(res) {
@@ -30,7 +33,12 @@ function authorize({ module, action }) {
 
   return function authorizationMiddleware(req, res, next) {
     const user = req.user;
-    if (user?.rol === 'admin' || (Array.isArray(user?.permisos) && user.permisos.includes(module))) {
+    if (
+      user?.rol === 'admin' ||
+      (!adminOnlyModules.has(module) &&
+        Array.isArray(user?.permisos) &&
+        user.permisos.includes(module))
+    ) {
       return next();
     }
 
@@ -38,4 +46,4 @@ function authorize({ module, action }) {
   };
 }
 
-module.exports = { MODULES, authorize, denyAccess, moduleAllowlist };
+module.exports = { MODULES, adminOnlyModules, authorize, denyAccess, moduleAllowlist };

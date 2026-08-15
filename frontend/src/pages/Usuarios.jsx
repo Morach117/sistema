@@ -172,6 +172,7 @@ export default function Usuarios() {
                         ))}
                       </div>
                       <p className="text-[9px] text-slate-500 mt-2">* Para editar permisos de un usuario nuevo, primero guárdalo y luego dale clic en editar.</p>
+                      <p className="text-[9px] text-slate-500 mt-1">La configuración de la central de Clientes es exclusiva de administradores.</p>
                     </div>
                   )}
 

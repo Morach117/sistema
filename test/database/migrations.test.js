@@ -20,6 +20,7 @@ const {
 const safeIndexMigration = require('../../database/migrations/002_safe_indexes');
 const receptionHistoryAuditMigration = require('../../database/migrations/003_reception_history_audit');
 const receptionXmlVatPersistenceMigration = require('../../database/migrations/004_reception_xml_vat_persistence');
+const clientsLanSyncMigration = require('../../database/migrations/005_clients_lan_sync');
 
 function verifiedBackupSource(config) {
     return {
@@ -249,6 +250,132 @@ test('records the XML VAT persistence migration once and adds the persisted VAT 
         alterStatements[0].sql,
         /ADD COLUMN `iva_tasa` DECIMAL\(6,4\) NULL DEFAULT NULL AFTER `aplica_iva`, ADD COLUMN `costo_incluye_iva` TINYINT\(1\) NOT NULL DEFAULT 0 AFTER `iva_tasa`/i
     );
+});
+
+test('records the additive clients LAN migration once and creates its seven tables', async () => {
+    const pool = fakeMigrationPool();
+
+    await runMigrations({ pool, migrations: [clientsLanSyncMigration] });
+    await runMigrations({ pool, migrations: [clientsLanSyncMigration] });
+
+    assert.deepEqual([...pool.appliedMigrationIds.keys()], [clientsLanSyncMigration.id]);
+    const createdTables = pool.statements
+        .map(({ sql }) => sql.match(/^CREATE TABLE IF NOT EXISTS `([^`]+)`/i)?.[1])
+        .filter((tableName) => tableName && tableName !== '_node_migrations');
+    assert.deepEqual(createdTables, [
+        'sucursales',
+        'clientes',
+        'cliente_compras',
+        'cliente_operaciones_sync',
+        'cliente_conflictos',
+        'cliente_bitacora',
+        'cliente_configuracion',
+    ]);
+});
+
+test('uses UUID primary identifiers for every clients LAN table', async () => {
+    const pool = fakeMigrationPool();
+
+    await clientsLanSyncMigration.up(await pool.getConnection());
+
+    const createStatements = pool.statements.filter(({ sql }) =>
+        /^CREATE TABLE IF NOT EXISTS/i.test(sql)
+    );
+    assert.equal(createStatements.length, 7);
+    for (const { sql } of createStatements) {
+        assert.match(sql, /`id` CHAR\(36\)[^,]*NOT NULL/i);
+        assert.match(sql, /PRIMARY KEY \(`id`\)/i);
+    }
+});
+
+test('makes a present ticket folio unique only within its branch', async () => {
+    const pool = fakeMigrationPool();
+
+    await clientsLanSyncMigration.up(await pool.getConnection());
+
+    const purchases = pool.statements.find(({ sql }) =>
+        /^CREATE TABLE IF NOT EXISTS `cliente_compras`/i.test(sql)
+    );
+    assert.ok(purchases);
+    assert.match(purchases.sql, /`folio_ticket` VARCHAR\([0-9]+\) NULL/i);
+    assert.match(
+        purchases.sql,
+        /UNIQUE (?:INDEX|KEY) `uq_cliente_compras_sucursal_folio` \(`sucursal_id`, `folio_ticket`\)/i
+    );
+});
+
+test('persists signing material and fingerprints without network addresses as identity', async () => {
+    const pool = fakeMigrationPool();
+
+    await clientsLanSyncMigration.up(await pool.getConnection());
+
+    const ddl = pool.statements
+        .filter(({ sql }) => /^CREATE TABLE IF NOT EXISTS/i.test(sql))
+        .map(({ sql }) => sql)
+        .join('\n');
+    assert.match(ddl, /`central_fingerprint` CHAR\(64\)/i);
+    assert.match(ddl, /`central_public_key` TEXT/i);
+    assert.match(ddl, /`sucursal_private_key` TEXT/i);
+    assert.match(ddl, /`sucursal_public_key` TEXT/i);
+    assert.match(ddl, /`sucursal_credential` TEXT/i);
+    assert.doesNotMatch(ddl, /`(?:ip|hostname|host|direccion_red)`/i);
+});
+
+test('gives operations a stable cursor and tracks delivery independently per peer branch', async () => {
+    const pool = fakeMigrationPool();
+
+    await clientsLanSyncMigration.up(await pool.getConnection());
+
+    const branches = pool.statements.find(({ sql }) =>
+        /^CREATE TABLE IF NOT EXISTS `sucursales`/i.test(sql)
+    );
+    const operations = pool.statements.find(({ sql }) =>
+        /^CREATE TABLE IF NOT EXISTS `cliente_operaciones_sync`/i.test(sql)
+    );
+    assert.ok(branches);
+    assert.ok(operations);
+    assert.match(branches.sql, /`ultimo_cursor_enviado` BIGINT UNSIGNED NOT NULL DEFAULT 0/i);
+    assert.match(branches.sql, /`ultimo_cursor_recibido` BIGINT UNSIGNED NOT NULL DEFAULT 0/i);
+    assert.match(operations.sql, /`cursor_local` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT/i);
+    assert.match(
+        operations.sql,
+        /UNIQUE (?:INDEX|KEY) `uq_cliente_sync_cursor_local` \(`cursor_local`\)/i
+    );
+});
+
+test('enforces one active local clients configuration independently of branch UUID', async () => {
+    const pool = fakeMigrationPool();
+
+    await clientsLanSyncMigration.up(await pool.getConnection());
+
+    const configuration = pool.statements.find(({ sql }) =>
+        /^CREATE TABLE IF NOT EXISTS `cliente_configuracion`/i.test(sql)
+    );
+    assert.ok(configuration);
+    assert.match(
+        configuration.sql,
+        /`alcance_local` TINYINT UNSIGNED NOT NULL DEFAULT 1/i
+    );
+    assert.match(configuration.sql, /CHECK \(`alcance_local` = 1\)/i);
+    assert.match(
+        configuration.sql,
+        /UNIQUE (?:INDEX|KEY) `uq_cliente_configuracion_local` \(`alcance_local`\)/i
+    );
+});
+
+test('emits only repeat-safe clients LAN DDL when its up function runs twice', async () => {
+    const pool = fakeMigrationPool();
+
+    await clientsLanSyncMigration.up(await pool.getConnection());
+    await clientsLanSyncMigration.up(await pool.getConnection());
+
+    const createStatements = pool.statements.filter(({ sql }) =>
+        /^CREATE TABLE IF NOT EXISTS/i.test(sql)
+    );
+    assert.equal(createStatements.length, 14);
+    for (const { sql } of createStatements) {
+        assert.match(sql, /^CREATE TABLE IF NOT EXISTS/i);
+    }
 });
 
 test('inspects information_schema before adding each missing allowlisted index', async () => {
