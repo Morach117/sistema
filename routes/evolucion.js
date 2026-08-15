@@ -24,6 +24,8 @@ router.get('/', async (req, res) => {
                     hi.es_paquete,
                     hi.piezas_por_paquete,
                     hi.aplica_iva,
+                    hi.iva_tasa,
+                    hi.costo_incluye_iva,
                     hi.aplica_descuento,
                     hi.aplica_descuento_manual,
                     COALESCE(NULLIF(TRIM(hi.clave_final), ''), NULLIF(TRIM(rcp.clave_sicar), ''), TRIM(hi.codigo_proveedor)) as sicar,

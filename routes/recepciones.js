@@ -220,6 +220,8 @@ router.get('/:id', async (req, res) => {
                 clave_sicar: claveSugerida,
                 existencia_lapiz: item.existencia_lapiz,
                 aplica_iva: item.aplica_iva,
+                iva_tasa: item.iva_tasa != null ? parseFloat(item.iva_tasa) : null,
+                costo_incluye_iva: item.costo_incluye_iva,
                 aplica_descuento: item.aplica_descuento,
                 aplica_descuento_manual: item.aplica_descuento_manual != null ? item.aplica_descuento_manual : null,
                 revision_pendiente: item.revision_pendiente,
@@ -354,6 +356,9 @@ async function saveParsedReception(connection, parsed) {
         ultimoProv = remision.proveedor;
 
         for (const item of remision.items) {
+            const persistedIvaRate = item.source?.ivaDetectado ? Number(item.source.ivaDetectado) : null;
+            const costoIncluyeIva = item.source?.costoIncluyeIva ? 1 : 0;
+            const persistedAplicaIva = parsed.format === 'xml' ? 0 : item.aplica_iva;
             const [existing] = await connection.execute(
                 `SELECT id FROM historial_items WHERE remision_id = ? AND codigo_proveedor = ? LIMIT 1`,
                 [idRem, item.codigo_proveedor]
@@ -361,8 +366,8 @@ async function saveParsedReception(connection, parsed) {
 
             if (existing.length > 0 && parsed.format === 'xml') {
                 await connection.execute(
-                    `UPDATE historial_items SET descripcion_original=?, cantidad=?, costo_unitario=?, aplica_iva=?, aplica_descuento=? WHERE id=?`,
-                    [item.descripcion_original, item.cantidad, item.costo_unitario, item.aplica_iva, item.aplica_descuento, existing[0].id]
+                    `UPDATE historial_items SET descripcion_original=?, cantidad=?, costo_unitario=?, aplica_iva=?, iva_tasa=?, costo_incluye_iva=?, aplica_descuento=? WHERE id=?`,
+                    [item.descripcion_original, item.cantidad, item.costo_unitario, persistedAplicaIva, persistedIvaRate, costoIncluyeIva, item.aplica_descuento, existing[0].id]
                 );
             } else if (existing.length > 0) {
                 await connection.execute(
@@ -371,8 +376,8 @@ async function saveParsedReception(connection, parsed) {
                 );
             } else if (parsed.format === 'xml') {
                 await connection.execute(
-                    `INSERT INTO historial_items (remision_id, codigo_proveedor, descripcion_original, cantidad, costo_unitario, existencia_lapiz, es_paquete, piezas_por_paquete, aplica_iva, aplica_descuento) VALUES (?, ?, ?, ?, ?, 0, 0, 1, ?, ?)`,
-                    [idRem, item.codigo_proveedor, item.descripcion_original, item.cantidad, item.costo_unitario, item.aplica_iva, item.aplica_descuento]
+                    `INSERT INTO historial_items (remision_id, codigo_proveedor, descripcion_original, cantidad, costo_unitario, existencia_lapiz, es_paquete, piezas_por_paquete, aplica_iva, iva_tasa, costo_incluye_iva, aplica_descuento) VALUES (?, ?, ?, ?, ?, 0, 0, 1, ?, ?, ?, ?)`,
+                    [idRem, item.codigo_proveedor, item.descripcion_original, item.cantidad, item.costo_unitario, persistedAplicaIva, persistedIvaRate, costoIncluyeIva, item.aplica_descuento]
                 );
             } else {
                 await connection.execute(

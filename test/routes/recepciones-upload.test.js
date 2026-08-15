@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const { request } = require('../helpers/app');
+const { calculateCost } = require('../../services/reception-rules');
 
 const jwtSecret = 'receipt-upload-test-secret-32-characters';
 process.env.JWT_SECRET = jwtSecret;
@@ -199,9 +200,9 @@ test('reimporting a pending XML updates only invoice fields and preserves physic
   assert.equal(response.status, 200, response.text);
   const itemUpdate = writes.find(([sql]) => /UPDATE historial_items SET/.test(sql));
   assert.ok(itemUpdate, 'expected item update');
-  assert.match(itemUpdate[0], /descripcion_original=\?, cantidad=\?, costo_unitario=\?, aplica_iva=\?, aplica_descuento=\? WHERE id=\?/);
+  assert.match(itemUpdate[0], /descripcion_original=\?, cantidad=\?, costo_unitario=\?, aplica_iva=\?, iva_tasa=\?, costo_incluye_iva=\?, aplica_descuento=\? WHERE id=\?/);
   assert.doesNotMatch(itemUpdate[0], /existencia_lapiz|aplica_descuento_manual|es_paquete|piezas_por_paquete/);
-  assert.deepEqual(itemUpdate[1], ['Producto XML', 2, 11.6, 1, 1, 77]);
+  assert.deepEqual(itemUpdate[1], ['Producto XML', 2, 11.6, 0, 0.16, 1, 1, 77]);
   assert.deepEqual(events.slice(-2), ['commit', 'release']);
 });
 
@@ -243,6 +244,70 @@ test('new XML items persist detected IVA and concept discount flags', async () =
 
   assert.equal(response.status, 200, response.text);
   assert.equal(writes.length, 1);
-  assert.match(writes[0][0], /aplica_iva, aplica_descuento\) VALUES \(\?, \?, \?, \?, \?, 0, 0, 1, \?, \?\)/);
-  assert.deepEqual(writes[0][1], [33, 'SKU-9', 'Nuevo', 4, 29, 1, 1]);
+  assert.match(writes[0][0], /aplica_iva, iva_tasa, costo_incluye_iva, aplica_descuento\) VALUES \(\?, \?, \?, \?, \?, 0, 0, 1, \?, \?, \?, \?\)/);
+  assert.deepEqual(writes[0][1], [33, 'SKU-9', 'Nuevo', 4, 29, 0, 0.16, 1, 1]);
+});
+
+test('persisted XML cost stays IVA-included after reload instead of being taxed twice', async () => {
+  let persistedItem;
+  const connection = {
+    async beginTransaction() {},
+    async execute(sql, params) {
+      const normalized = sql.replace(/\s+/g, ' ').trim();
+      if (/SELECT id, estado FROM historial_remisiones/.test(normalized)) {
+        return [[{ id: 51, estado: 'PENDIENTE' }], []];
+      }
+      if (/UPDATE historial_remisiones SET fecha_carga = NOW\(\), proveedor = \? WHERE id = \?/.test(normalized)) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (/SELECT id FROM historial_items WHERE remision_id = \? AND codigo_proveedor = \? LIMIT 1/.test(normalized)) {
+        return [[], []];
+      }
+      if (/INSERT INTO historial_items/.test(normalized)) {
+        persistedItem = {
+          costo_unitario: params[4],
+          aplica_iva: params[5],
+          iva_tasa: params[6],
+          costo_incluye_iva: params[7],
+          aplica_descuento: params[8],
+          proveedor: 'TONY'
+        };
+        return [{ insertId: 91 }, []];
+      }
+      assert.fail(`unexpected SQL: ${normalized}`);
+    },
+    async commit() {},
+    async rollback() {},
+    release() {}
+  };
+  const app = express();
+  app.use('/api/recepciones', loadRouterWithDatabase({ async getConnection() { return connection; } }));
+  const token = jwt.sign({ id: 1, rol: 'admin', permisos: ['recepciones'] }, jwtSecret);
+
+  const response = await request(app)
+    .post('/api/recepciones/upload')
+    .set('Authorization', `Bearer ${token}`)
+    .attach('archivo_factura', Buffer.from(
+      '<?xml version="1.0"?><cfdi:Comprobante xmlns:cfdi="urn:cfdi" Serie="I" Folio="7"><cfdi:Emisor Rfc="TTI961202IM1" Nombre="Tony"/><cfdi:Conceptos><cfdi:Concepto NoIdentificacion="SKU-IVA" Descripcion="IVA incluido" Cantidad="1" ValorUnitario="25"><cfdi:Impuestos><cfdi:Traslados><cfdi:Traslado Impuesto="002" TasaOCuota="0.160000" /></cfdi:Traslados></cfdi:Impuestos></cfdi:Concepto></cfdi:Conceptos></cfdi:Comprobante>'
+    ), { filename: 'persisted.xml', contentType: 'application/xml' });
+
+  assert.equal(response.status, 200, response.text);
+  assert.deepEqual(
+    calculateCost({
+      costoUnitario: persistedItem.costo_unitario,
+      aplica_iva: persistedItem.aplica_iva,
+      iva_tasa: persistedItem.iva_tasa,
+      costoIncluyeIva: persistedItem.costo_incluye_iva,
+      aplica_descuento: persistedItem.aplica_descuento,
+      proveedor: persistedItem.proveedor
+    }),
+    {
+      costoBase: 29,
+      costoConIva: 29,
+      costoFinal: 29,
+      costoPorPieza: 29,
+      iva: { detectado: true, porcentaje: 0.16, aplicado: false, yaIncluido: true },
+      descuento: { aplica: false, porcentaje: 0, origen: 'xml' }
+    }
+  );
 });

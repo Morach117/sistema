@@ -80,6 +80,27 @@ test('calculateCost keeps XML IVA-included cost from being taxed twice', () => {
   );
 });
 
+test('calculateCost trusts the persisted costoIncluyeIva flag after reload', () => {
+  assert.deepEqual(
+    calculateCost({
+      costoUnitario: 29,
+      proveedor: 'TONY',
+      aplica_iva: 0,
+      iva_tasa: 0.16,
+      costoIncluyeIva: 1,
+      aplica_descuento: 0
+    }),
+    {
+      costoBase: 29,
+      costoConIva: 29,
+      costoFinal: 29,
+      costoPorPieza: 29,
+      iva: { detectado: true, porcentaje: 0.16, aplicado: false, yaIncluido: true },
+      descuento: { aplica: false, porcentaje: 0, origen: 'xml' }
+    }
+  );
+});
+
 test('validateReceptionItems and buildReceptionSummary surface blocking issues and totals', () => {
   const items = [
     {

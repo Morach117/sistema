@@ -19,6 +19,7 @@ const {
 } = require('../../scripts/verify-backup');
 const safeIndexMigration = require('../../database/migrations/002_safe_indexes');
 const receptionHistoryAuditMigration = require('../../database/migrations/003_reception_history_audit');
+const receptionXmlVatPersistenceMigration = require('../../database/migrations/004_reception_xml_vat_persistence');
 
 function verifiedBackupSource(config) {
     return {
@@ -224,6 +225,30 @@ test('records the reception history audit migration once and creates idempotent 
     assert.match(auditStatements[0].sql, /INDEX `idx_recepcion_bitacora_remision` \(`remision_id`\)/i);
     assert.match(auditStatements[0].sql, /INDEX `idx_recepcion_bitacora_item` \(`item_id`\)/i);
     assert.match(auditStatements[0].sql, /INDEX `idx_recepcion_bitacora_fecha` \(`fecha`\)/i);
+});
+
+test('records the XML VAT persistence migration once and adds the persisted VAT metadata columns', async () => {
+    const pool = fakeMigrationPool({
+        missingColumns: ['historial_items.iva_tasa', 'historial_items.costo_incluye_iva'],
+    });
+
+    await runMigrations({ pool, migrations: [receptionXmlVatPersistenceMigration] });
+    await runMigrations({ pool, migrations: [receptionXmlVatPersistenceMigration] });
+
+    assert.deepEqual(
+        [...pool.appliedMigrationIds.keys()],
+        [receptionXmlVatPersistenceMigration.id]
+    );
+
+    const alterStatements = pool.statements.filter(({ sql }) =>
+        /ALTER TABLE `historial_items` ADD COLUMN `iva_tasa`/i.test(sql)
+    );
+
+    assert.equal(alterStatements.length, 1);
+    assert.match(
+        alterStatements[0].sql,
+        /ADD COLUMN `iva_tasa` DECIMAL\(6,4\) NULL DEFAULT NULL AFTER `aplica_iva`, ADD COLUMN `costo_incluye_iva` TINYINT\(1\) NOT NULL DEFAULT 0 AFTER `iva_tasa`/i
+    );
 });
 
 test('inspects information_schema before adding each missing allowlisted index', async () => {

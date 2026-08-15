@@ -95,6 +95,10 @@ function calculateCost({
   proveedor,
   aplicaIva,
   aplica_iva,
+  ivaTasa,
+  iva_tasa,
+  costoIncluyeIva,
+  costo_incluye_iva,
   aplicaDescuento,
   aplica_descuento,
   aplicaDescuentoManual,
@@ -105,8 +109,9 @@ function calculateCost({
 } = {}) {
   const costoBase = round(costoUnitario);
   const metadata = source || {};
-  const ivaRate = numeric(metadata.ivaDetectado) || ((truthyFlag(aplicaIva ?? aplica_iva)) ? 0.16 : 0);
-  const alreadyIncludesVat = truthyFlag(metadata.costoIncluyeIva) || (metadata.tipo === 'xml' && ivaRate > 0);
+  const explicitIvaRate = numeric(ivaTasa ?? iva_tasa ?? metadata.ivaDetectado);
+  const alreadyIncludesVat = truthyFlag(costoIncluyeIva ?? costo_incluye_iva ?? metadata.costoIncluyeIva);
+  const ivaRate = explicitIvaRate || ((alreadyIncludesVat || truthyFlag(aplicaIva ?? aplica_iva)) ? 0.16 : 0);
   const costoConIva = alreadyIncludesVat
     ? costoBase
     : round(costoBase * (ivaRate > 0 ? (1 + ivaRate) : 1));
@@ -135,7 +140,7 @@ function calculateCost({
     costoFinal,
     costoPorPieza,
     iva: {
-      detectado: ivaRate > 0,
+      detectado: alreadyIncludesVat || ivaRate > 0,
       porcentaje: ivaRate,
       aplicado: ivaRate > 0 && !alreadyIncludesVat,
       yaIncluido: alreadyIncludesVat
