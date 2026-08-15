@@ -9,8 +9,11 @@ const fieldKey = (itemId, field) => `${itemId}:${field}`
 export function useReceptionEditor(remisionId) {
   const queryClient = useQueryClient()
   const [draftFields, setDraftFields] = useState({})
+  const [hasPending, setHasPending] = useState(false)
   const timersRef = useRef(new Map())
+  const pendingSavesRef = useRef(new Map())
   const requestChainsRef = useRef(new Map())
+  const saveErrorsRef = useRef(new Map())
   const mutationRef = useRef(null)
 
   const mutation = useMutation({
@@ -47,38 +50,76 @@ export function useReceptionEditor(remisionId) {
     return Object.prototype.hasOwnProperty.call(draftFields, key) ? draftFields[key] : fallback
   }, [draftFields])
 
+  const refreshPendingState = useCallback(() => {
+    setHasPending(
+      pendingSavesRef.current.size > 0 || requestChainsRef.current.size > 0,
+    )
+  }, [])
+
+  const startPendingSave = useCallback((key) => {
+    const variables = pendingSavesRef.current.get(key)
+    if (!variables) return requestChainsRef.current.get(key)
+
+    clearTimeout(timersRef.current.get(key))
+    timersRef.current.delete(key)
+    pendingSavesRef.current.delete(key)
+
+    const previousRequest = requestChainsRef.current.get(key) || Promise.resolve()
+    const nextRequest = previousRequest
+      .catch(() => undefined)
+      .then(() => mutationRef.current.mutateAsync(variables))
+
+    requestChainsRef.current.set(key, nextRequest)
+    refreshPendingState()
+
+    nextRequest.then(
+      () => saveErrorsRef.current.delete(key),
+      (error) => saveErrorsRef.current.set(key, error),
+    )
+
+    const clearSettledRequest = () => {
+      if (requestChainsRef.current.get(key) === nextRequest) {
+        requestChainsRef.current.delete(key)
+      }
+      refreshPendingState()
+    }
+    nextRequest.then(clearSettledRequest, clearSettledRequest)
+    return nextRequest
+  }, [refreshPendingState])
+
   const saveField = useCallback((itemId, field, explicitValue) => {
     const key = fieldKey(itemId, field)
     const value = explicitValue ?? draftFields[key]
     if (value === undefined) return
 
     clearTimeout(timersRef.current.get(key))
-    timersRef.current.set(key, setTimeout(() => {
-      timersRef.current.delete(key)
-      const previousRequest = requestChainsRef.current.get(key) || Promise.resolve()
-      const nextRequest = previousRequest
-        .catch(() => undefined)
-        .then(() => mutationRef.current.mutateAsync({
-          id_item: itemId,
-          campo: field,
-          valor: value,
-          remisionId,
-        }))
+    pendingSavesRef.current.set(key, {
+      id_item: itemId,
+      campo: field,
+      valor: value,
+      remisionId,
+    })
+    setHasPending(true)
+    timersRef.current.set(key, setTimeout(() => startPendingSave(key), SAVE_DELAY_MS))
+  }, [draftFields, remisionId, startPendingSave])
 
-      requestChainsRef.current.set(key, nextRequest)
-      const clearSettledRequest = () => {
-        if (requestChainsRef.current.get(key) === nextRequest) {
-          requestChainsRef.current.delete(key)
-        }
-      }
-      nextRequest.then(clearSettledRequest, clearSettledRequest)
-    }, SAVE_DELAY_MS))
-  }, [draftFields, remisionId])
+  const flushAndWait = useCallback(async () => {
+    while (pendingSavesRef.current.size > 0 || requestChainsRef.current.size > 0) {
+      for (const key of [...pendingSavesRef.current.keys()]) startPendingSave(key)
+      const activeRequests = [...requestChainsRef.current.values()]
+      if (activeRequests.length > 0) await Promise.allSettled(activeRequests)
+    }
+
+    const firstError = saveErrorsRef.current.values().next().value
+    if (firstError) throw firstError
+  }, [startPendingSave])
 
   return {
     draftFields,
+    flushAndWait,
     getDraftField,
-    isSaving: mutation.isPending,
+    hasPending,
+    isSaving: hasPending,
     mutation,
     saveField,
     setDraftField,

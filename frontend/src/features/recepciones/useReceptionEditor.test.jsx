@@ -11,6 +11,10 @@ vi.mock('@/lib/api', () => ({
   },
 }))
 
+vi.mock('sweetalert2', () => ({
+  default: { fire: vi.fn() },
+}))
+
 function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -129,5 +133,53 @@ describe('useReceptionEditor', () => {
       '/api/recepciones/actualizar_campo',
       { id_item: 7, campo: 'clave_final', valor: 'A-3' },
     )
+  })
+
+  it('flushes a debounced save immediately and waits for its request to settle', async () => {
+    const request = deferred()
+    api.post.mockImplementationOnce(() => request.promise)
+    const { result } = renderHook(() => useReceptionEditor(19), { wrapper: createWrapper() })
+
+    act(() => result.current.saveField(7, 'clave_final', 'A-2'))
+
+    expect(result.current.hasPending).toBe(true)
+    expect(api.post).not.toHaveBeenCalled()
+
+    let flushPromise
+    await act(async () => {
+      flushPromise = result.current.flushAndWait()
+      await Promise.resolve()
+    })
+
+    expect(api.post).toHaveBeenCalledTimes(1)
+    expect(result.current.hasPending).toBe(true)
+
+    await act(async () => {
+      request.resolve({ data: { ok: true } })
+      await flushPromise
+    })
+
+    expect(result.current.hasPending).toBe(false)
+  })
+
+  it('rejects a flush when a reception field could not be persisted', async () => {
+    const saveError = new Error('No se pudo guardar')
+    api.post.mockRejectedValueOnce(saveError)
+    const { result } = renderHook(() => useReceptionEditor(19), { wrapper: createWrapper() })
+
+    act(() => result.current.saveField(7, 'cantidad', '12'))
+
+    let flushPromise
+    let rejectedFlush
+    await act(async () => {
+      flushPromise = result.current.flushAndWait()
+      rejectedFlush = expect(flushPromise).rejects.toBe(saveError)
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await rejectedFlush
+    })
+    expect(result.current.hasPending).toBe(false)
   })
 })

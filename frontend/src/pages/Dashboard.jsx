@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import axios from '@/lib/api'
 import { readSession } from '@/auth/session'
+import { canAccess } from '@/auth/permissions'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Activity, Clock, Box, TrendingUp, AlertOctagon, ScanBarcode, CheckCircle2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -8,6 +9,7 @@ import { Link } from 'react-router-dom'
 export default function Dashboard() {
   const user = readSession()?.user || {}
   const isAdmin = user.rol === 'admin'
+  const canViewReclamaciones = canAccess(user, 'reclamaciones')
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['dashboard'],
@@ -25,7 +27,8 @@ export default function Dashboard() {
       const res = await axios.get('/api/reclamaciones')
       return res.data.data
     },
-    refetchInterval: 10000
+    enabled: canViewReclamaciones,
+    refetchInterval: canViewReclamaciones ? 10000 : false,
   })
 
   if (isLoading) return <div className="flex h-full items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div></div>
@@ -137,7 +140,11 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              {reclamaciones?.length > 0 ? (
+              {!canViewReclamaciones ? (
+                <div className="p-8 text-center">
+                  <p className="text-slate-500 text-sm font-bold">Reclamaciones no disponibles con tus permisos.</p>
+                </div>
+              ) : reclamaciones?.length > 0 ? (
                 <div className="divide-y divide-slate-800/60 max-h-[300px] overflow-y-auto">
                   {reclamaciones.map(r => (
                     <Link to="/reclamaciones" key={r.id} className="flex items-center justify-between p-4 hover:bg-slate-800/30 transition-colors block">
@@ -217,7 +224,11 @@ export default function Dashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                {reclamaciones?.length > 0 ? (
+                {!canViewReclamaciones ? (
+                  <div className="p-8 text-center">
+                    <p className="text-slate-500 text-sm font-bold">Reclamaciones no disponibles con tus permisos.</p>
+                  </div>
+                ) : reclamaciones?.length > 0 ? (
                   <div className="divide-y divide-slate-800/60 max-h-[300px] overflow-y-auto">
                     {reclamaciones.map(r => (
                       <Link to="/reclamaciones" key={r.id} className="flex items-center justify-between p-4 hover:bg-slate-800/30 transition-colors block">

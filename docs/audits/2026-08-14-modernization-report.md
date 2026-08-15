@@ -14,6 +14,7 @@ Se auditó y modernizó la aplicación Node.js + React en la rama `codex/moderni
 | P1 | Secreto JWT fallback, errores internos, login enumerable, fuerza bruta y CORS abierto | JWT obligatorio ≥32, errores públicos normalizados con request ID, login uniforme y limitado, allowlist CORS | Mitigado con pruebas |
 | P1 | Uploads sin límites/limpieza y operaciones compuestas no atómicas | Un archivo ≤10 MB, tipos permitidos, limpieza async y servicios transaccionales | Mitigado con pruebas |
 | P1 | Cliente confiaba en permisos locales y exportaba fuera del cliente autenticado | Sesión/cliente API únicos, invalidación 401 observable, rutas protegidas y exportación blob autenticada | Mitigado con pruebas |
+| P1 | Dashboard/Recepciones podían consultar módulos no autorizados y una descripción externa llegaba a `html` de SweetAlert | Consultas condicionadas por permiso, estados “no disponible” veraces y confirmaciones con texto inerte | Mitigado con pruebas |
 | P2 | Pool, paginación, búsquedas y logs podían crecer sin límites o filtrar secretos | Pool/colas/timeouts acotados, límites de página/offset/búsqueda, logger estructurado con redacción | Mitigado con pruebas |
 | P2 | UI monolítica, sin tema real, navegación móvil ni foco de diálogos consistente | Tokens semánticos, claro/oscuro, shell responsive, drawer con foco, diálogos Radix y estados comunes | Mitigado con pruebas |
 | P2 | Bundle inicial único de más de 1 MB | `React.lazy` por ruta y `Suspense` accesible | Mitigado; medición abajo |
@@ -29,6 +30,9 @@ No se encontraron P0 conocidos sin tratamiento en el código revisado. “Mitiga
 - El migrador crea y verifica un dump antes de actuar y compara conteo + SHA-256 determinista de siete columnas ordenadas de `cat_productos` antes/después.
 - La cantidad recibida de traspaso se mantiene en la columna histórica `traspaso_detalles.cantidad`; no exige una columna nueva a sucursales existentes.
 - Las operaciones de bodega, permisos, uploads y traspasos usan transacciones/rollback donde hay múltiples escrituras.
+- Dashboard no consulta reclamaciones sin permiso y Recepciones omite la validación cruzada de catálogo sin impedir la captura; ambas pantallas informan que la información no está disponible con esos permisos.
+- Los cambios confirmados de Recepciones se pueden vaciar y esperar mediante una barrera explícita; finalizar y exportar quedan deshabilitados durante el guardado y se bloquean con un mensaje accionable si alguna escritura falla.
+- Las descripciones provenientes de archivos/base de datos se entregan a SweetAlert como texto, sin interpolación en `html`.
 - Esta rama no ejecutó el migrador ni una conexión contra los datos locales.
 
 Riesgos operativos pendientes: el baseline completo para instalar una base vacía aún depende de artefactos históricos revisados; el migrador no tiene un advisory lock entre dos procesos simultáneos. Por ello se exige una sola persona/proceso, PM2 detenido y una copia restaurada antes de producción.
@@ -96,9 +100,9 @@ La verificación final debe registrarse inmediatamente antes del commit:
 | Comando | Resultado |
 | --- | --- |
 | `node --test` | PASS: 94/94, 0 fallos |
-| `npm.cmd --prefix frontend run test -- --run` | PASS: 7 archivos, 33/33 pruebas |
+| `npm.cmd --prefix frontend run test -- --run` | PASS: 8 archivos, 40/40 pruebas |
 | `npm.cmd --prefix frontend run lint` | PASS (exit 0): 11 warnings heredados, 0 errores |
-| `npm.cmd --prefix frontend run build` | PASS: 2,555 módulos, 1.88 s |
+| `npm.cmd --prefix frontend run build` | PASS: 2,555 módulos, 2.19 s |
 | `git diff --check` | PASS (exit 0); Git sólo avisa normalización LF→CRLF en Windows |
 
 Los 11 warnings de lint son: un aviso `only-export-components`, nueve símbolos/variables sin usar y una dependencia de hook heredada en `AdminTraspasos`. No se introdujeron errores de lint. Ninguna afirmación de despliegue sustituye esta verificación fresca ni la validación contra una copia restaurada por sucursal.

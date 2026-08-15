@@ -16,13 +16,15 @@ import {
 import EmptyState from '@/components/ui/EmptyState'
 import LoadingState from '@/components/ui/LoadingState'
 import { useReceptionEditor } from '@/features/recepciones/useReceptionEditor'
+import { canAccess } from '@/auth/permissions'
+import { readSession } from '@/auth/session'
 import { PackageOpen, CheckCircle2, FileSpreadsheet, XCircle, Loader2, Upload, Trash2, X } from 'lucide-react'
 import Swal from 'sweetalert2'
 
 // ─────────────────────────────────────────────────
 // SICAR Input with live catalog validation
 // ─────────────────────────────────────────────────
-function SicarInput({ item, editor, esFaltante }) {
+function SicarInput({ item, editor, esFaltante, canValidateCatalog }) {
   const value = editor.getDraftField(item.id, 'clave_final', item.clave_final || '')
   const [debouncedValue] = useDebounce(value, 600)
   const [description, setDescription] = useState('')
@@ -31,6 +33,11 @@ function SicarInput({ item, editor, esFaltante }) {
   useEffect(() => {
     if (!debouncedValue || debouncedValue === 'FALTANTE' || debouncedValue === 'DEVOLUCION') {
       setDescription(''); return
+    }
+    if (!canValidateCatalog) {
+      setIsValidating(false)
+      setDescription('Validación de catálogo no disponible con tus permisos')
+      return
     }
     let alive = true
     setIsValidating(true)
@@ -48,7 +55,7 @@ function SicarInput({ item, editor, esFaltante }) {
       .catch(() => { if (alive) setDescription('Error al validar') })
       .finally(() => { if (alive) setIsValidating(false) })
     return () => { alive = false }
-  }, [debouncedValue])
+  }, [canValidateCatalog, debouncedValue])
 
   return (
     <div className="flex flex-col">
@@ -111,6 +118,7 @@ export default function Recepciones() {
   const [selectedProvider, setSelectedProvider] = useState('custom')
   const [showUploadModal, setShowUploadModal] = useState(false)
   const editor = useReceptionEditor(selectedRemision)
+  const canValidateCatalog = canAccess(readSession()?.user, 'catalogo')
 
   // ── Queries ──
   const { data: remisiones, isLoading: isLoadingList } = useQuery({
@@ -204,7 +212,7 @@ export default function Recepciones() {
   const handleDelete = (id, desc) => {
     Swal.fire({
       title: '¿Eliminar ítem?',
-      html: `<strong>${desc}</strong><br/><span class="text-sm text-gray-500">Se borrará permanentemente de la BD.</span>`,
+      text: `${desc}\n\nSe borrará permanentemente de la BD.`,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
@@ -215,15 +223,34 @@ export default function Recepciones() {
     })
   }
 
-  const handleFinalize = (numero_remision) => {
-    Swal.fire({
+  const waitForSavedEdits = async (actionLabel) => {
+    try {
+      await editor.flushAndWait()
+      return true
+    } catch {
+      await Swal.fire({
+        title: 'Cambios sin guardar',
+        text: `No se puede ${actionLabel} porque uno o más cambios no se guardaron. Corrige el campo e inténtalo de nuevo.`,
+        icon: 'error',
+      })
+      return false
+    }
+  }
+
+  const handleFinalize = async (numero_remision) => {
+    const result = await Swal.fire({
       title: '¿Cerrar Inventario?', text: "Una vez finalizado no se podrá editar.",
       icon: 'warning', showCancelButton: true, confirmButtonColor: '#10b981',
       confirmButtonText: 'Sí, Finalizar', cancelButtonText: 'Cancelar'
-    }).then((result) => { if (result.isConfirmed) finalizeMutation.mutate(numero_remision) })
+    })
+    if (!result.isConfirmed) return
+    if (await waitForSavedEdits('finalizar la recepción')) {
+      finalizeMutation.mutate(numero_remision)
+    }
   }
 
   const handleValidarExcel = async (numero_remision) => {
+    if (!await waitForSavedEdits('generar el Excel')) return
     try {
       const response = await api.post(
         '/api/recepciones/generar_excel',
@@ -352,10 +379,15 @@ export default function Recepciones() {
 
                   {!esFinalizada && (
                     <>
-                      <Button size="sm" variant="outline" className="gap-1.5 font-bold bg-slate-900/50 border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 shadow-inner text-[11px] h-8 px-3" onClick={() => handleValidarExcel(remisionCode)}>
+                      {editor.hasPending && (
+                        <span role="status" className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
+                          <Loader2 className="h-3 w-3 animate-spin" /> Guardando cambios…
+                        </span>
+                      )}
+                      <Button disabled={editor.hasPending} size="sm" variant="outline" className="gap-1.5 font-bold bg-slate-900/50 border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 shadow-inner text-[11px] h-8 px-3" onClick={() => handleValidarExcel(remisionCode)}>
                         <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
                       </Button>
-                      <Button size="sm" className="bg-emerald-600 hover:bg-emerald-500 text-white font-black gap-1.5 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all text-[11px] h-8 px-3" onClick={() => handleFinalize(remisionCode)}>
+                      <Button disabled={editor.hasPending || finalizeMutation.isPending} size="sm" className="bg-emerald-600 hover:bg-emerald-500 text-white font-black gap-1.5 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all text-[11px] h-8 px-3" onClick={() => handleFinalize(remisionCode)}>
                         <CheckCircle2 className="w-3.5 h-3.5" /> Finalizar
                       </Button>
                     </>
@@ -408,7 +440,7 @@ export default function Recepciones() {
                      {/* COL 2: Description + SICAR */}
                      <div className="min-w-0">
                        <div className="font-black text-slate-200 text-[13px] leading-snug mb-2 tracking-tight truncate" title={item.desc}>{item.desc}</div>
-                       <SicarInput item={item} editor={editor} esFaltante={esFaltante} />
+                       <SicarInput item={item} editor={editor} esFaltante={esFaltante} canValidateCatalog={canValidateCatalog} />
                      </div>
                      
                      {/* COL 3: Físico */}
