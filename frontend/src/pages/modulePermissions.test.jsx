@@ -232,4 +232,63 @@ describe('Recepciones pending saves', () => {
     })))
     expect(requestedUrls).not.toContain('/api/recepciones/generar_excel')
   })
+
+  it('keeps finalization disabled until a provider change settles', async () => {
+    const requestedUrls = []
+    const providerRequest = deferred()
+    saveSession({ token: 'signed-token', user: employee(['recepciones']) })
+    const adapter = receptionAdapter(requestedUrls)
+    renderPage(<Recepciones />, async (config) => {
+      if (config.url === '/api/recepciones/asignar_proveedor') {
+        requestedUrls.push(config.url)
+        return providerRequest.promise
+      }
+      return adapter(config)
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: /REM-3/i }))
+    fireEvent.change(await screen.findByLabelText('PROV'), { target: { value: 'tony' } })
+
+    const finalizeButton = screen.getByRole('button', { name: /finalizar/i })
+    await waitFor(() => expect(requestedUrls).toContain('/api/recepciones/asignar_proveedor'))
+    expect(finalizeButton).toBeDisabled()
+
+    await act(async () => {
+      providerRequest.resolve(responseFor({}, { success: true }))
+      await providerRequest.promise
+    })
+
+    await waitFor(() => expect(finalizeButton).toBeEnabled())
+  })
+
+  it('keeps finalization disabled until a confirmed item deletion settles', async () => {
+    const requestedUrls = []
+    const deleteRequest = deferred()
+    vi.spyOn(Swal, 'fire').mockImplementation((options) => Promise.resolve({
+      isConfirmed: options?.title === '¿Eliminar ítem?',
+    }))
+    saveSession({ token: 'signed-token', user: employee(['recepciones']) })
+    const adapter = receptionAdapter(requestedUrls)
+    renderPage(<Recepciones />, async (config) => {
+      if (config.url === '/api/recepciones/item/9' && config.method === 'delete') {
+        requestedUrls.push(config.url)
+        return deleteRequest.promise
+      }
+      return adapter(config)
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: /REM-3/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Eliminar /i }))
+
+    const finalizeButton = screen.getByRole('button', { name: /finalizar/i })
+    await waitFor(() => expect(requestedUrls).toContain('/api/recepciones/item/9'))
+    expect(finalizeButton).toBeDisabled()
+
+    await act(async () => {
+      deleteRequest.resolve(responseFor({}, { success: true }))
+      await deleteRequest.promise
+    })
+
+    await waitFor(() => expect(finalizeButton).toBeEnabled())
+  })
 })

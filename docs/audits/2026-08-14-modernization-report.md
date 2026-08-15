@@ -31,7 +31,7 @@ No se encontraron P0 conocidos sin tratamiento en el código revisado. “Mitiga
 - La cantidad recibida de traspaso se mantiene en la columna histórica `traspaso_detalles.cantidad`; no exige una columna nueva a sucursales existentes.
 - Las operaciones de bodega, permisos, uploads y traspasos usan transacciones/rollback donde hay múltiples escrituras.
 - Dashboard no consulta reclamaciones sin permiso y Recepciones omite la validación cruzada de catálogo sin impedir la captura; ambas pantallas informan que la información no está disponible con esos permisos.
-- Los cambios confirmados de Recepciones se pueden vaciar y esperar mediante una barrera explícita; finalizar y exportar quedan deshabilitados durante el guardado y se bloquean con un mensaje accionable si alguna escritura falla.
+- Los cambios de campos, proveedor y eliminación de ítems en Recepciones comparten una barrera explícita y serializada; finalizar y exportar quedan deshabilitados mientras haya mutaciones y se bloquean con un mensaje accionable si alguna falla.
 - Las descripciones provenientes de archivos/base de datos se entregan a SweetAlert como texto, sin interpolación en `html`.
 - Esta rama no ejecutó el migrador ni una conexión contra los datos locales.
 
@@ -100,9 +100,9 @@ La verificación final debe registrarse inmediatamente antes del commit:
 | Comando | Resultado |
 | --- | --- |
 | `node --test` | PASS: 94/94, 0 fallos |
-| `npm.cmd --prefix frontend run test -- --run` | PASS: 8 archivos, 41/41 pruebas |
+| `npm.cmd --prefix frontend run test -- --run` | PASS: 8 archivos, 45/45 pruebas |
 | `npm.cmd --prefix frontend run lint` | PASS (exit 0): 11 warnings heredados, 0 errores |
-| `npm.cmd --prefix frontend run build` | PASS: 2,555 módulos, 2.38 s |
+| `npm.cmd --prefix frontend run build` | PASS: 2,555 módulos, 3.83 s |
 | `git diff --check` | PASS (exit 0); Git sólo avisa normalización LF→CRLF en Windows |
 
 Los 11 warnings de lint son: un aviso `only-export-components`, nueve símbolos/variables sin usar y una dependencia de hook heredada en `AdminTraspasos`. No se introdujeron errores de lint. Ninguna afirmación de despliegue sustituye esta verificación fresca ni la validación contra una copia restaurada por sucursal.

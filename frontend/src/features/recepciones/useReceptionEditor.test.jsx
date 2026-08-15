@@ -204,4 +204,65 @@ describe('useReceptionEditor', () => {
       await expect(result.current.flushAndWait()).resolves.toBeUndefined()
     })
   })
+
+  it('includes a non-field reception mutation in the flush barrier and clears its error after retry', async () => {
+    const operationError = new Error('No se pudo asignar proveedor')
+    const { result } = renderHook(() => useReceptionEditor(19), { wrapper: createWrapper() })
+
+    expect(result.current.runTrackedOperation).toEqual(expect.any(Function))
+
+    let failedOperation
+    let failedFlush
+    let failedOperationAssertion
+    let failedFlushAssertion
+    await act(async () => {
+      failedOperation = result.current.runTrackedOperation(
+        'provider',
+        () => Promise.reject(operationError),
+      )
+      failedOperationAssertion = expect(failedOperation).rejects.toBe(operationError)
+      failedFlush = result.current.flushAndWait()
+      failedFlushAssertion = expect(failedFlush).rejects.toBe(operationError)
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await failedOperationAssertion
+      await failedFlushAssertion
+    })
+    expect(result.current.hasPending).toBe(false)
+
+    await act(async () => {
+      await result.current.runTrackedOperation('provider', () => Promise.resolve({ ok: true }))
+      await expect(result.current.flushAndWait()).resolves.toBeUndefined()
+    })
+  })
+
+  it('serializes tracked operations that mutate the same reception resource', async () => {
+    const firstRequest = deferred()
+    const secondOperation = vi.fn(() => Promise.resolve({ ok: true }))
+    const { result } = renderHook(() => useReceptionEditor(19), { wrapper: createWrapper() })
+
+    expect(result.current.runTrackedOperation).toEqual(expect.any(Function))
+
+    let firstOperation
+    let secondOperationPromise
+    await act(async () => {
+      firstOperation = result.current.runTrackedOperation('provider', () => firstRequest.promise)
+      secondOperationPromise = result.current.runTrackedOperation('provider', secondOperation)
+      await Promise.resolve()
+    })
+
+    expect(secondOperation).not.toHaveBeenCalled()
+    expect(result.current.hasPending).toBe(true)
+
+    await act(async () => {
+      firstRequest.resolve({ ok: true })
+      await firstOperation
+      await secondOperationPromise
+    })
+
+    expect(secondOperation).toHaveBeenCalledTimes(1)
+    expect(result.current.hasPending).toBe(false)
+  })
 })

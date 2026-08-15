@@ -209,8 +209,8 @@ export default function Recepciones() {
     editor.saveField(itemId, field, event.currentTarget.value)
   }
 
-  const handleDelete = (id, desc) => {
-    Swal.fire({
+  const handleDelete = async (id, desc) => {
+    const result = await Swal.fire({
       title: '¿Eliminar ítem?',
       text: `${desc}\n\nSe borrará permanentemente de la BD.`,
       icon: 'warning',
@@ -218,9 +218,12 @@ export default function Recepciones() {
       confirmButtonColor: '#ef4444',
       confirmButtonText: 'Sí, Eliminar',
       cancelButtonText: 'Cancelar'
-    }).then((result) => {
-      if (result.isConfirmed) deleteItemMutation.mutate(id)
     })
+    if (!result.isConfirmed) return
+    editor.runTrackedOperation(
+      `delete:${id}`,
+      () => deleteItemMutation.mutateAsync(id),
+    ).catch(() => undefined)
   }
 
   const waitForSavedEdits = async (actionLabel) => {
@@ -230,7 +233,7 @@ export default function Recepciones() {
     } catch {
       await Swal.fire({
         title: 'Cambios sin guardar',
-        text: `No se puede ${actionLabel} porque uno o más cambios no se guardaron. Corrige el campo e inténtalo de nuevo.`,
+        text: `No se puede ${actionLabel} porque una operación de la recepción no se completó. Reinténtala y vuelve a continuar.`,
         icon: 'error',
       })
       return false
@@ -273,10 +276,18 @@ export default function Recepciones() {
   }
 
   const handleProviderChange = (val) => {
+    const previousProvider = selectedProvider
     setSelectedProvider(val)
     if (selectedRemision) {
-      api.post('/api/recepciones/asignar_proveedor', { id_remision: selectedRemision, proveedor: val })
+      editor.runTrackedOperation(
+        'provider',
+        () => api.post('/api/recepciones/asignar_proveedor', { id_remision: selectedRemision, proveedor: val }),
+      )
         .then(() => queryClient.invalidateQueries(['recepciones_detail', selectedRemision]))
+        .catch((err) => {
+          setSelectedProvider(previousProvider)
+          Swal.fire('Error', err.response?.data?.error || 'No se pudo cambiar el proveedor', 'error')
+        })
     }
   }
 
@@ -366,7 +377,7 @@ export default function Recepciones() {
                   {/* Provider Selector */}
                   <div className="flex items-center bg-slate-900 rounded-lg border border-slate-800/60 px-2 py-1 shadow-sm">
                     <label htmlFor="reception-provider" className="text-[8px] font-extrabold uppercase tracking-widest text-slate-500 mr-1.5">PROV</label>
-                    <select id="reception-provider" value={selectedProvider} onChange={(e) => handleProviderChange(e.target.value)} className="bg-transparent font-bold text-slate-300 text-[11px] focus:outline-none cursor-pointer">
+                    <select id="reception-provider" value={selectedProvider} disabled={editor.hasPending} onChange={(e) => handleProviderChange(e.target.value)} className="bg-transparent font-bold text-slate-300 text-[11px] focus:outline-none cursor-pointer disabled:cursor-wait disabled:opacity-60">
                       {PROVEEDORES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
                     </select>
                   </div>
@@ -415,7 +426,7 @@ export default function Recepciones() {
                    
                    {/* Delete button (top-right corner) */}
                    {!esFinalizada && (
-                     <button type="button" aria-label={`Eliminar ${item.desc}`} onClick={() => handleDelete(item.id, item.desc)} className="absolute top-2 right-2 z-10 w-6 h-6 rounded-md bg-slate-800/80 text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-slate-700/50 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all" title="Eliminar ítem">
+                     <button type="button" aria-label={`Eliminar ${item.desc}`} disabled={editor.hasPending} onClick={() => handleDelete(item.id, item.desc)} className="absolute top-2 right-2 z-10 w-6 h-6 rounded-md bg-slate-800/80 text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-slate-700/50 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 disabled:cursor-wait disabled:opacity-40 transition-all" title="Eliminar ítem">
                        <Trash2 className="w-3 h-3" />
                      </button>
                    )}

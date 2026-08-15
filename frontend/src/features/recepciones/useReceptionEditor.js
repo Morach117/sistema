@@ -56,18 +56,11 @@ export function useReceptionEditor(remisionId) {
     )
   }, [])
 
-  const startPendingSave = useCallback((key) => {
-    const variables = pendingSavesRef.current.get(key)
-    if (!variables) return requestChainsRef.current.get(key)
-
-    clearTimeout(timersRef.current.get(key))
-    timersRef.current.delete(key)
-    pendingSavesRef.current.delete(key)
-
+  const trackRequest = useCallback((key, operation, operationRemisionId) => {
     const previousRequest = requestChainsRef.current.get(key) || Promise.resolve()
     const nextRequest = previousRequest
       .catch(() => undefined)
-      .then(() => mutationRef.current.mutateAsync(variables))
+      .then(operation)
 
     requestChainsRef.current.set(key, nextRequest)
     refreshPendingState()
@@ -76,7 +69,7 @@ export function useReceptionEditor(remisionId) {
       () => saveErrorsRef.current.delete(key),
       (error) => saveErrorsRef.current.set(key, {
         error,
-        remisionId: variables.remisionId,
+        remisionId: operationRemisionId,
       }),
     )
 
@@ -89,6 +82,20 @@ export function useReceptionEditor(remisionId) {
     nextRequest.then(clearSettledRequest, clearSettledRequest)
     return nextRequest
   }, [refreshPendingState])
+
+  const startPendingSave = useCallback((key) => {
+    const variables = pendingSavesRef.current.get(key)
+    if (!variables) return requestChainsRef.current.get(key)
+
+    clearTimeout(timersRef.current.get(key))
+    timersRef.current.delete(key)
+    pendingSavesRef.current.delete(key)
+    return trackRequest(
+      key,
+      () => mutationRef.current.mutateAsync(variables),
+      variables.remisionId,
+    )
+  }, [trackRequest])
 
   const saveField = useCallback((itemId, field, explicitValue) => {
     const key = fieldKey(itemId, field)
@@ -105,6 +112,12 @@ export function useReceptionEditor(remisionId) {
     setHasPending(true)
     timersRef.current.set(key, setTimeout(() => startPendingSave(key), SAVE_DELAY_MS))
   }, [draftFields, remisionId, startPendingSave])
+
+  const runTrackedOperation = useCallback((operationKey, operation) => trackRequest(
+    `operation:${operationKey}`,
+    operation,
+    remisionId,
+  ), [remisionId, trackRequest])
 
   const flushAndWait = useCallback(async () => {
     while (pendingSavesRef.current.size > 0 || requestChainsRef.current.size > 0) {
@@ -125,6 +138,7 @@ export function useReceptionEditor(remisionId) {
     hasPending,
     isSaving: hasPending,
     mutation,
+    runTrackedOperation,
     saveField,
     setDraftField,
   }
