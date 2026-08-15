@@ -288,7 +288,7 @@ router.post('/actualizar_campo', authorize({ module: 'recepciones', action: 'wri
     if (campo === 'cantidad_real') dbField = 'cantidad';
 
     try {
-        await updateReceptionItem({ pool, itemId: id_item, field: dbField, value: valor });
+        await updateReceptionItem({ pool, itemId: id_item, field: dbField, value: valor, actorId: req.user?.id });
         res.json({ success: true });
     } catch (error) {
         if (error instanceof ReceptionStateError) {
@@ -306,7 +306,7 @@ router.post('/asignar_proveedor', authorize({ module: 'recepciones', action: 'wr
     if (!id_remision || !proveedor) return res.status(400).json({ success: false, error: 'Faltan parámetros' });
 
     try {
-        await assignReceptionProvider({ pool, remisionId: id_remision, proveedor });
+        await assignReceptionProvider({ pool, remisionId: id_remision, proveedor, actorId: req.user?.id });
         res.json({ success: true });
     } catch (error) {
         if (error instanceof ReceptionStateError) {

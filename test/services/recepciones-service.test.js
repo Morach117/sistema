@@ -189,6 +189,83 @@ test('updates a pending receipt item under the same row lock transaction', async
   assert.deepEqual(events.slice(-2), ['commit', 'release']);
 });
 
+for (const scenario of [
+  { field: 'clave_final', previousValue: '', nextValue: 'ABC123' },
+  { field: 'cantidad', previousValue: 12, nextValue: 14 },
+  { field: 'es_paquete', previousValue: 0, nextValue: 1 },
+  { field: 'piezas_por_paquete', previousValue: 1, nextValue: 6 },
+  { field: 'aplica_descuento_manual', previousValue: 0, nextValue: 1 },
+  { field: 'revision_pendiente', previousValue: 0, nextValue: 2 }
+]) {
+  test(`audits ${scenario.field} item mutations with old and new values in the same transaction`, async () => {
+    const events = [];
+    const results = [
+      [[{ id: 8, remision_id: 21, estado: 'PENDIENTE', current_value: scenario.previousValue }], []],
+      [{ affectedRows: 1 }, []],
+      [{ insertId: 90 }, []]
+    ];
+    const connection = {
+      async beginTransaction() { events.push('begin'); },
+      async execute(sql, params) {
+        const normalized = sql.replace(/\s+/g, ' ').trim();
+        events.push(['execute', normalized, params]);
+        return results.shift();
+      },
+      async commit() { events.push('commit'); },
+      async rollback() { events.push('rollback'); },
+      release() { events.push('release'); }
+    };
+
+    await updateReceptionItem({
+      pool: { async getConnection() { return connection; } },
+      itemId: 8,
+      field: scenario.field,
+      value: scenario.nextValue,
+      actorId: 17
+    });
+
+    const auditStatement = events.find((event) => Array.isArray(event) && /INSERT INTO recepcion_bitacora/i.test(event[1]));
+    assert.ok(auditStatement, `missing audit statement in ${JSON.stringify(events)}`);
+    assert.deepEqual(
+      auditStatement[2],
+      [21, 8, 17, scenario.field, String(scenario.previousValue), String(scenario.nextValue)]
+    );
+    assert.deepEqual(events.slice(-2), ['commit', 'release']);
+  });
+}
+
+test('audits provider assignment with the previous and next provider inside the locked transaction', async () => {
+  const events = [];
+  const results = [
+    [[{ id: 18, estado: 'PENDIENTE', proveedor: 'TONY' }], []],
+    [{ affectedRows: 1 }, []],
+    [{ insertId: 51 }, []]
+  ];
+  const connection = {
+    async beginTransaction() { events.push('begin'); },
+    async execute(sql, params) {
+      const normalized = sql.replace(/\s+/g, ' ').trim();
+      events.push(['execute', normalized, params]);
+      return results.shift();
+    },
+    async commit() { events.push('commit'); },
+    async rollback() { events.push('rollback'); },
+    release() { events.push('release'); }
+  };
+
+  await assignReceptionProvider({
+    pool: { async getConnection() { return connection; } },
+    remisionId: 18,
+    proveedor: 'PAOLA',
+    actorId: 44
+  });
+
+  const auditStatement = events.find((event) => Array.isArray(event) && /INSERT INTO recepcion_bitacora/i.test(event[1]));
+  assert.ok(auditStatement, `missing audit statement in ${JSON.stringify(events)}`);
+  assert.deepEqual(auditStatement[2], [18, null, 44, 'proveedor', 'TONY', 'PAOLA']);
+  assert.deepEqual(events.slice(-2), ['commit', 'release']);
+});
+
 test('finalizeReception blocks missing SICAR, physical count, cost, rejected items, and invalid boxes', async () => {
   const events = [];
   const connection = {

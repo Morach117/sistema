@@ -249,7 +249,34 @@ const UPDATABLE_ITEM_FIELDS = new Set([
   'cantidad', 'revision_pendiente'
 ]);
 
-async function updateReceptionItem({ pool, itemId, field, value }) {
+function auditValue(value) {
+  if (value === null || value === undefined) return null;
+  return String(value);
+}
+
+async function insertReceptionAuditEntry(connection, {
+  remisionId,
+  itemId = null,
+  actorId,
+  field,
+  previousValue,
+  nextValue
+}) {
+  await connection.execute(
+    `INSERT INTO recepcion_bitacora (remision_id, item_id, usuario_id, campo, valor_anterior, valor_nuevo)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      remisionId,
+      itemId,
+      Number.isInteger(actorId) && actorId > 0 ? actorId : 0,
+      String(field || '').trim(),
+      auditValue(previousValue),
+      auditValue(nextValue)
+    ]
+  );
+}
+
+async function updateReceptionItem({ pool, itemId, field, value, actorId }) {
   const normalizedItemId = Number(itemId);
   if (!Number.isInteger(normalizedItemId) || normalizedItemId <= 0) {
     throw new ReceptionStateError('El item no es valido.', 422);
@@ -265,7 +292,7 @@ async function updateReceptionItem({ pool, itemId, field, value }) {
     await connection.beginTransaction();
     transactionStarted = true;
     const [rows] = await connection.execute(
-      `SELECT hi.id, hr.estado
+      `SELECT hi.id, hi.remision_id, hr.estado, hi.\`${field}\` AS current_value
          FROM historial_items hi
          JOIN historial_remisiones hr ON hr.id = hi.remision_id
         WHERE hi.id = ?
@@ -285,6 +312,14 @@ async function updateReceptionItem({ pool, itemId, field, value }) {
     if (result.affectedRows !== 1) {
       throw new ReceptionStateError('El item cambio durante la actualizacion.', 409);
     }
+    await insertReceptionAuditEntry(connection, {
+      remisionId: rows[0].remision_id,
+      itemId: normalizedItemId,
+      actorId,
+      field,
+      previousValue: rows[0].current_value,
+      nextValue: value
+    });
     await connection.commit();
   } catch (error) {
     if (transactionStarted) await connection.rollback().catch(() => {});
@@ -318,19 +353,29 @@ async function runLockedReceptionMutation({ pool, lockStatement, lockParameters,
   }
 }
 
-async function assignReceptionProvider({ pool, remisionId, proveedor }) {
+async function assignReceptionProvider({ pool, remisionId, proveedor, actorId }) {
   const id = Number(remisionId);
   if (!Number.isInteger(id) || id <= 0 || typeof proveedor !== 'string' || !proveedor.trim()) {
     throw new ReceptionStateError('Los datos del proveedor no son validos.', 422);
   }
+  const trimmedProvider = proveedor.trim();
   await runLockedReceptionMutation({
     pool,
-    lockStatement: 'SELECT id, estado FROM historial_remisiones WHERE id = ? FOR UPDATE',
+    lockStatement: 'SELECT id, estado, proveedor FROM historial_remisiones WHERE id = ? FOR UPDATE',
     lockParameters: [id],
-    mutate: (connection) => connection.execute(
-      'UPDATE historial_remisiones SET proveedor = ? WHERE id = ?',
-      [proveedor.trim(), id]
-    )
+    mutate: async (connection, row) => {
+      await connection.execute(
+        'UPDATE historial_remisiones SET proveedor = ? WHERE id = ?',
+        [trimmedProvider, id]
+      );
+      await insertReceptionAuditEntry(connection, {
+        remisionId: id,
+        actorId,
+        field: 'proveedor',
+        previousValue: row.proveedor,
+        nextValue: trimmedProvider
+      });
+    }
   });
 }
 
@@ -477,14 +522,6 @@ async function learnReceptionRelationships(connection, items) {
   }
 }
 
-async function insertReceptionAudit(connection, { remisionId, actorId, previousValue, nextValue }) {
-  await connection.execute(
-    `INSERT INTO recepcion_bitacora (remision_id, item_id, usuario_id, campo, valor_anterior, valor_nuevo)
-     VALUES (?, NULL, ?, 'estado', ?, ?)`,
-    [remisionId, Number.isInteger(actorId) && actorId > 0 ? actorId : 0, previousValue, nextValue]
-  );
-}
-
 async function finalizeReception({ pool, numeroRemision, actorId }) {
   if (typeof numeroRemision !== 'string' || !numeroRemision.trim()) {
     throw new ReceptionStateError('La remision no es valida.', 422);
@@ -531,9 +568,11 @@ async function finalizeReception({ pool, numeroRemision, actorId }) {
     }
 
     await learnReceptionRelationships(connection, items);
-    await insertReceptionAudit(connection, {
+    await insertReceptionAuditEntry(connection, {
       remisionId: rows[0].id,
+      itemId: null,
       actorId,
+      field: 'estado',
       previousValue: rows[0].estado,
       nextValue: 'FINALIZADO'
     });
@@ -561,6 +600,7 @@ module.exports = {
   cleanupUploadedFiles,
   deleteReceptionItem,
   finalizeReception,
+  insertReceptionAuditEntry,
   parseUpload,
   parseUploads,
   ReceptionStateError,
