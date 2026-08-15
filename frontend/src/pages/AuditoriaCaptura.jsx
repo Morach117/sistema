@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from '@/lib/api'
 import { Card } from '@/components/ui/card'
@@ -24,6 +24,8 @@ const getLocalToday = () => {
 
 export default function AuditoriaCaptura() {
   const queryClient = useQueryClient()
+  const historyDialogTriggerRef = useRef(null)
+  const logsDialogTriggerRef = useRef(null)
   const [fecha, setFecha] = useState(getLocalToday())
   const [swIncluirFisico, setSwIncluirFisico] = useState(false)
   const [filtroEstatus, setFiltroEstatus] = useState('todos') // 'todos', 'pendientes', 'exportados'
@@ -251,7 +253,8 @@ export default function AuditoriaCaptura() {
         </div>
         
         <div className="flex flex-wrap items-center gap-4 bg-slate-900/50 p-2 rounded-xl border border-slate-800/60 shadow-inner">
-          <Button 
+          <Button
+            ref={logsDialogTriggerRef}
             onClick={() => setModalLogsSistema(true)}
             variant="outline"
             className="border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold gap-2 text-xs h-9 px-3"
@@ -259,7 +262,8 @@ export default function AuditoriaCaptura() {
             <i className="bi bi-journal-text text-indigo-400"></i> Ver Logs del Sistema
           </Button>
 
-          <Button 
+          <Button
+            ref={historyDialogTriggerRef}
             onClick={() => setModalHistorial(true)}
             variant="outline"
             className="border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 font-bold gap-2 text-xs h-9 px-3"
@@ -455,7 +459,14 @@ export default function AuditoriaCaptura() {
 
       {/* Modal Historial de Descargas */}
       <Dialog open={modalHistorial} onOpenChange={setModalHistorial}>
-        <DialogContent className="glass-panel max-h-[85dvh] max-w-4xl overflow-hidden border-purple-500/30 bg-slate-950 p-0" showCloseButton={false}>
+        <DialogContent
+          className="glass-panel max-h-[85dvh] max-w-4xl overflow-hidden border-purple-500/30 bg-slate-950 p-0"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            historyDialogTriggerRef.current?.focus()
+          }}
+          showCloseButton={false}
+        >
             <div className="p-5 border-b border-slate-800 bg-slate-900/80 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-3">
                 <div className="bg-purple-500/20 p-2 rounded-xl text-purple-400">
@@ -543,7 +554,14 @@ export default function AuditoriaCaptura() {
 
       {/* Modal Logs del Sistema */}
       <Dialog open={modalLogsSistema} onOpenChange={setModalLogsSistema}>
-        <DialogContent className="glass-panel max-h-[85dvh] max-w-5xl overflow-hidden border-indigo-500/30 bg-slate-950 p-0" showCloseButton={false}>
+        <DialogContent
+          className="glass-panel max-h-[85dvh] max-w-5xl overflow-hidden border-indigo-500/30 bg-slate-950 p-0"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            logsDialogTriggerRef.current?.focus()
+          }}
+          showCloseButton={false}
+        >
             <div className="p-5 border-b border-slate-800 bg-slate-900/80 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-3">
                 <div className="bg-indigo-500/20 p-2 rounded-xl text-indigo-400">

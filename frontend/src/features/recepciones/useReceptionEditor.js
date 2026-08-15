@@ -10,17 +10,18 @@ export function useReceptionEditor(remisionId) {
   const queryClient = useQueryClient()
   const [draftFields, setDraftFields] = useState({})
   const timersRef = useRef(new Map())
-  const controllersRef = useRef(new Map())
+  const requestChainsRef = useRef(new Map())
+  const mutationRef = useRef(null)
 
   const mutation = useMutation({
-    mutationFn: ({ id_item, campo, valor, signal }) => api.post(
+    mutationFn: ({ id_item, campo, valor }) => api.post(
       '/api/recepciones/actualizar_campo',
       { id_item, campo, valor },
-      { signal },
     ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['recepciones_detail', remisionId] }),
+    onSuccess: (_data, variables) => queryClient.invalidateQueries({
+      queryKey: ['recepciones_detail', variables.remisionId],
+    }),
     onError: (error) => {
-      if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED') return
       Swal.fire({
         toast: true,
         position: 'top-end',
@@ -30,26 +31,12 @@ export function useReceptionEditor(remisionId) {
         timer: 1500,
       })
     },
-    onSettled: (_data, _error, variables) => {
-      const key = fieldKey(variables.id_item, variables.campo)
-      if (controllersRef.current.get(key)?.signal === variables.signal) {
-        controllersRef.current.delete(key)
-      }
-    },
   })
-
-  const cancelPendingSaves = useCallback(() => {
-    for (const timeoutId of timersRef.current.values()) clearTimeout(timeoutId)
-    for (const controller of controllersRef.current.values()) controller.abort()
-    timersRef.current.clear()
-    controllersRef.current.clear()
-  }, [])
+  mutationRef.current = mutation
 
   useEffect(() => {
     setDraftFields({})
-    cancelPendingSaves()
-    return cancelPendingSaves
-  }, [cancelPendingSaves, remisionId])
+  }, [remisionId])
 
   const setDraftField = useCallback((itemId, field, value) => {
     setDraftFields((current) => ({ ...current, [fieldKey(itemId, field)]: value }))
@@ -66,18 +53,29 @@ export function useReceptionEditor(remisionId) {
     if (value === undefined) return
 
     clearTimeout(timersRef.current.get(key))
-    controllersRef.current.get(key)?.abort()
-
-    const controller = new AbortController()
-    controllersRef.current.set(key, controller)
     timersRef.current.set(key, setTimeout(() => {
       timersRef.current.delete(key)
-      mutation.mutate({ id_item: itemId, campo: field, valor: value, signal: controller.signal })
+      const previousRequest = requestChainsRef.current.get(key) || Promise.resolve()
+      const nextRequest = previousRequest
+        .catch(() => undefined)
+        .then(() => mutationRef.current.mutateAsync({
+          id_item: itemId,
+          campo: field,
+          valor: value,
+          remisionId,
+        }))
+
+      requestChainsRef.current.set(key, nextRequest)
+      const clearSettledRequest = () => {
+        if (requestChainsRef.current.get(key) === nextRequest) {
+          requestChainsRef.current.delete(key)
+        }
+      }
+      nextRequest.then(clearSettledRequest, clearSettledRequest)
     }, SAVE_DELAY_MS))
-  }, [draftFields, mutation])
+  }, [draftFields, remisionId])
 
   return {
-    cancelPendingSaves,
     draftFields,
     getDraftField,
     isSaving: mutation.isPending,

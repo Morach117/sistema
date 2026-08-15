@@ -11,6 +11,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from '@/components/ui/dialog'
 import EmptyState from '@/components/ui/EmptyState'
 import LoadingState from '@/components/ui/LoadingState'
@@ -269,7 +270,8 @@ export default function Recepciones() {
   const esFinalizada = remisionDetails?.estado === 'FINALIZADO'
 
   return (
-    <div className="flex min-h-full flex-col gap-4 animate-in fade-in duration-500 pb-10 lg:h-full lg:flex-row">
+    <Dialog open={showUploadModal} onOpenChange={setShowUploadModal}>
+      <div className="flex min-h-full flex-col gap-4 animate-in fade-in duration-500 pb-10 lg:h-full lg:flex-row">
       
       {/* ═══ Sidebar ═══ */}
       <div className="flex w-full flex-shrink-0 flex-col gap-4 lg:w-72 2xl:w-80">
@@ -278,9 +280,11 @@ export default function Recepciones() {
             <h2 className="font-black text-xl tracking-tight text-slate-100">Tareas</h2>
             <span className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest">Recepción Activa</span>
           </div>
-          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black gap-1.5 h-8 px-3 shadow-lg shadow-indigo-500/20" onClick={() => setShowUploadModal(true)}>
-            <Upload className="w-3.5 h-3.5" /> Subir XML
-          </Button>
+          <DialogTrigger asChild>
+            <Button size="sm" className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black gap-1.5 h-8 px-3 shadow-lg shadow-indigo-500/20">
+              <Upload className="w-3.5 h-3.5" /> Subir XML
+            </Button>
+          </DialogTrigger>
         </div>
         
         <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 custom-scrollbar">
@@ -508,8 +512,9 @@ export default function Recepciones() {
         ) : null}
       </div>
 
+      </div>
+
       {/* ═══ Upload Modal ═══ */}
-      <Dialog open={showUploadModal} onOpenChange={setShowUploadModal}>
         <DialogContent className="max-w-md bg-slate-900 p-6" showCloseButton={false}>
           <DialogHeader className="mb-6">
             <DialogTitle className="text-xl text-slate-100">Cargar XML / CSV</DialogTitle>
@@ -531,7 +536,6 @@ export default function Recepciones() {
               </DialogFooter>
             </form>
         </DialogContent>
-      </Dialog>
-    </div>
+    </Dialog>
   )
 }

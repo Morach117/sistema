@@ -30,6 +30,7 @@ export default function Bodega() {
   const [salidaItems, setSalidaItems] = useState([])
   const [scanSalidaInput, setScanSalidaInput] = useState('')
   const salidaInputRef = useRef(null)
+  const dialogReturnFocusRef = useRef(null)
   
   // Bajar Modal States
   const [showBajarModal, setShowBajarModal] = useState(false)
@@ -68,6 +69,7 @@ export default function Bodega() {
   const handleScan = async (e) => {
     e.preventDefault()
     if (!scanInput.trim()) return
+    dialogReturnFocusRef.current = inputRef.current
 
     const clave = scanInput.trim()
     setScanInput('') 
@@ -101,6 +103,7 @@ export default function Bodega() {
   const handleSalidaScan = async (e) => {
     e.preventDefault()
     if (!scanSalidaInput.trim()) return
+    dialogReturnFocusRef.current = salidaInputRef.current
 
     const clave = scanSalidaInput.trim()
     setScanSalidaInput('') 
@@ -249,8 +252,9 @@ export default function Bodega() {
     }
   }
 
-  const handleOpenBajarModal = () => {
+  const handleOpenBajarModal = (event) => {
     if (selectedItems.size === 0) return
+    dialogReturnFocusRef.current = event.currentTarget
     const items = Array.from(selectedItems.values()).map(item => ({
         ...item,
         cantidad_bajar: 1, // Default 1
@@ -682,7 +686,10 @@ export default function Bodega() {
                         variant="ghost" size="icon" 
                         title="Ver Historial"
                         className="text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 rounded-xl w-8 h-8"
-                        onClick={() => setHistorialProducto(item)}
+                        onClick={(event) => {
+                          dialogReturnFocusRef.current = event.currentTarget
+                          setHistorialProducto(item)
+                        }}
                       >
                         <Clock className="w-4 h-4" />
                       </Button>
@@ -714,7 +721,14 @@ export default function Bodega() {
 
       {/* MODAL HISTORIAL */}
       <Dialog open={Boolean(historialProducto)} onOpenChange={(open) => { if (!open) setHistorialProducto(null) }}>
-        <DialogContent className="max-h-[80dvh] max-w-3xl overflow-hidden border-slate-800 bg-slate-950 p-0" showCloseButton={false}>
+        <DialogContent
+          className="max-h-[80dvh] max-w-3xl overflow-hidden border-slate-800 bg-slate-950 p-0"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            dialogReturnFocusRef.current?.focus()
+          }}
+          showCloseButton={false}
+        >
             <div className="p-6 border-b border-slate-800/60 bg-slate-900/50 flex justify-between items-start">
               <DialogHeader>
                 <DialogTitle className="font-black text-xl text-slate-100 flex items-center gap-3">
@@ -764,7 +778,14 @@ export default function Bodega() {
 
       {/* MODAL BAJAR INVENTARIO */}
       <Dialog open={showBajarModal} onOpenChange={setShowBajarModal}>
-        <DialogContent className="max-h-[80dvh] max-w-4xl overflow-hidden border-slate-800 bg-slate-950 p-0" showCloseButton={false}>
+        <DialogContent
+          className="max-h-[80dvh] max-w-4xl overflow-hidden border-slate-800 bg-slate-950 p-0"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            dialogReturnFocusRef.current?.focus()
+          }}
+          showCloseButton={false}
+        >
             <div className="p-6 border-b border-slate-800/60 bg-slate-900/50 flex justify-between items-start">
               <DialogHeader>
                 <DialogTitle className="font-black text-xl text-slate-100 flex items-center gap-3">
@@ -838,16 +859,16 @@ export default function Bodega() {
 
       {/* MODAL CANTIDAD ESCÁNER */}
       <Dialog open={Boolean(scannedItemPendingQuantity)} onOpenChange={(open) => {
-        if (!open && scannedItemPendingQuantity) {
-          const { mode } = scannedItemPendingQuantity
-          setScannedItemPendingQuantity(null)
-          setTimeout(() => {
-            if (mode === 'captura') inputRef.current?.focus()
-            else salidaInputRef.current?.focus()
-          }, 50)
-        }
+        if (!open) setScannedItemPendingQuantity(null)
       }}>
-        <DialogContent className="max-w-sm overflow-hidden border-slate-800 bg-slate-950 p-0" showCloseButton={false}>
+        <DialogContent
+          className="max-w-sm overflow-hidden border-slate-800 bg-slate-950 p-0"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            dialogReturnFocusRef.current?.focus()
+          }}
+          showCloseButton={false}
+        >
           <form
              onSubmit={(e) => {
                e.preventDefault()
@@ -877,11 +898,6 @@ export default function Bodega() {
                
                toast.success(`+${cantidad} a ${product.clave_sicar}`)
                setScannedItemPendingQuantity(null)
-               
-               setTimeout(() => {
-                  if (mode === 'captura') inputRef.current?.focus()
-                  else salidaInputRef.current?.focus()
-               }, 50)
              }}
           >
             <div className="p-6 border-b border-slate-800/60 bg-slate-900/50 flex justify-between items-start">
@@ -889,13 +905,9 @@ export default function Bodega() {
                 <DialogTitle className="font-black text-xl text-slate-100">Cantidad a procesar</DialogTitle>
                 <DialogDescription className="text-xs font-bold text-slate-400 mt-1">{scannedItemPendingQuantity?.product.descripcion}</DialogDescription>
               </DialogHeader>
-              <button type="button" aria-label="Cerrar captura de cantidad" onClick={() => {
-                 setScannedItemPendingQuantity(null)
-                 setTimeout(() => {
-                    if (scannedItemPendingQuantity.mode === 'captura') inputRef.current?.focus()
-                    else salidaInputRef.current?.focus()
-                 }, 50)
-              }} className="text-slate-500 hover:text-slate-300">
+               <button type="button" aria-label="Cerrar captura de cantidad" onClick={() => {
+                  setScannedItemPendingQuantity(null)
+               }} className="text-slate-500 hover:text-slate-300">
                 <X className="w-5 h-5" />
               </button>
             </div>

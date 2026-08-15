@@ -23,6 +23,7 @@ export default function CapturaInteligente() {
   const inputFactorRef = useRef(null)
   const inputBultosRef = useRef(null)
   const inputExistenciaRef = useRef(null)
+  const dialogReturnFocusRef = useRef(null)
   
   // ESPERA, BUSCANDO, CAPTURANDO
   const [estado, setEstado] = useState('ESPERA') 
@@ -88,6 +89,7 @@ export default function CapturaInteligente() {
         const { data } = await axios.post('/api/captura/verificar', { codigo: codigo.trim() })
         
         if (data.multiple && data.matches && data.matches.length > 1) {
+            dialogReturnFocusRef.current = inputRef.current
             setOpcionesMultiples(data.matches)
             setModalMultiples(true)
             return
@@ -265,7 +267,8 @@ export default function CapturaInteligente() {
   // Función para Revincular
   const [historialSeleccionado, setHistorialSeleccionado] = useState(null)
 
-  const abrirModalRevincular = (h) => {
+  const abrirModalRevincular = (h, trigger = inputRef.current) => {
+    dialogReturnFocusRef.current = trigger
     setHistorialSeleccionado(h)
     setRevinculoCodigo('')
     setRevinculoFactor(h.factor || 1)
@@ -527,7 +530,10 @@ export default function CapturaInteligente() {
               </div>
               
               {estado === 'CAPTURANDO' && datosProd?.factor > 1 && !isConsumo && (
-                <Button variant="ghost" size="sm" onClick={() => setModalRevincular(true)} className="ml-auto bg-slate-800/50 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold text-xs">
+                <Button variant="ghost" size="sm" onClick={(event) => {
+                  dialogReturnFocusRef.current = event.currentTarget
+                  setModalRevincular(true)
+                }} className="ml-auto bg-slate-800/50 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold text-xs">
                   <RotateCcw className="w-3 h-3 mr-2" /> Corregir
                 </Button>
               )}
@@ -611,7 +617,8 @@ export default function CapturaInteligente() {
                   <div className="mt-4 flex items-center justify-center">
                     <button 
                       type="button"
-                      onClick={() => {
+                      onClick={(event) => {
+                        dialogReturnFocusRef.current = event.currentTarget
                         setModalGestionVariantes(true);
                         cargarVariantes();
                       }}
@@ -751,7 +758,7 @@ export default function CapturaInteligente() {
                          {h.total_unidades !== undefined ? h.total_unidades : ((parseFloat(h.cantidad_bultos) * parseFloat(h.factor)) + parseFloat(h.existencia))}
                        </td>
                        <td className="p-4 text-right space-x-1">
-                         <Button variant="ghost" size="icon" className="h-8 w-8 text-orange-400 hover:text-orange-300 hover:bg-orange-500/20" title="Corregir Vínculo" onClick={() => abrirModalRevincular(h)}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-orange-400 hover:text-orange-300 hover:bg-orange-500/20" title="Corregir Vínculo" onClick={(event) => abrirModalRevincular(h, event.currentTarget)}>
                            <Link2 className="w-4 h-4" />
                          </Button>
                          <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-500/20" title="Eliminar Registro" onClick={() => eliminarHistorial(h.id)}>
@@ -774,7 +781,14 @@ export default function CapturaInteligente() {
           setRevinculoProducto(null)
         }
       }}>
-        <DialogContent className="max-w-md overflow-hidden border-slate-700 bg-slate-900 p-0" showCloseButton={false}>
+        <DialogContent
+          className="max-w-md overflow-hidden border-slate-700 bg-slate-900 p-0"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            dialogReturnFocusRef.current?.focus()
+          }}
+          showCloseButton={false}
+        >
             <div className="p-6 border-b border-slate-800/60 bg-slate-800/50 flex justify-between items-start">
               <DialogHeader>
               <DialogTitle className="font-black text-xl text-slate-100 flex items-center gap-2">
@@ -839,7 +853,14 @@ export default function CapturaInteligente() {
         setModalMultiples(open)
         if (!open) resetear()
       }}>
-        <DialogContent className="max-w-2xl overflow-hidden border-slate-700 bg-slate-900 p-0" showCloseButton={false}>
+        <DialogContent
+          className="max-w-2xl overflow-hidden border-slate-700 bg-slate-900 p-0"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            dialogReturnFocusRef.current?.focus()
+          }}
+          showCloseButton={false}
+        >
             <div className="p-6 border-b border-slate-800/60 bg-slate-800/50 flex justify-between items-start">
               <DialogHeader>
                   <DialogTitle className="font-black text-xl text-slate-100 flex items-center gap-2">
@@ -897,7 +918,14 @@ export default function CapturaInteligente() {
         if (open) setModalGestionVariantes(true)
         else void cerrarModalGestion()
       }}>
-        <DialogContent className="max-w-lg overflow-hidden border-slate-700 bg-slate-900 p-0" showCloseButton={false}>
+        <DialogContent
+          className="max-w-lg overflow-hidden border-slate-700 bg-slate-900 p-0"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            dialogReturnFocusRef.current?.focus()
+          }}
+          showCloseButton={false}
+        >
             <div className="p-6 border-b border-slate-800/60 bg-slate-800/50 flex justify-between items-start">
               <DialogHeader>
               <DialogTitle className="font-black text-xl text-slate-100 flex items-center gap-2">
