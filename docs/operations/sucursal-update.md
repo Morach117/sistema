@@ -53,9 +53,48 @@ Get-FileHash -Algorithm SHA256 'C:\ruta\exacta\backup.sql'
 
 No continúe si el archivo no existe, está vacío, no puede copiarse o su hash no coincide en la segunda ubicación. Consulte también [respaldo y restauración](backup-restore.md).
 
-## 3. Ensayo obligatorio en una copia aislada
+## 3. Obtener y verificar el código aprobado en un worktree separado
 
-Restaure el respaldo en otra instancia o base de prueba, nunca sobre la base activa. Sobre esa copia capture `EXPLAIN` antes de ejecutar `002_safe_indexes`:
+Mantenga anotado el commit anterior. Sustituya `COMMIT_APROBADO` por el SHA revisado tanto en el comando como en el nombre de la carpeta. Prepare el release en un worktree separado: así no se sobrescribe el frontend servido ni el código activo durante el ensayo.
+
+```powershell
+Set-Location C:\xampp\htdocs\sistema
+git fetch --all --prune
+git worktree add --detach 'C:\xampp\htdocs\sistema-release-COMMIT_APROBADO' COMMIT_APROBADO
+Set-Location 'C:\xampp\htdocs\sistema-release-COMMIT_APROBADO'
+git rev-parse HEAD
+npm.cmd ci
+npm.cmd --prefix frontend ci
+npm.cmd run verify
+```
+
+El SHA impreso debe ser exactamente el aprobado. `npm run verify` no toca la base. Deben pasar backend, frontend, lint y build. No continúe con fallos ni use `--force`. Todo ensayo posterior se ejecuta desde este worktree y commit, no desde el código anterior. No elimine el worktree hasta liberar o revertir la sucursal.
+
+## 4. Ensayo obligatorio en una instancia aislada
+
+Restaure el respaldo en otra instancia MySQL/MariaDB, nunca en el host/puerto activo. La instancia de prueba debe tener host o puerto distinto al registrado en el preflight y no debe atender usuarios. Siga [Prueba de restauración](backup-restore.md#prueba-de-restauración), que recrea la base de prueba para evitar residuos.
+
+Abra una PowerShell nueva dedicada al ensayo. Desde el commit aprobado, establezca explícitamente las cinco variables de la copia. El ejemplo usa el puerto aislado `3310`; sustitúyalo por el valor comprobado:
+
+```powershell
+Set-Location 'C:\xampp\htdocs\sistema-release-COMMIT_APROBADO'
+$copyCredential = Get-Credential -UserName 'USUARIO_COPIA' -Message 'Credencial de la instancia MySQL AISLADA'
+$env:DB_HOST = '127.0.0.1'
+$env:DB_PORT = '3310'
+$env:DB_USER = $copyCredential.UserName
+$env:DB_PASSWORD = $copyCredential.GetNetworkCredential().Password
+$env:DB_NAME = 'importador_papeleria'
+
+try {
+  $env:MYSQL_PWD = $env:DB_PASSWORD
+  & 'C:\xampp\mysql\bin\mysql.exe' --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USER --database=$env:DB_NAME --execute="SELECT @@hostname AS host, @@port AS port, DATABASE() AS db;"
+  if ($LASTEXITCODE -ne 0) { throw 'No se pudo comprobar la instancia aislada' }
+} finally {
+  Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue
+}
+```
+
+Compare la salida con el endpoint de producción registrado. Si host y puerto coinciden, deténgase. Con estas variables todavía activas, capture `EXPLAIN` antes de ejecutar `002_safe_indexes`:
 
 ```sql
 EXPLAIN SELECT * FROM historial_items WHERE clave_sicar = 'CLAVE_DE_PRUEBA';
@@ -65,7 +104,21 @@ EXPLAIN SELECT * FROM logs_auditoria
  WHERE usuario_id = 1 ORDER BY fecha DESC LIMIT 50;
 ```
 
-Guarde la salida completa (`type`, `possible_keys`, `key`, `rows`, `Extra`). Después ejecute `npm run migrate` contra la copia y repita los tres `EXPLAIN`. Confirme que:
+Guarde la salida completa (`type`, `possible_keys`, `key`, `rows`, `Extra`). Después ejecute el migrador aprobado dos veces contra la copia y repita los tres `EXPLAIN`:
+
+```powershell
+try {
+  npm.cmd run migrate
+  if ($LASTEXITCODE -ne 0) { throw 'Falló la primera migración aislada' }
+  npm.cmd run migrate
+  if ($LASTEXITCODE -ne 0) { throw 'Falló la comprobación de idempotencia' }
+} finally {
+  Remove-Item Env:DB_HOST,Env:DB_PORT,Env:DB_USER,Env:DB_PASSWORD,Env:DB_NAME,Env:MYSQL_PWD -ErrorAction SilentlyContinue
+  $copyCredential = $null
+}
+```
+
+Confirme que:
 
 - la migración termina sin error y una segunda ejecución queda en `skipped`;
 - no aparece ninguna tabla/columna incompatible;
@@ -73,31 +126,29 @@ Guarde la salida completa (`type`, `possible_keys`, `key`, `rows`, `Extra`). Des
 - todas las tablas específicas de la sucursal siguen presentes;
 - el plan posterior usa un índice BTREE equivalente y no aumenta de forma material las filas estimadas.
 
-Si no existe una copia aislada o no se registró esta evidencia, no se aplican migraciones en producción.
-
-## 4. Obtener y verificar el código aprobado
-
-Mantenga anotado el commit anterior. Sustituya `COMMIT_APROBADO` por un SHA o tag revisado:
-
-```powershell
-git fetch --all --prune
-git switch main
-git pull --ff-only
-git checkout COMMIT_APROBADO
-npm.cmd ci
-npm.cmd --prefix frontend ci
-npm.cmd run verify
-```
-
-`npm run verify` no toca la base. Deben pasar backend, frontend, lint y build. No continúe con fallos ni use `--force` para instalar o cambiar dependencias.
+Si no existe una instancia aislada o no se registró esta evidencia, no se aplican migraciones en producción. Cierre la PowerShell de ensayo al terminar; las variables `DB_*` de la copia no se reutilizan.
 
 ## 5. Migrar y reiniciar
 
-Detenga el proceso para impedir escrituras concurrentes durante el cambio:
+Abra otra PowerShell nueva, vuelva al checkout activo y compruebe que no existen overrides heredados. El proceso de producción debe leer exclusivamente el `.env` verificado en el preflight:
+
+```powershell
+Set-Location C:\xampp\htdocs\sistema
+Get-ChildItem Env:DB_HOST,Env:DB_PORT,Env:DB_USER,Env:DB_PASSWORD,Env:DB_NAME -ErrorAction SilentlyContinue
+```
+
+La salida debe estar vacía. Si aparece una variable, cierre la consola y abra otra; no la corrija copiando credenciales. Detenga el proceso, aplique exactamente el commit ya ensayado y reconstruya dentro de la ventana:
 
 ```powershell
 npm.cmd run pm2:stop
+git fetch --all --prune
+git checkout COMMIT_APROBADO
+if ((git rev-parse HEAD) -ne 'COMMIT_APROBADO') { throw 'El checkout activo no coincide con el release ensayado' }
+npm.cmd ci
+npm.cmd --prefix frontend ci
+npm.cmd --prefix frontend run build
 npm.cmd run migrate
+if ($LASTEXITCODE -ne 0) { throw 'Migración detenida; iniciar rollback' }
 npm.cmd run pm2:start
 npm.cmd run pm2:save
 ```

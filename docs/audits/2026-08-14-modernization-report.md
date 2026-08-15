@@ -105,6 +105,6 @@ Los 11 warnings de lint son: un aviso `only-export-components`, nueve símbolos/
 
 ## Secuencia de entrega
 
-La única secuencia aprobada es: **backup → verificación y copia externa → ensayo/EXPLAIN en copia → código y verificación → migración → reinicio → healthcheck → smoke test → liberación**. Ante fallo: **detener → conservar evidencia → restaurar backup completo → volver al commit anterior → verificar**.
+La única secuencia aprobada es: **backup → verificación y copia externa → checkout/verificación del código aprobado → restauración aislada → ensayo/EXPLAIN con ese código → consola limpia de producción → migración → reinicio → healthcheck → smoke test → liberación**. Ante fallo: **detener → conservar evidencia → eliminar/recrear la base exacta desde el backup → volver al commit anterior → verificar**.
 
 Los comandos exactos, criterios de parada y recuperación están en `docs/operations/sucursal-update.md` y `docs/operations/backup-restore.md`.
