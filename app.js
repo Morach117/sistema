@@ -41,6 +41,8 @@ function createApp({
   environment = process.env.NODE_ENV || 'development',
   frontendDistPath = path.join(__dirname, 'frontend', 'dist'),
   developmentPublicPath,
+  clientSyncService,
+  clientDiscoveryService,
   readinessCheck = defaultReadinessCheck,
   readinessAccess = isLoopbackReadinessRequest,
   readinessCacheMs = 5000,
@@ -91,6 +93,10 @@ function createApp({
   app.use('/api/recepciones', require('./routes/recepciones'));
   app.use('/api/historial-recepciones', require('./routes/historial-recepciones'));
   app.use('/api/clientes', require('./routes/clientes'));
+  app.use('/api/clientes-sync', require('./routes/clientes-sync').createClientesSyncRouter({
+    syncService: clientSyncService,
+    discoveryService: clientDiscoveryService,
+  }));
   app.use('/api/captura', require('./routes/captura'));
   app.use('/api/reclamaciones', require('./routes/reclamaciones'));
   app.use('/api/evolucion-precios', require('./routes/evolucion'));
