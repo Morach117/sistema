@@ -169,6 +169,9 @@ test('reimporting a pending XML updates only invoice fields and preserves physic
       if (/SELECT id, estado FROM historial_remisiones/.test(normalized)) {
         return [[{ id: 20, estado: 'PENDIENTE' }], []];
       }
+      if (/SELECT proveedor FROM historial_remisiones WHERE id = \? LIMIT 1/.test(normalized)) {
+        return [[{ proveedor: 'TONY' }], []];
+      }
       if (/UPDATE historial_remisiones SET fecha_carga = NOW\(\), proveedor = \? WHERE id = \?/.test(normalized)) {
         writes.push([normalized, params]);
         return [{ affectedRows: 1 }, []];
@@ -176,9 +179,24 @@ test('reimporting a pending XML updates only invoice fields and preserves physic
       if (/SELECT id FROM historial_items WHERE remision_id = \? AND codigo_proveedor = \? LIMIT 1/.test(normalized)) {
         return [[{ id: 77 }], []];
       }
+      if (/SELECT descripcion_original, cantidad, costo_unitario, aplica_iva, iva_tasa, costo_incluye_iva, aplica_descuento FROM historial_items WHERE id = \? LIMIT 1/.test(normalized)) {
+        return [[{
+          descripcion_original: 'Producto anterior',
+          cantidad: 1,
+          costo_unitario: 9,
+          aplica_iva: 1,
+          iva_tasa: 0.16,
+          costo_incluye_iva: 1,
+          aplica_descuento: 0
+        }], []];
+      }
       if (/UPDATE historial_items SET/.test(normalized)) {
         writes.push([normalized, params]);
         return [{ affectedRows: 1 }, []];
+      }
+      if (/INSERT INTO recepcion_bitacora/i.test(normalized)) {
+        writes.push([normalized, params]);
+        return [{ insertId: 78 }, []];
       }
       assert.fail(`unexpected SQL: ${normalized}`);
     },
@@ -206,6 +224,91 @@ test('reimporting a pending XML updates only invoice fields and preserves physic
   assert.deepEqual(events.slice(-2), ['commit', 'release']);
 });
 
+test('reimporting a pending XML records provider and changed invoice fields in recepcion_bitacora', async () => {
+  const events = [];
+  const connection = {
+    async beginTransaction() { events.push('begin'); },
+    async execute(sql, params) {
+      const normalized = sql.replace(/\s+/g, ' ').trim();
+      events.push(['execute', normalized, params]);
+      if (/SELECT id, estado FROM historial_remisiones/.test(normalized)) {
+        return [[{ id: 20, estado: 'PENDIENTE', proveedor: 'MANUAL' }], []];
+      }
+      if (/SELECT proveedor FROM historial_remisiones WHERE id = \? LIMIT 1/.test(normalized)) {
+        return [[{ proveedor: 'MANUAL' }], []];
+      }
+      if (/UPDATE historial_remisiones SET fecha_carga = NOW\(\), proveedor = \? WHERE id = \?/.test(normalized)) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (/SELECT id FROM historial_items WHERE remision_id = \? AND codigo_proveedor = \? LIMIT 1/.test(normalized)) {
+        return [[{
+          id: 77,
+          descripcion_original: 'Producto anterior',
+          cantidad: 1,
+          costo_unitario: 9,
+          aplica_iva: 1,
+          iva_tasa: 0.16,
+          costo_incluye_iva: 1,
+          aplica_descuento: 0
+        }], []];
+      }
+      if (/SELECT descripcion_original, cantidad, costo_unitario, aplica_iva, iva_tasa, costo_incluye_iva, aplica_descuento FROM historial_items WHERE id = \? LIMIT 1/.test(normalized)) {
+        return [[{
+          descripcion_original: 'Producto anterior',
+          cantidad: 1,
+          costo_unitario: 9,
+          aplica_iva: 1,
+          iva_tasa: 0.16,
+          costo_incluye_iva: 1,
+          aplica_descuento: 0
+        }], []];
+      }
+      if (/UPDATE historial_items SET/.test(normalized)) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (/INSERT INTO recepcion_bitacora/i.test(normalized)) {
+        return [{ insertId: 80 }, []];
+      }
+      assert.fail(`unexpected SQL: ${normalized}`);
+    },
+    async commit() { events.push('commit'); },
+    async rollback() { events.push('rollback'); },
+    release() { events.push('release'); }
+  };
+  const app = express();
+  app.use('/api/recepciones', loadRouterWithDatabase({ async getConnection() { return connection; } }));
+  const token = jwt.sign({ id: 15, rol: 'admin', permisos: ['recepciones'] }, jwtSecret);
+
+  const response = await request(app)
+    .post('/api/recepciones/upload')
+    .set('Authorization', `Bearer ${token}`)
+    .attach('archivo_factura', Buffer.from(
+      '<?xml version="1.0"?><cfdi:Comprobante xmlns:cfdi="urn:cfdi" Serie="R" Folio="8"><cfdi:Emisor Rfc="TTI961202IM1" Nombre="Tony"/><cfdi:Conceptos><cfdi:Concepto NoIdentificacion="SKU-1" Descripcion="Producto XML" Cantidad="2" ValorUnitario="10" Descuento="1"><cfdi:Impuestos><cfdi:Traslados><cfdi:Traslado Impuesto="002" TasaOCuota="0.160000" /></cfdi:Traslados></cfdi:Impuestos></cfdi:Concepto></cfdi:Conceptos></cfdi:Comprobante>'
+    ), { filename: 'reimport-audit.xml', contentType: 'application/xml' });
+
+  assert.equal(response.status, 200, response.text);
+  const auditStatements = events.filter((event) => Array.isArray(event) && /INSERT INTO recepcion_bitacora/i.test(event[1]));
+  assert.ok(auditStatements.length >= 2, `expected audit rows alongside reimport updates: ${JSON.stringify(events)}`);
+  assert.ok(
+    auditStatements.some(([, , params]) => JSON.stringify(params) === JSON.stringify([20, null, 15, 'proveedor', 'MANUAL', 'TONY'])),
+    `missing provider audit row in ${JSON.stringify(auditStatements)}`
+  );
+  assert.ok(
+    auditStatements.some(([, , params]) => JSON.stringify(params) === JSON.stringify([20, 77, 15, 'cantidad', '1', '2'])),
+    `missing quantity audit row in ${JSON.stringify(auditStatements)}`
+  );
+  const itemUpdateIndex = events.findIndex((event) => Array.isArray(event) && /UPDATE historial_items SET/.test(event[1]));
+  const quantityAuditIndex = events.findIndex(
+    (event) => Array.isArray(event)
+      && /INSERT INTO recepcion_bitacora/i.test(event[1])
+      && JSON.stringify(event[2]) === JSON.stringify([20, 77, 15, 'cantidad', '1', '2'])
+  );
+  assert.notEqual(itemUpdateIndex, -1);
+  assert.notEqual(quantityAuditIndex, -1);
+  assert.ok(quantityAuditIndex > itemUpdateIndex, `expected quantity audit after item update in same transaction: ${JSON.stringify(events)}`);
+  assert.deepEqual(events.slice(-2), ['commit', 'release']);
+});
+
 test('new XML items persist detected IVA and concept discount flags', async () => {
   const writes = [];
   const connection = {
@@ -214,6 +317,9 @@ test('new XML items persist detected IVA and concept discount flags', async () =
       const normalized = sql.replace(/\s+/g, ' ').trim();
       if (/SELECT id, estado FROM historial_remisiones/.test(normalized)) {
         return [[{ id: 33, estado: 'PENDIENTE' }], []];
+      }
+      if (/SELECT proveedor FROM historial_remisiones WHERE id = \? LIMIT 1/.test(normalized)) {
+        return [[{ proveedor: 'TONY' }], []];
       }
       if (/UPDATE historial_remisiones SET fecha_carga = NOW\(\), proveedor = \? WHERE id = \?/.test(normalized)) {
         return [{ affectedRows: 1 }, []];
@@ -256,6 +362,9 @@ test('persisted XML cost stays IVA-included after reload instead of being taxed 
       const normalized = sql.replace(/\s+/g, ' ').trim();
       if (/SELECT id, estado FROM historial_remisiones/.test(normalized)) {
         return [[{ id: 51, estado: 'PENDIENTE' }], []];
+      }
+      if (/SELECT proveedor FROM historial_remisiones WHERE id = \? LIMIT 1/.test(normalized)) {
+        return [[{ proveedor: 'TONY' }], []];
       }
       if (/UPDATE historial_remisiones SET fecha_carga = NOW\(\), proveedor = \? WHERE id = \?/.test(normalized)) {
         return [{ affectedRows: 1 }, []];

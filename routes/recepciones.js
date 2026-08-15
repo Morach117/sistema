@@ -16,6 +16,7 @@ const {
     cleanupUploadedFiles,
     deleteReceptionItem,
     finalizeReception,
+    insertReceptionAuditEntry,
     parseUploads,
     ReceptionStateError,
     updateReceptionItem,
@@ -61,6 +62,29 @@ function parseIncludePhysicalFlag(value) {
     if (value === 1 || value === '1' || value === 'true') return true;
     if (value === 0 || value === '0' || value === 'false') return false;
     throw new ReceptionStateError('El parametro incluir_fisico debe ser booleano.', 422);
+}
+
+function auditFieldValue(value) {
+    if (value === undefined || value === null) return null;
+    return String(value);
+}
+
+function fieldChanged(previousValue, nextValue) {
+    return auditFieldValue(previousValue) !== auditFieldValue(nextValue);
+}
+
+async function auditReceptionFieldChanges(connection, { remisionId, itemId = null, actorId, changes }) {
+    for (const change of changes) {
+        if (!fieldChanged(change.previousValue, change.nextValue)) continue;
+        await insertReceptionAuditEntry(connection, {
+            remisionId,
+            itemId,
+            actorId,
+            field: change.field,
+            previousValue: change.previousValue,
+            nextValue: change.nextValue
+        });
+    }
 }
 router.use(authMiddleware);
 router.use(authorize({ module: 'recepciones', action: 'read' }));
@@ -354,7 +378,7 @@ router.delete('/item/:id', authorize({ module: 'recepciones', action: 'write' })
 // ─────────────────────────────────────────────────
 
 // Helper: Get or create remision
-async function obtenerOcrearRemision(connection, folio, prov) {
+async function obtenerOcrearRemision(connection, folio, prov, actorId, { auditChanges = false } = {}) {
     const [rows] = await connection.execute(
         `SELECT id, estado FROM historial_remisiones WHERE numero_remision = ? LIMIT 1 FOR UPDATE`,
         [folio]
@@ -364,10 +388,27 @@ async function obtenerOcrearRemision(connection, folio, prov) {
         if (String(rows[0].estado).toUpperCase() === 'FINALIZADO') {
             throw new ReceptionStateError('La remision ya esta finalizada y no admite cambios.', 409);
         }
+        let previousProvider = null;
+        if (auditChanges) {
+            const [providerRows] = await connection.execute(
+                `SELECT proveedor FROM historial_remisiones WHERE id = ? LIMIT 1`,
+                [rows[0].id]
+            );
+            previousProvider = providerRows[0]?.proveedor ?? null;
+        }
         await connection.execute(
             `UPDATE historial_remisiones SET fecha_carga = NOW(), proveedor = ? WHERE id = ?`,
             [prov, rows[0].id]
         );
+        if (auditChanges) {
+            await auditReceptionFieldChanges(connection, {
+                remisionId: rows[0].id,
+                actorId,
+                changes: [
+                    { field: 'proveedor', previousValue: previousProvider, nextValue: prov }
+                ]
+            });
+        }
         return rows[0].id;
     }
 
@@ -378,12 +419,14 @@ async function obtenerOcrearRemision(connection, folio, prov) {
     return result.insertId;
 }
 
-async function saveParsedReception(connection, parsed) {
+async function saveParsedReception(connection, parsed, actorId) {
     let ultimoId = 0;
     let ultimoProv = 'MANUAL';
 
     for (const remision of parsed.remisiones) {
-        const idRem = await obtenerOcrearRemision(connection, remision.folio, remision.proveedor);
+        const idRem = await obtenerOcrearRemision(connection, remision.folio, remision.proveedor, actorId, {
+            auditChanges: parsed.format === 'xml'
+        });
         ultimoId = idRem;
         ultimoProv = remision.proveedor;
 
@@ -397,10 +440,32 @@ async function saveParsedReception(connection, parsed) {
             );
 
             if (existing.length > 0 && parsed.format === 'xml') {
+                const [auditRows] = await connection.execute(
+                    `SELECT descripcion_original, cantidad, costo_unitario, aplica_iva, iva_tasa, costo_incluye_iva, aplica_descuento
+                       FROM historial_items
+                      WHERE id = ?
+                      LIMIT 1`,
+                    [existing[0].id]
+                );
                 await connection.execute(
                     `UPDATE historial_items SET descripcion_original=?, cantidad=?, costo_unitario=?, aplica_iva=?, iva_tasa=?, costo_incluye_iva=?, aplica_descuento=? WHERE id=?`,
                     [item.descripcion_original, item.cantidad, item.costo_unitario, persistedAplicaIva, persistedIvaRate, costoIncluyeIva, item.aplica_descuento, existing[0].id]
                 );
+                const previousItem = auditRows[0] || {};
+                await auditReceptionFieldChanges(connection, {
+                    remisionId: idRem,
+                    itemId: existing[0].id,
+                    actorId,
+                    changes: [
+                        { field: 'descripcion_original', previousValue: previousItem.descripcion_original, nextValue: item.descripcion_original },
+                        { field: 'cantidad', previousValue: previousItem.cantidad, nextValue: item.cantidad },
+                        { field: 'costo_unitario', previousValue: previousItem.costo_unitario, nextValue: item.costo_unitario },
+                        { field: 'aplica_iva', previousValue: previousItem.aplica_iva, nextValue: persistedAplicaIva },
+                        { field: 'iva_tasa', previousValue: previousItem.iva_tasa, nextValue: persistedIvaRate },
+                        { field: 'costo_incluye_iva', previousValue: previousItem.costo_incluye_iva, nextValue: costoIncluyeIva },
+                        { field: 'aplica_descuento', previousValue: previousItem.aplica_descuento, nextValue: item.aplica_descuento }
+                    ]
+                });
             } else if (existing.length > 0) {
                 await connection.execute(
                     `UPDATE historial_items SET descripcion_original=?, cantidad=?, costo_unitario=? WHERE id=?`,
@@ -435,7 +500,7 @@ router.post('/upload', authorize({ module: 'recepciones', action: 'write' }), re
         await connection.beginTransaction();
         let result = { id: 0, prov: 'MANUAL' };
         for (const parsed of parsedFiles) {
-            result = await saveParsedReception(connection, parsed);
+            result = await saveParsedReception(connection, parsed, req.user?.id);
         }
         await connection.commit();
 

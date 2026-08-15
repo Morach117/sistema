@@ -320,3 +320,62 @@ test('admin cannot export a finalized remision from history', async () => {
   assert.equal(response.status, 409, response.text);
   assert.match(response.body.error, /solo lectura|finaliz/i);
 });
+
+for (const estado of ['ENVIADO', 'REVISION']) {
+  test(`admin history actions stay read-only when the remision is ${estado}`, async () => {
+    const events = [];
+    const connection = {
+      async beginTransaction() { events.push('begin'); },
+      async execute(sql, params) {
+        const normalized = sql.replace(/\s+/g, ' ').trim();
+        events.push(['execute', normalized, params]);
+        if (/SELECT id, estado, numero_remision FROM historial_remisiones WHERE id = \? FOR UPDATE/i.test(normalized)) {
+          return [[{ id: 21, estado, numero_remision: `R-${estado}` }], []];
+        }
+        if (/SELECT hi\.id, hi\.remision_id, hr\.estado/i.test(normalized)) {
+          return [[{ id: 91, remision_id: 21, estado, current_value: 12 }], []];
+        }
+        assert.fail(`unexpected SQL: ${normalized}`);
+      },
+      async commit() { events.push('commit'); },
+      async rollback() { events.push('rollback'); },
+      release() { events.push('release'); }
+    };
+    const app = buildApp({
+      async execute(sql, params) {
+        const normalized = sql.replace(/\s+/g, ' ').trim();
+        events.push(['read', normalized, params]);
+        if (/SELECT id, numero_remision, estado FROM historial_remisiones WHERE id = \? LIMIT 1/i.test(normalized)) {
+          return [[{ id: 21, numero_remision: `R-${estado}`, estado }], []];
+        }
+        assert.fail(`unexpected SQL: ${normalized}`);
+      },
+      async getConnection() {
+        return connection;
+      }
+    });
+
+    const token = authToken({ rol: 'admin', permisos: ['historial-recepciones', 'recepciones'] });
+    const [exportResponse, noteResponse, updateResponse] = await Promise.all([
+      request(app)
+        .get('/api/historial-recepciones/21/excel')
+        .set('Authorization', `Bearer ${token}`),
+      request(app)
+        .post('/api/historial-recepciones/21/notas')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ nota: `bloqueada-${estado}` }),
+      request(app)
+        .post('/api/historial-recepciones/actualizar_campo')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ id_item: 91, campo: 'cantidad', valor: 14 })
+    ]);
+
+    assert.equal(exportResponse.status, 403, exportResponse.text);
+    assert.equal(noteResponse.status, 403, noteResponse.text);
+    assert.equal(updateResponse.status, 403, updateResponse.text);
+    assert.equal(
+      events.some((event) => Array.isArray(event) && /INSERT INTO recepcion_notas|INSERT INTO recepcion_bitacora|UPDATE historial_items/i.test(event[1])),
+      false
+    );
+  });
+}

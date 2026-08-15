@@ -111,12 +111,59 @@ function buildHistoryFilters(query) {
 }
 
 function historyPermissions(user, estado) {
-  const editable = user?.rol === 'admin' && String(estado || '').toUpperCase() !== 'FINALIZADO';
+  const editable = user?.rol === 'admin' && String(estado || '').toUpperCase() === 'PENDIENTE';
   return {
     soloLectura: !editable,
     puedeEditar: editable,
     puedeExportar: editable
   };
+}
+
+function assertPendingHistoryState(estado) {
+  const normalized = String(estado || '').trim().toUpperCase();
+  if (normalized === 'PENDIENTE') return;
+  if (normalized === 'FINALIZADO') {
+    throw new ReceptionStateError('La remision finalizada es de solo lectura.', 409);
+  }
+  throw new ReceptionStateError('La remision solo puede editarse o exportarse mientras esta PENDIENTE.', 403);
+}
+
+async function loadHistoryItemState(itemId, requestId) {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute(
+      `SELECT hi.id, hi.remision_id, hr.estado
+         FROM historial_items hi
+         JOIN historial_remisiones hr ON hr.id = hi.remision_id
+        WHERE hi.id = ?
+        LIMIT 1`,
+      [itemId]
+    );
+    if (!Array.isArray(rows) || rows.length !== 1) {
+      throw new ReceptionStateError('El item no existe.', 404);
+    }
+    return rows[0];
+  } finally {
+    releaseConnection(connection, requestId);
+  }
+}
+
+async function loadHistoryRemisionState(remisionId, requestId) {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute(
+      'SELECT id, estado, numero_remision FROM historial_remisiones WHERE id = ? LIMIT 1',
+      [remisionId]
+    );
+    if (!Array.isArray(rows) || rows.length !== 1) {
+      throw new ReceptionStateError('La remision no existe.', 404);
+    }
+    return rows[0];
+  } finally {
+    releaseConnection(connection, requestId);
+  }
 }
 
 function buildHistoryItemsPayload(items, folio) {
@@ -217,6 +264,8 @@ router.post('/actualizar_campo', authorize({ module: 'recepciones', action: 'wri
   if (campo === 'cantidad_real') dbField = 'cantidad';
 
   try {
+    const itemState = await loadHistoryItemState(id_item, req.requestId);
+    assertPendingHistoryState(itemState.estado);
     await updateReceptionItem({
       pool,
       itemId: id_item,
@@ -238,6 +287,8 @@ router.post('/asignar_proveedor', authorize({ module: 'recepciones', action: 'wr
   if (!id_remision || !proveedor) return res.status(400).json({ success: false, error: 'Faltan parámetros' });
 
   try {
+    const remision = await loadHistoryRemisionState(id_remision, req.requestId);
+    assertPendingHistoryState(remision.estado);
     await assignReceptionProvider({
       pool,
       remisionId: id_remision,
@@ -275,9 +326,7 @@ router.post('/:id/notas', authorize({ module: 'recepciones', action: 'write' }),
     if (!Array.isArray(remisionRows) || remisionRows.length !== 1) {
       throw new ReceptionStateError('La remision no existe.', 404);
     }
-    if (String(remisionRows[0].estado).toUpperCase() === 'FINALIZADO') {
-      throw new ReceptionStateError('La remision finalizada es de solo lectura.', 409);
-    }
+    assertPendingHistoryState(remisionRows[0].estado);
 
     if (itemId !== null) {
       const [itemRows] = await connection.execute(
@@ -328,9 +377,7 @@ router.get('/:id/excel', authorize({ module: 'recepciones', action: 'write' }), 
     if (!Array.isArray(remisionRows) || remisionRows.length !== 1) {
       throw new ReceptionStateError('La remision no existe.', 404);
     }
-    if (String(remisionRows[0].estado).toUpperCase() === 'FINALIZADO') {
-      throw new ReceptionStateError('La remision finalizada es de solo lectura y no admite exportacion.', 409);
-    }
+    assertPendingHistoryState(remisionRows[0].estado);
 
     const [items] = await pool.execute(
       `SELECT COALESCE(
