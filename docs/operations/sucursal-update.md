@@ -99,6 +99,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Falló la verificación del release' }
 
 El SHA impreso debe ser exactamente el aprobado. `npm run verify` no toca la base. Deben pasar backend, frontend, lint y build. No continúe con fallos ni use `--force`. Todo ensayo posterior se ejecuta desde este worktree y commit, no desde el código anterior. No elimine el worktree hasta liberar o revertir la sucursal.
 
+Si la sucursal se actualizará sin acceso a internet, genere además el paquete descrito en [Instalación offline](offline-install.md) desde este mismo commit aprobado y verificado. El paquete offline no elimina ningún control del runbook: se prepara después del respaldo validado y se usa sólo para instalar dependencias y servir el frontend sin red.
+
 ## 4. Ensayo obligatorio en una instancia aislada
 
 Restaure el respaldo en otra instancia MySQL/MariaDB, nunca en el host/puerto activo. La instancia de prueba debe tener host o puerto distinto al registrado en el preflight y no debe atender usuarios. Siga [Prueba de restauración](backup-restore.md#prueba-de-restauración), que recrea la base de prueba para evitar residuos.
@@ -201,6 +203,8 @@ if ($LASTEXITCODE -ne 0) { throw 'No se pudo guardar el estado PM2' }
 
 `npm run migrate` crea otro respaldo antes de cualquier migración, registra el historial en `_node_migrations` y compara snapshots deterministas de `cat_productos`. Un error detiene el despliegue: no edite el historial ni ejecute SQL manual para “terminar” la migración.
 
+Después, `npm run pm2:start` vuelve a pasar por `server.js`, que ejecuta las migraciones idempotentes antes de abrir el puerto. Ese arranque automático debe quedar en `skipped` para cambios ya aplicados; si falla, trátelo como un despliegue fallido y vuelva al rollback completo. No use el arranque automático como sustituto de `npm run migrate` ni del ensayo aislado.
+
 ## 6. Healthcheck y pruebas de humo
 
 Compruebe proceso y entrega HTTP:
@@ -220,7 +224,10 @@ El estado esperado es `online`, readiness `ready`, HTTP `200` y sin errores nuev
 3. buscar una clave conocida de `cat_productos` sin editarla;
 4. comprobar filtros/paginación y una exportación controlada;
 5. crear y eliminar sólo un registro de prueba acordado, nunca un dato real;
-6. verificar tema claro/oscuro, navegación por teclado y vista de 360 px.
+6. en Recepciones, revisar la vista previa de un XML/CSV, confirmar el cálculo de caja (`piezas ÷ piezas por caja`) y finalizar sólo una remisión de prueba acordada para comprobar el aprendizaje;
+7. entrar a Historial de Recepciones con un usuario de solo `historial-recepciones` y confirmar acceso de consulta sin exportar ni editar; repetir con un administrador para validar exportación/edición sólo sobre pendientes;
+8. abrir Evolución de Precios y consultar una clave conocida desde la misma build aprobada;
+9. verificar tema claro/oscuro, navegación por teclado y vista de 360 px.
 
 Compare inventario de tablas y conteos críticos con el registro previo. El migrador ya valida de forma exacta que `cat_productos` no cambie durante su ejecución.
 

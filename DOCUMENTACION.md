@@ -6,6 +6,7 @@ Esta aplicación usa React para la interfaz, Express para la API y MySQL/MariaDB
 
 - [Actualización segura de una sucursal](docs/operations/sucursal-update.md): preparación, respaldo, actualización, migraciones, healthcheck, pruebas de humo y reversión.
 - [Respaldo y restauración](docs/operations/backup-restore.md): creación, verificación, custodia y restauración de un dump completo.
+- [Instalación offline](docs/operations/offline-install.md): generación del paquete sin red, `npm ci --offline` y verificación local.
 - [Auditoría de modernización](docs/audits/2026-08-14-modernization-report.md): hallazgos P0–P3, mitigaciones, evidencia, rendimiento, legado y riesgos pendientes.
 - [Diseño aprobado](docs/superpowers/specs/2026-08-14-modernizacion-segura-design.md) y [plan de implementación](docs/superpowers/plans/2026-08-14-modernizacion-segura.md).
 
@@ -58,6 +59,8 @@ Lista remisiones, revisa líneas, vincula claves SICAR, calcula presentaciones/c
 
 Una remisión `FINALIZADO` es inmutable también en el servidor: editar campos, reasignar proveedor, eliminar partidas o reimportar el mismo folio adquiere un bloqueo transaccional sobre la remisión y responde conflicto sin escribir.
 
+El Historial de Recepciones usa un permiso independiente: `historial-recepciones`. Ese permiso concede consulta paginada y detalle en solo lectura para empleados; exportar Excel, agregar notas o editar una remisión pendiente desde el historial sigue exigiendo perfil administrativo y autorización de escritura.
+
 ### Traspasos
 
 Registra envíos y permite su recepción por personal autorizado. La cantidad recibida se guarda en la columna histórica `traspaso_detalles.cantidad` para mantener compatibilidad con los esquemas existentes. Al completar, se bloquean todas las líneas persistidas y el conjunto de identificadores enviado debe coincidir exactamente antes de modificar o confirmar la transacción.
@@ -79,6 +82,10 @@ npm.cmd run verify
 `npm run verify` ejecuta pruebas backend, pruebas frontend, lint y build. No crea respaldos, no ejecuta migraciones y no inicia PM2.
 
 `npm run setup` sólo instala dependencias y construye el frontend. Nunca ejecuta migraciones ni inicia, reinicia o guarda PM2. Para una actualización real siga el runbook de sucursales, que separa explícitamente respaldo, verificación, migración y recuperación.
+
+`npm start`, `npm run dev` y `npm run pm2:start` cargan `server.js`, que ejecuta `runMigrations({ pool })` antes de abrir el puerto HTTP. Si esa comprobación falla, el proceso termina sin escuchar y libera el pool. Esa pasada automática es idempotente y sólo revalida el historial versionado ya ensayado; no sustituye `npm run migrate` ni el ensayo aislado del runbook.
+
+Si la sucursal debe actualizarse sin acceso a internet, genere antes el paquete descrito en [Instalación offline](docs/operations/offline-install.md). Ese flujo traslada `frontend/dist`, ambos `package-lock.json` y una caché npm dedicada para reinstalar y verificar la aplicación con `npm ci --offline`.
 
 La configuración de base se valida una sola vez a partir de `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` y `DB_NAME`; el pool, el migrador y el respaldo comparten esos valores. Los puertos deben ser enteros entre 1 y 65535.
 
