@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const xml2js = require('xml2js');
 const { parse } = require('csv-parse/sync');
+const { providerFrom } = require('./reception-rules');
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_UPLOAD_FILES = 5;
@@ -49,19 +50,7 @@ function assertMaxRows(content, extension, maxRows) {
   }
 }
 
-function providerFrom(emisor) {
-  const rfc = (emisor?.$.Rfc || '').toUpperCase();
-  const nombre = (emisor?.$.Nombre || '').toUpperCase();
-
-  if (rfc === 'TTI961202IM1' || nombre.includes('TONY')) return 'TONY';
-  if (rfc === 'LOVM900722BD8' || nombre.includes('PAOLA')) return 'PAOLA';
-  if (rfc === 'OTV801119HU2' || nombre.includes('OPTIVOSA')) return 'OPTIVOSA';
-  if (nombre.includes('OPERADORA')) return 'PAOLA';
-  if (rfc === 'GME191105I5A' || nombre.includes('MEGAMER')) return 'MEGAMER';
-  return 'MANUAL';
-}
-
-function xmlItem(concepto) {
+function xmlItem(concepto, proveedorDetectado) {
   let cost = Number.parseFloat(concepto.$.ValorUnitario) || 0;
   let impuestos = concepto['cfdi:Impuestos'] || concepto.Impuestos;
   if (Array.isArray(impuestos)) impuestos = impuestos[0];
@@ -69,19 +58,34 @@ function xmlItem(concepto) {
   if (Array.isArray(trasladosNode)) trasladosNode = trasladosNode[0];
   let traslados = trasladosNode?.['cfdi:Traslado'] || trasladosNode?.Traslado || [];
   if (!Array.isArray(traslados)) traslados = [traslados];
+  let ivaDetectado = 0;
 
   for (const traslado of traslados) {
     const rate = Number.parseFloat(traslado?.$.TasaOCuota);
-    if (traslado?.$.Impuesto === '002' && rate > 0) cost *= (1 + rate);
+    if (traslado?.$.Impuesto === '002' && rate > 0) {
+      ivaDetectado = Math.max(ivaDetectado, rate);
+      cost *= (1 + rate);
+    }
   }
+
+  const aplicaDescuento = (Number.parseFloat(concepto.$.Descuento) || 0) > 0 ? 1 : 0;
+  const appliesIva = ivaDetectado > 0 ? 1 : 0;
 
   return {
     codigo_proveedor: concepto.$.NoIdentificacion || '',
     descripcion_original: concepto.$.Descripcion || '',
     cantidad: Number.parseFloat(concepto.$.Cantidad) || 0,
-    costo_unitario: cost,
+    costo_unitario: Math.round((cost + Number.EPSILON) * 100) / 100,
     existencia_lapiz: 0,
-    aplica_descuento: (Number.parseFloat(concepto.$.Descuento) || 0) > 0 ? 1 : 0
+    aplica_iva: appliesIva,
+    aplica_descuento: aplicaDescuento,
+    source: {
+      tipo: 'xml',
+      proveedorDetectado,
+      ivaDetectado,
+      costoIncluyeIva: appliesIva === 1,
+      descuentoPorConcepto: aplicaDescuento === 1
+    }
   };
 }
 
@@ -108,12 +112,13 @@ async function parseXml(content) {
 
   const serie = comprobante.$.Serie || '';
   const folio = comprobante.$.Folio || '';
+  const proveedorDetectado = providerFrom(emisor);
   return {
     format: 'xml',
     remisiones: [{
       folio: `${serie}${folio}`.toUpperCase().replace(/[^A-Z0-9]/g, ''),
-      proveedor: providerFrom(emisor),
-      items: conceptos.filter((concepto) => concepto?.$).map(xmlItem)
+      proveedor: proveedorDetectado,
+      items: conceptos.filter((concepto) => concepto?.$).map((concepto) => xmlItem(concepto, proveedorDetectado))
     }]
   };
 }

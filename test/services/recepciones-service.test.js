@@ -70,7 +70,7 @@ test('rejects row counts before CSV parsing and still removes the temporary file
 test('parses the accepted CFDI XML format and removes the temporary file', async (t) => {
   const upload = await temporaryUpload(
     'factura.xml',
-    '<?xml version="1.0"?><cfdi:Comprobante xmlns:cfdi="urn:cfdi" Serie="A" Folio="12"><cfdi:Emisor Rfc="TTI961202IM1" Nombre="TONY"/><cfdi:Conceptos><cfdi:Concepto NoIdentificacion="SKU-2" Descripcion="Papel" Cantidad="3" ValorUnitario="4" Descuento="1"/></cfdi:Conceptos></cfdi:Comprobante>',
+    '<?xml version="1.0"?><cfdi:Comprobante xmlns:cfdi="urn:cfdi" Serie="A" Folio="12"><cfdi:Emisor Rfc="TTI961202IM1" Nombre="TONY"/><cfdi:Conceptos><cfdi:Concepto NoIdentificacion="SKU-2" Descripcion="Papel" Cantidad="3" ValorUnitario="4" Descuento="1"><cfdi:Impuestos><cfdi:Traslados><cfdi:Traslado Impuesto="002" TasaOCuota="0.160000" /></cfdi:Traslados></cfdi:Impuestos></cfdi:Concepto></cfdi:Conceptos></cfdi:Comprobante>',
     'application/xml'
   );
   t.after(() => fs.rm(upload.directory, { recursive: true, force: true }));
@@ -86,9 +86,17 @@ test('parses the accepted CFDI XML format and removes the temporary file', async
         codigo_proveedor: 'SKU-2',
         descripcion_original: 'Papel',
         cantidad: 3,
-        costo_unitario: 4,
+        costo_unitario: 4.64,
         existencia_lapiz: 0,
-        aplica_descuento: 1
+        aplica_iva: 1,
+        aplica_descuento: 1,
+        source: {
+          tipo: 'xml',
+          proveedorDetectado: 'TONY',
+          ivaDetectado: 0.16,
+          costoIncluyeIva: true,
+          descuentoPorConcepto: true
+        }
       }]
     }]
   });

@@ -361,8 +361,8 @@ async function saveParsedReception(connection, parsed) {
 
             if (existing.length > 0 && parsed.format === 'xml') {
                 await connection.execute(
-                    `UPDATE historial_items SET descripcion_original=?, cantidad=?, costo_unitario=?, aplica_descuento=? WHERE id=?`,
-                    [item.descripcion_original, item.cantidad, item.costo_unitario, item.aplica_descuento, existing[0].id]
+                    `UPDATE historial_items SET descripcion_original=?, cantidad=?, costo_unitario=?, aplica_iva=?, aplica_descuento=? WHERE id=?`,
+                    [item.descripcion_original, item.cantidad, item.costo_unitario, item.aplica_iva, item.aplica_descuento, existing[0].id]
                 );
             } else if (existing.length > 0) {
                 await connection.execute(
@@ -371,8 +371,8 @@ async function saveParsedReception(connection, parsed) {
                 );
             } else if (parsed.format === 'xml') {
                 await connection.execute(
-                    `INSERT INTO historial_items (remision_id, codigo_proveedor, descripcion_original, cantidad, costo_unitario, existencia_lapiz, es_paquete, piezas_por_paquete, aplica_iva, aplica_descuento) VALUES (?, ?, ?, ?, ?, 0, 0, 1, 0, ?)`,
-                    [idRem, item.codigo_proveedor, item.descripcion_original, item.cantidad, item.costo_unitario, item.aplica_descuento]
+                    `INSERT INTO historial_items (remision_id, codigo_proveedor, descripcion_original, cantidad, costo_unitario, existencia_lapiz, es_paquete, piezas_por_paquete, aplica_iva, aplica_descuento) VALUES (?, ?, ?, ?, ?, 0, 0, 1, ?, ?)`,
+                    [idRem, item.codigo_proveedor, item.descripcion_original, item.cantidad, item.costo_unitario, item.aplica_iva, item.aplica_descuento]
                 );
             } else {
                 await connection.execute(
