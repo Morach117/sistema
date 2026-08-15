@@ -26,9 +26,14 @@ Conserve dos copias con el mismo SHA-256, una fuera de `C:\xampp\htdocs\sistema`
 Antes de una migración, pruebe el dump en una instancia aislada con credenciales separadas. El archivo fue creado con `--databases`, por lo que contiene la base de origen: no lo cargue en un servidor que tenga una base activa con el mismo nombre. Compruebe primero que el archivo declara exactamente la base esperada:
 
 ```powershell
-$declaresDatabase = Select-String -Path 'C:\ruta\exacta\backup.sql' -SimpleMatch 'CREATE DATABASE IF NOT EXISTS `importador_papeleria`'
-$usesDatabase = Select-String -Path 'C:\ruta\exacta\backup.sql' -SimpleMatch 'USE `importador_papeleria`;'
-if (-not $declaresDatabase -or -not $usesDatabase) { throw 'El dump no corresponde a la base esperada' }
+$expectedDatabase = 'importador_papeleria'
+$createPattern = '^CREATE DATABASE(?:\s+/\*![0-9]{5}\s+IF NOT EXISTS\*/|\s+IF NOT EXISTS)\s+`(?<name>[^`]+)`(?:\s+/\*![0-9]{5}\s+(?:DEFAULT CHARACTER SET|DEFAULT COLLATE|COLLATE)\s+[^*]+\*/)*;$'
+$usePattern = '^USE `(?<name>[^`]+)`;$'
+$createLines = @(Select-String -Path 'C:\ruta\exacta\backup.sql' -Pattern '^CREATE DATABASE')
+$useLines = @(Select-String -Path 'C:\ruta\exacta\backup.sql' -Pattern '^USE `')
+if ($createLines.Count -ne 1 -or $useLines.Count -ne 1) { throw 'El dump debe declarar exactamente una sola base' }
+if ($createLines[0].Line -notmatch $createPattern -or $Matches['name'] -cne $expectedDatabase) { throw 'La declaración CREATE DATABASE del dump no es la esperada' }
+if ($useLines[0].Line -notmatch $usePattern -or $Matches['name'] -cne $expectedDatabase) { throw 'La declaración USE del dump no es la esperada' }
 ```
 
 Ambas líneas deben existir. En la instancia aislada y vacía use una credencial interactiva. El `DROP DATABASE` sólo elimina la base homónima de esa instancia de prueba y evita que sobrevivan tablas de ensayos anteriores:
@@ -67,17 +72,31 @@ La restauración exacta debe eliminar la base de destino antes de importar, porq
 Antes de la acción destructiva, verifique manualmente las dos líneas del dump y el nombre literal de la base. Si el `.env` de esta sucursal usa otro `DB_NAME`, deténgase y genere un procedimiento con ese nombre exacto; no sustituya el valor mediante una variable calculada.
 
 ```powershell
-Set-Location C:\xampp\htdocs\sistema
+Set-Location C:\xampp\htdocs\sistema -ErrorAction Stop
+$ErrorActionPreference = 'Stop'
 npm.cmd run pm2:stop
-$declaresDatabase = Select-String -Path 'C:\ruta\exacta\backup.sql' -SimpleMatch 'CREATE DATABASE IF NOT EXISTS `importador_papeleria`'
-$usesDatabase = Select-String -Path 'C:\ruta\exacta\backup.sql' -SimpleMatch 'USE `importador_papeleria`;'
-if (-not $declaresDatabase -or -not $usesDatabase) { throw 'El dump no corresponde a la base esperada' }
-$restoreCredential = Get-Credential -UserName 'USUARIO_MYSQL_PRODUCCION' -Message 'Credencial MySQL de ESTA sucursal'
-$env:MYSQL_PWD = $restoreCredential.GetNetworkCredential().Password
+if ($LASTEXITCODE -ne 0) { throw 'No se pudo detener PM2 antes de restaurar' }
+$expectedDatabase = 'importador_papeleria'
+$createPattern = '^CREATE DATABASE(?:\s+/\*![0-9]{5}\s+IF NOT EXISTS\*/|\s+IF NOT EXISTS)\s+`(?<name>[^`]+)`(?:\s+/\*![0-9]{5}\s+(?:DEFAULT CHARACTER SET|DEFAULT COLLATE|COLLATE)\s+[^*]+\*/)*;$'
+$usePattern = '^USE `(?<name>[^`]+)`;$'
+$createLines = @(Select-String -Path 'C:\ruta\exacta\backup.sql' -Pattern '^CREATE DATABASE')
+$useLines = @(Select-String -Path 'C:\ruta\exacta\backup.sql' -Pattern '^USE `')
+if ($createLines.Count -ne 1 -or $useLines.Count -ne 1) { throw 'El dump debe declarar exactamente una sola base' }
+if ($createLines[0].Line -notmatch $createPattern -or $Matches['name'] -cne $expectedDatabase) { throw 'La declaración CREATE DATABASE del dump no es la esperada' }
+if ($useLines[0].Line -notmatch $usePattern -or $Matches['name'] -cne $expectedDatabase) { throw 'La declaración USE del dump no es la esperada' }
+$expectedHost = 'HOST_PRODUCCION_VERIFICADO'
+$expectedPort = 'PUERTO_PRODUCCION_VERIFICADO'
+$expectedMysqlHostname = 'MYSQL_HOSTNAME_REGISTRADO_EN_PREFLIGHT'
+$restoreCredential = $null
 try {
-  & 'C:\xampp\mysql\bin\mysql.exe' --host='127.0.0.1' --port='3306' --user=$restoreCredential.UserName --execute="SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = 'importador_papeleria';"
-  if ($LASTEXITCODE -ne 0) { throw 'No se pudo validar el destino de restauración' }
-  & 'C:\xampp\mysql\bin\mysql.exe' --host='127.0.0.1' --port='3306' --user=$restoreCredential.UserName --execute="DROP DATABASE ``importador_papeleria``; SOURCE C:/ruta/exacta/backup.sql"
+  $restoreCredential = Get-Credential -UserName 'USUARIO_MYSQL_PRODUCCION' -Message 'Credencial MySQL de ESTA sucursal'
+  $env:MYSQL_PWD = $restoreCredential.GetNetworkCredential().Password
+  $identityLines = @(& 'C:\xampp\mysql\bin\mysql.exe' --host=$expectedHost --port=$expectedPort --user=$restoreCredential.UserName --database=$expectedDatabase --batch --skip-column-names --execute="SELECT CONCAT(@@hostname, '|', @@port, '|', DATABASE()); SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = 'importador_papeleria';")
+  if ($LASTEXITCODE -ne 0) { throw 'No se pudo validar el servidor/base de restauración' }
+  $expectedIdentity = "$expectedMysqlHostname|$expectedPort|$expectedDatabase"
+  if ($identityLines.Count -ne 2 -or $identityLines[0].Trim() -cne $expectedIdentity -or $identityLines[1].Trim() -cne '1') { throw 'La identidad, puerto o base de restauración no coincide exactamente con el ticket' }
+  Read-Host 'Identidad exacta comprobada. Escriba RESTAURAR para continuar' | ForEach-Object { if ($_ -cne 'RESTAURAR') { throw 'Restauración cancelada' } }
+  & 'C:\xampp\mysql\bin\mysql.exe' --host=$expectedHost --port=$expectedPort --user=$restoreCredential.UserName --execute="DROP DATABASE ``importador_papeleria``; SOURCE C:/ruta/exacta/backup.sql"
   if ($LASTEXITCODE -ne 0) { throw 'La restauración de emergencia falló' }
 } finally {
   Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue
