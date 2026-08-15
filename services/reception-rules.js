@@ -19,6 +19,53 @@ function round(value, decimals = 4) {
   return Math.round((numeric(value) + Number.EPSILON) * factor) / factor;
 }
 
+function normalizeVatPersistence({
+  proveedor,
+  aplicaIva,
+  aplica_iva,
+  ivaTasa,
+  iva_tasa,
+  costoIncluyeIva,
+  costo_incluye_iva,
+  aplicaDescuento,
+  aplica_descuento,
+  source
+} = {}) {
+  const explicitRate = numeric(ivaTasa ?? iva_tasa ?? source?.ivaDetectado);
+  const persistedIncluded = truthyFlag(costoIncluyeIva ?? costo_incluye_iva ?? source?.costoIncluyeIva);
+  const persistedAplicaIva = truthyFlag(aplicaIva ?? aplica_iva) ? 1 : 0;
+
+  if (persistedIncluded || explicitRate > 0) {
+    return {
+      aplica_iva: persistedAplicaIva,
+      iva_tasa: explicitRate || (persistedIncluded ? 0.16 : 0),
+      costo_incluye_iva: persistedIncluded ? 1 : 0,
+      compatibilidad: null
+    };
+  }
+
+  const legacyTonyXmlDiscounted =
+    providerFrom({ nombre: proveedor }) === 'TONY' &&
+    persistedAplicaIva === 1 &&
+    truthyFlag(aplicaDescuento ?? aplica_descuento);
+
+  if (legacyTonyXmlDiscounted) {
+    return {
+      aplica_iva: 0,
+      iva_tasa: 0.16,
+      costo_incluye_iva: 1,
+      compatibilidad: 'legacy-tony-xml-discounted'
+    };
+  }
+
+  return {
+    aplica_iva: persistedAplicaIva,
+    iva_tasa: explicitRate,
+    costo_incluye_iva: 0,
+    compatibilidad: null
+  };
+}
+
 function providerFrom(emisor) {
   const rfc = String(emisor?.$?.Rfc || emisor?.rfc || '').trim().toUpperCase();
   const nombre = normalizeProvider(emisor);
@@ -109,9 +156,21 @@ function calculateCost({
 } = {}) {
   const costoBase = round(costoUnitario);
   const metadata = source || {};
-  const explicitIvaRate = numeric(ivaTasa ?? iva_tasa ?? metadata.ivaDetectado);
-  const alreadyIncludesVat = truthyFlag(costoIncluyeIva ?? costo_incluye_iva ?? metadata.costoIncluyeIva);
-  const ivaRate = explicitIvaRate || ((alreadyIncludesVat || truthyFlag(aplicaIva ?? aplica_iva)) ? 0.16 : 0);
+  const persistedVat = normalizeVatPersistence({
+    proveedor,
+    aplicaIva,
+    aplica_iva,
+    ivaTasa,
+    iva_tasa,
+    costoIncluyeIva,
+    costo_incluye_iva,
+    aplicaDescuento,
+    aplica_descuento,
+    source: metadata
+  });
+  const explicitIvaRate = numeric(persistedVat.iva_tasa);
+  const alreadyIncludesVat = truthyFlag(persistedVat.costo_incluye_iva);
+  const ivaRate = explicitIvaRate || ((alreadyIncludesVat || truthyFlag(persistedVat.aplica_iva)) ? 0.16 : 0);
   const costoConIva = alreadyIncludesVat
     ? costoBase
     : round(costoBase * (ivaRate > 0 ? (1 + ivaRate) : 1));
@@ -232,6 +291,7 @@ module.exports = {
   buildReceptionSummary,
   calculateCost,
   calculatePresentation,
+  normalizeVatPersistence,
   providerFrom,
   resolveDiscount,
   validateReceptionItems

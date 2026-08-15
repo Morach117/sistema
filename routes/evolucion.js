@@ -4,6 +4,7 @@ const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
 const { authorize } = require('../middleware/authorize');
 const { sendInternalError } = require('../middleware/errors');
+const { normalizeVatPersistence } = require('../services/reception-rules');
 
 router.use(authMiddleware);
 router.use(authorize({ module: 'evolucion-precios', action: 'read' }));
@@ -61,7 +62,18 @@ router.get('/', async (req, res) => {
         const params = [q, q, q, q, q, q, likeQ, likeQ];
 
         const [rows] = await pool.execute(sql, params);
-        res.json({ success: true, data: rows });
+        res.json({
+            success: true,
+            data: rows.map((row) => {
+                const vat = normalizeVatPersistence(row);
+                return {
+                    ...row,
+                    aplica_iva: vat.aplica_iva,
+                    iva_tasa: vat.iva_tasa || null,
+                    costo_incluye_iva: vat.costo_incluye_iva,
+                };
+            })
+        });
     } catch (error) {
         return sendInternalError(error, req, res);
     }

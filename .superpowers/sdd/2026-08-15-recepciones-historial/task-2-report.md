@@ -11,6 +11,7 @@
 - `database/migrations/004_reception_xml_vat_persistence.js`
 - `routes/evolucion.js`
 - `test/database/migrations.test.js`
+- `test/routes/evolucion-compatibility.test.js`
 
 ## RED Commands / Results
 
@@ -76,3 +77,31 @@
 - `buildReceptionSummary` and `validateReceptionItems` are implemented and covered with unit tests, but they are not wired into the reception detail response yet; later tasks can consume them without changing the XML import contract added here.
 - Git reports LF->CRLF warnings for several tracked files in this workspace, but verification found no whitespace or syntax errors.
 - Follow-up fix stores XML VAT persistence in the database with `iva_tasa` and `costo_incluye_iva`, while persisted XML rows keep `aplica_iva = 0` so current Evolución reads cannot double-apply VAT after reload.
+
+## Compatibility Round 2 RED / GREEN
+
+### RED Commands / Results
+
+- `node --test test/services/reception-rules.test.js test/routes/evolucion-compatibility.test.js`
+  - Result: `FAIL`
+  - Evidence:
+    - known `256e140`-style Tony XML row still surfaced as `aplica_iva = 1`, `iva_tasa = null`, `costo_incluye_iva = 0`
+    - `calculateCost(...)` still treated that persisted row as taxable again and returned `31.958` instead of the safe historical path
+
+### GREEN Commands / Results
+
+- `node --test test/services/reception-rules.test.js test/routes/evolucion-compatibility.test.js test/routes/recepciones-upload.test.js`
+  - Result: `PASS`
+  - Evidence: `18` tests passed, `0` failed
+- `git diff --check`
+  - Result: `PASS`
+  - Evidence: no diff errors; only LF->CRLF warnings from Git on this Windows workspace
+- `node --check services/reception-rules.js`
+  - Result: `PASS`
+- `node --check routes/evolucion.js`
+  - Result: `PASS`
+
+### Compatibility Boundary
+
+- The safe historical compatibility path is intentionally narrow and non-destructive: it only normalizes rows that still lack persisted VAT metadata and also match the strongest existing XML-origin evidence in schema data today, namely Tony rows with `aplica_descuento = 1`, which the importer set from XML concept discounts.
+- Ambiguous old rows without that XML-specific signature are left unchanged rather than guessed into `costo_incluye_iva = 1`; they still rely on explicit persisted VAT markers from current imports or later correction/reimport.

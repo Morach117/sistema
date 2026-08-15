@@ -101,6 +101,44 @@ test('calculateCost trusts the persisted costoIncluyeIva flag after reload', () 
   );
 });
 
+test('calculateCost preserves the safe historical path for known 256e140 Tony XML rows', () => {
+  assert.deepEqual(
+    calculateCost({
+      costoUnitario: 29,
+      proveedor: 'TONY',
+      aplica_iva: 1,
+      aplica_descuento: 1
+    }),
+    {
+      costoBase: 29,
+      costoConIva: 29,
+      costoFinal: 27.55,
+      costoPorPieza: 27.55,
+      iva: { detectado: true, porcentaje: 0.16, aplicado: false, yaIncluido: true },
+      descuento: { aplica: true, porcentaje: 0.05, origen: 'xml' }
+    }
+  );
+});
+
+test('calculateCost still taxes legitimate legacy rows that lack the XML signature', () => {
+  assert.deepEqual(
+    calculateCost({
+      costoUnitario: 29,
+      proveedor: 'MANUAL',
+      aplica_iva: 1,
+      aplica_descuento: 0
+    }),
+    {
+      costoBase: 29,
+      costoConIva: 33.64,
+      costoFinal: 33.64,
+      costoPorPieza: 33.64,
+      iva: { detectado: true, porcentaje: 0.16, aplicado: true, yaIncluido: false },
+      descuento: { aplica: false, porcentaje: 0, origen: 'ninguno' }
+    }
+  );
+});
+
 test('validateReceptionItems and buildReceptionSummary surface blocking issues and totals', () => {
   const items = [
     {
