@@ -74,7 +74,10 @@ export function useReceptionEditor(remisionId) {
 
     nextRequest.then(
       () => saveErrorsRef.current.delete(key),
-      (error) => saveErrorsRef.current.set(key, error),
+      (error) => saveErrorsRef.current.set(key, {
+        error,
+        remisionId: variables.remisionId,
+      }),
     )
 
     const clearSettledRequest = () => {
@@ -110,9 +113,10 @@ export function useReceptionEditor(remisionId) {
       if (activeRequests.length > 0) await Promise.allSettled(activeRequests)
     }
 
-    const firstError = saveErrorsRef.current.values().next().value
-    if (firstError) throw firstError
-  }, [startPendingSave])
+    const failedSave = [...saveErrorsRef.current.values()]
+      .find((entry) => entry.remisionId === remisionId)
+    if (failedSave) throw failedSave.error
+  }, [remisionId, startPendingSave])
 
   return {
     draftFields,

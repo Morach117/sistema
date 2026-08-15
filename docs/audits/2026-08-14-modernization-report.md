@@ -100,9 +100,9 @@ La verificación final debe registrarse inmediatamente antes del commit:
 | Comando | Resultado |
 | --- | --- |
 | `node --test` | PASS: 94/94, 0 fallos |
-| `npm.cmd --prefix frontend run test -- --run` | PASS: 8 archivos, 40/40 pruebas |
+| `npm.cmd --prefix frontend run test -- --run` | PASS: 8 archivos, 41/41 pruebas |
 | `npm.cmd --prefix frontend run lint` | PASS (exit 0): 11 warnings heredados, 0 errores |
-| `npm.cmd --prefix frontend run build` | PASS: 2,555 módulos, 2.19 s |
+| `npm.cmd --prefix frontend run build` | PASS: 2,555 módulos, 2.38 s |
 | `git diff --check` | PASS (exit 0); Git sólo avisa normalización LF→CRLF en Windows |
 
 Los 11 warnings de lint son: un aviso `only-export-components`, nueve símbolos/variables sin usar y una dependencia de hook heredada en `AdminTraspasos`. No se introdujeron errores de lint. Ninguna afirmación de despliegue sustituye esta verificación fresca ni la validación contra una copia restaurada por sucursal.

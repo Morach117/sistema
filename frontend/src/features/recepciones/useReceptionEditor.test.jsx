@@ -182,4 +182,26 @@ describe('useReceptionEditor', () => {
     })
     expect(result.current.hasPending).toBe(false)
   })
+
+  it('does not carry a failed field from one reception into actions on another reception', async () => {
+    const saveError = new Error('No se pudo guardar REM-19')
+    api.post.mockRejectedValueOnce(saveError)
+    const { result, rerender } = renderHook(
+      ({ remisionId }) => useReceptionEditor(remisionId),
+      { initialProps: { remisionId: 19 }, wrapper: createWrapper() },
+    )
+
+    act(() => result.current.saveField(7, 'cantidad', '12'))
+    let failedReceptionFlush
+    await act(async () => {
+      failedReceptionFlush = expect(result.current.flushAndWait()).rejects.toBe(saveError)
+      await failedReceptionFlush
+    })
+
+    rerender({ remisionId: 20 })
+
+    await act(async () => {
+      await expect(result.current.flushAndWait()).resolves.toBeUndefined()
+    })
+  })
 })
