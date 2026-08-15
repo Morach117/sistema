@@ -9,9 +9,11 @@ Completado.
 - RED:
   - Se añadieron pruebas que fallaban porque `ENVIADO` y `REVISION` todavía permitían acciones administrativas de historial.
   - Se añadió una prueba que fallaba porque la reimportación XML pendiente actualizaba encabezado e ítems sin escribir `recepcion_bitacora`.
+  - Se añadió una prueba que fallaba porque la reimportación XML pendiente insertaba ítems nuevos por `codigo_proveedor` sin escribir `recepcion_bitacora`.
 - GREEN:
   - El historial ahora permite editar, anotar y exportar solo cuando la remisión está exactamente en `PENDIENTE`; `ENVIADO` y `REVISION` quedan en solo lectura.
   - La reimportación XML pendiente escribe bitácora transaccional para cambios de proveedor y campos de factura actualizados.
+  - La reimportación XML pendiente ahora también audita, en la misma transacción, la inserción de ítems nuevos detectados por `codigo_proveedor`, con valores `old/new` y actor.
 
 ## Entregado
 
@@ -43,9 +45,10 @@ Completado.
 - `node --test test/services/recepciones-service.test.js`
   - Resultado: 20/20 pruebas pasan.
 - `node --test test/routes/historial-recepciones.test.js test/routes/recepciones-upload.test.js test/routes/recepciones-preview.test.js test/routes/authz.test.js test/services/recepciones-service.test.js`
-  - Resultado: 52/52 pruebas pasan.
+  - Resultado: 53/53 pruebas pasan.
 
 ## Notas
 
 - No se añadieron endpoints de borrado.
 - Las remisiones finalizadas quedan en solo lectura para historial; exportación y edición responden error de estado.
+- En la ruta de reimportación XML pendiente, los ítems nuevos insertados en `historial_items` ahora escriben `recepcion_bitacora` dentro de la misma transacción del alta.

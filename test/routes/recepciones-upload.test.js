@@ -331,6 +331,10 @@ test('new XML items persist detected IVA and concept discount flags', async () =
         writes.push([normalized, params]);
         return [{ insertId: 90 }, []];
       }
+      if (/INSERT INTO recepcion_bitacora/i.test(normalized)) {
+        writes.push([normalized, params]);
+        return [{ insertId: 91 }, []];
+      }
       assert.fail(`unexpected SQL: ${normalized}`);
     },
     async commit() {},
@@ -349,9 +353,64 @@ test('new XML items persist detected IVA and concept discount flags', async () =
     ), { filename: 'nuevo.xml', contentType: 'application/xml' });
 
   assert.equal(response.status, 200, response.text);
-  assert.equal(writes.length, 1);
-  assert.match(writes[0][0], /aplica_iva, iva_tasa, costo_incluye_iva, aplica_descuento\) VALUES \(\?, \?, \?, \?, \?, 0, 0, 1, \?, \?, \?, \?\)/);
-  assert.deepEqual(writes[0][1], [33, 'SKU-9', 'Nuevo', 4, 29, 0, 0.16, 1, 1]);
+  const itemInsert = writes.find(([sql]) => /INSERT INTO historial_items/.test(sql));
+  assert.ok(itemInsert, `missing inserted item write: ${JSON.stringify(writes)}`);
+  assert.match(itemInsert[0], /aplica_iva, iva_tasa, costo_incluye_iva, aplica_descuento\) VALUES \(\?, \?, \?, \?, \?, 0, 0, 1, \?, \?, \?, \?\)/);
+  assert.deepEqual(itemInsert[1], [33, 'SKU-9', 'Nuevo', 4, 29, 0, 0.16, 1, 1]);
+});
+
+test('reimporting a pending XML with a new provider code writes recepcion_bitacora for the inserted item', async () => {
+  const events = [];
+  const connection = {
+    async beginTransaction() { events.push('begin'); },
+    async execute(sql, params) {
+      const normalized = sql.replace(/\s+/g, ' ').trim();
+      events.push(['execute', normalized, params]);
+      if (/SELECT id, estado FROM historial_remisiones/.test(normalized)) {
+        return [[{ id: 33, estado: 'PENDIENTE' }], []];
+      }
+      if (/SELECT proveedor FROM historial_remisiones WHERE id = \? LIMIT 1/.test(normalized)) {
+        return [[{ proveedor: 'TONY' }], []];
+      }
+      if (/UPDATE historial_remisiones SET fecha_carga = NOW\(\), proveedor = \? WHERE id = \?/.test(normalized)) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (/SELECT id FROM historial_items WHERE remision_id = \? AND codigo_proveedor = \? LIMIT 1/.test(normalized)) {
+        return [[], []];
+      }
+      if (/INSERT INTO historial_items/.test(normalized)) {
+        return [{ insertId: 190 }, []];
+      }
+      if (/INSERT INTO recepcion_bitacora/i.test(normalized)) {
+        return [{ insertId: 191 }, []];
+      }
+      assert.fail(`unexpected SQL: ${normalized}`);
+    },
+    async commit() { events.push('commit'); },
+    async rollback() { events.push('rollback'); },
+    release() { events.push('release'); }
+  };
+  const app = express();
+  app.use('/api/recepciones', loadRouterWithDatabase({ async getConnection() { return connection; } }));
+  const token = jwt.sign({ id: 27, rol: 'admin', permisos: ['recepciones'] }, jwtSecret);
+
+  const response = await request(app)
+    .post('/api/recepciones/upload')
+    .set('Authorization', `Bearer ${token}`)
+    .attach('archivo_factura', Buffer.from(
+      '<?xml version="1.0"?><cfdi:Comprobante xmlns:cfdi="urn:cfdi" Serie="N" Folio="3"><cfdi:Emisor Rfc="TTI961202IM1" Nombre="Tony"/><cfdi:Conceptos><cfdi:Concepto NoIdentificacion="SKU-NUEVO-AUDIT" Descripcion="Nuevo auditado" Cantidad="4" ValorUnitario="25" Descuento="1"><cfdi:Impuestos><cfdi:Traslados><cfdi:Traslado Impuesto="002" TasaOCuota="0.160000" /></cfdi:Traslados></cfdi:Impuestos></cfdi:Concepto></cfdi:Conceptos></cfdi:Comprobante>'
+    ), { filename: 'nuevo-audit.xml', contentType: 'application/xml' });
+
+  assert.equal(response.status, 200, response.text);
+  const insertIndex = events.findIndex((event) => Array.isArray(event) && /INSERT INTO historial_items/i.test(event[1]));
+  const auditStatement = events.find((event) => Array.isArray(event)
+    && /INSERT INTO recepcion_bitacora/i.test(event[1])
+    && JSON.stringify(event[2]) === JSON.stringify([33, 190, 27, 'cantidad', null, '4']));
+  assert.notEqual(insertIndex, -1);
+  assert.ok(auditStatement, `missing inserted-item audit row: ${JSON.stringify(events)}`);
+  const auditIndex = events.findIndex((event) => event === auditStatement);
+  assert.ok(auditIndex > insertIndex, `expected new-item audit after insert in same transaction: ${JSON.stringify(events)}`);
+  assert.deepEqual(events.slice(-2), ['commit', 'release']);
 });
 
 test('persisted XML cost stays IVA-included after reload instead of being taxed twice', async () => {
@@ -382,6 +441,9 @@ test('persisted XML cost stays IVA-included after reload instead of being taxed 
           proveedor: 'TONY'
         };
         return [{ insertId: 91 }, []];
+      }
+      if (/INSERT INTO recepcion_bitacora/i.test(normalized)) {
+        return [{ insertId: 92 }, []];
       }
       assert.fail(`unexpected SQL: ${normalized}`);
     },

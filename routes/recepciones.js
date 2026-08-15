@@ -472,10 +472,24 @@ async function saveParsedReception(connection, parsed, actorId) {
                     [item.descripcion_original, item.cantidad, item.costo_unitario, existing[0].id]
                 );
             } else if (parsed.format === 'xml') {
-                await connection.execute(
+                const [insertResult] = await connection.execute(
                     `INSERT INTO historial_items (remision_id, codigo_proveedor, descripcion_original, cantidad, costo_unitario, existencia_lapiz, es_paquete, piezas_por_paquete, aplica_iva, iva_tasa, costo_incluye_iva, aplica_descuento) VALUES (?, ?, ?, ?, ?, 0, 0, 1, ?, ?, ?, ?)`,
                     [idRem, item.codigo_proveedor, item.descripcion_original, item.cantidad, item.costo_unitario, persistedAplicaIva, persistedIvaRate, costoIncluyeIva, item.aplica_descuento]
                 );
+                await auditReceptionFieldChanges(connection, {
+                    remisionId: idRem,
+                    itemId: insertResult.insertId,
+                    actorId,
+                    changes: [
+                        { field: 'descripcion_original', previousValue: null, nextValue: item.descripcion_original },
+                        { field: 'cantidad', previousValue: null, nextValue: item.cantidad },
+                        { field: 'costo_unitario', previousValue: null, nextValue: item.costo_unitario },
+                        { field: 'aplica_iva', previousValue: null, nextValue: persistedAplicaIva },
+                        { field: 'iva_tasa', previousValue: null, nextValue: persistedIvaRate },
+                        { field: 'costo_incluye_iva', previousValue: null, nextValue: costoIncluyeIva },
+                        { field: 'aplica_descuento', previousValue: null, nextValue: item.aplica_descuento }
+                    ]
+                });
             } else {
                 await connection.execute(
                     `INSERT INTO historial_items (remision_id, codigo_proveedor, descripcion_original, cantidad, costo_unitario, existencia_lapiz, es_paquete, piezas_por_paquete, aplica_iva, aplica_descuento) VALUES (?, ?, ?, ?, ?, ?, 0, 1, 1, 0)`,
