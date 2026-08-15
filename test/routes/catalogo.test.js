@@ -51,3 +51,34 @@ test('uses bounded parameters in the DataTables catalog query', async () => {
     database.execute = originalExecute;
   }
 });
+
+for (const [method, path, requestInput] of [
+  ['post', '/dt', { body: { start: '100001', length: '10' }, query: {} }],
+  ['get', '/list', { body: {}, query: { page: '10002', limit: '10' } }]
+]) {
+  test(`rejects excessive pagination before querying ${path}`, async () => {
+    const originalExecute = database.execute;
+    let queryCount = 0;
+    database.execute = async () => {
+      queryCount += 1;
+      return [[], []];
+    };
+
+    try {
+      const response = responseRecorder();
+      await routeHandler(catalogoRouter, method, path)(
+        { ...requestInput, requestId: 'catalog-pagination-request' },
+        response
+      );
+
+      assert.equal(queryCount, 0);
+      assert.equal(response.statusCode, 400);
+      assert.deepEqual(response.body, {
+        error: 'Paginaci\u00f3n fuera de rango.',
+        requestId: 'catalog-pagination-request'
+      });
+    } finally {
+      database.execute = originalExecute;
+    }
+  });
+}

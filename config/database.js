@@ -1,6 +1,7 @@
 const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
+const { log } = require('../utils/logger');
 require('dotenv').config();
 
 // Leer el puerto activo que ya se determinó y guardó en caché (compartido con PHP/Migraciones)
@@ -36,7 +37,13 @@ function createBoundedPool(rawPool, { acquireTimeoutMs = ACQUIRE_TIMEOUT_MS } = 
             clearTimeout(timeout);
             if (timedOut) {
                 connectionPromise
-                    .then((connection) => connection.release())
+                    .then((connection) => {
+                        try {
+                            connection.release();
+                        } catch (error) {
+                            log('error', 'Late database connection release failed', { error });
+                        }
+                    })
                     .catch(() => {});
             }
         }

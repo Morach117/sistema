@@ -146,7 +146,12 @@ router.post('/agregar_variante', authorize({ module: 'captura', action: 'write' 
                 `INSERT INTO logs_sistema (usuario_id, accion, modulo, detalles, fecha) VALUES (?, 'VARIANTE', 'CAPTURA', ?, NOW())`,
                 [req.user?.id || 1, `Nueva variante global para suelto ${clave_sicar}: ${descripcion} (${factor}pz)`]
             );
-        } catch(e) {}
+        } catch (error) {
+            log('error', 'Failed to record VARIANTE audit event', {
+                requestId: req.requestId,
+                error
+            });
+        }
 
         res.json({ success: true });
     } catch (error) {
@@ -213,7 +218,12 @@ router.post('/guardar', authorize({ module: 'captura', action: 'write' }), async
                         "INSERT INTO logs_sistema (usuario_id, accion, modulo, detalles, fecha) VALUES (?, 'VINCULAR', 'CAPTURA', ?, NOW())",
                         [usuario_id, `Nuevo código vinculado: ${codigo} -> ${clave_sicar} (${numFactor} pz)`]
                     );
-                } catch(e) {}
+                } catch (error) {
+                    log('error', 'Failed to record VINCULAR audit event', {
+                        requestId: req.requestId,
+                        error
+                    });
+                }
             }
         } else {
             // Actualizar modo_preferido
@@ -468,7 +478,12 @@ router.post('/corregir_captura', authorize({ module: 'auditoria', action: 'write
                 `INSERT INTO logs_sistema (usuario_id, accion, modulo, detalles, fecha) VALUES (?, 'CORREGIR', 'CAPTURA', ?, NOW())`,
                 [req.user?.id || 1, notas]
             );
-        } catch(e) {}
+        } catch (error) {
+            log('error', 'Failed to record CORREGIR audit event', {
+                requestId: req.requestId,
+                error
+            });
+        }
 
         res.json({ success: true, nueva_desc, nuevo_total, nueva_clave_sicar, factor });
     } catch (error) {

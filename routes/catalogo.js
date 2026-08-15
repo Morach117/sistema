@@ -7,6 +7,14 @@ const { sendInternalError } = require('../middleware/errors');
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 100;
+const MAX_OFFSET = 100_000;
+
+function paginationError() {
+    const error = new RangeError('Paginaci\u00f3n fuera de rango.');
+    error.status = 400;
+    error.isPublic = true;
+    return error;
+}
 
 function positiveInteger(value, fallback) {
     const parsed = Number.parseInt(value, 10);
@@ -20,11 +28,13 @@ function parsePagination(query = {}) {
     if (query.start !== undefined) {
         const parsedStart = Number.parseInt(query.start, 10);
         const offset = Number.isSafeInteger(parsedStart) && parsedStart >= 0 ? parsedStart : 0;
+        if (offset > MAX_OFFSET) throw paginationError();
         return { offset, limit };
     }
 
     const page = positiveInteger(query.page, 1);
-    const offset = Math.min((page - 1) * limit, Number.MAX_SAFE_INTEGER);
+    const offset = (page - 1) * limit;
+    if (!Number.isSafeInteger(offset) || offset > MAX_OFFSET) throw paginationError();
     return { offset, limit };
 }
 
@@ -35,10 +45,10 @@ router.use(authorize({ module: 'catalogo', action: 'read' }));
 // Endpoint for DataTables (Server-side processing)
 router.post('/dt', async (req, res) => {
     const draw = parseInt(req.body.draw) || 1;
-    const { offset, limit } = parsePagination(req.body);
     const searchValue = req.body.search && req.body.search.value ? req.body.search.value : '';
 
     try {
+        const { offset, limit } = parsePagination(req.body);
         const [totalRows] = await pool.execute('SELECT COUNT(*) as count FROM cat_productos');
         const recordsTotal = totalRows[0].count;
 
@@ -73,11 +83,11 @@ router.post('/dt', async (req, res) => {
 
 // Endpoint REST estándar para paginación server-side con React
 router.get('/list', async (req, res) => {
-    const { offset, limit } = parsePagination(req.query);
-    const page = Math.floor(offset / limit) + 1;
     const search = req.query.search || '';
 
     try {
+        const { offset, limit } = parsePagination(req.query);
+        const page = Math.floor(offset / limit) + 1;
         let sql = 'SELECT * FROM cat_productos ';
         let countSql = 'SELECT COUNT(*) as count FROM cat_productos ';
         let params = [];

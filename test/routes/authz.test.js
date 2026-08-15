@@ -8,6 +8,7 @@ const { createApp } = require('../../app');
 const { request } = require('../helpers/app');
 const { savePermissions } = require('../../routes/usuarios');
 const { createAuthRouter, createLoginLimiter } = require('../../routes/auth');
+const { requestContext } = require('../../middleware/request-context');
 
 test('rejects unauthenticated Excel exports', async () => {
   const bodyToken = jwt.sign({ id: 7, rol: 'admin', permisos: [] }, jwtSecret);
@@ -224,6 +225,35 @@ test('performs password hash work before rejecting an unknown account', async ()
   assert.equal(comparisons.length, 1);
   assert.equal(comparisons[0][0], 'incorrecta');
   assert.match(comparisons[0][1], /^\$2[aby]\$10\$/);
+});
+
+test('returns the common safe error with a request ID when login fails internally', async () => {
+  const app = express();
+  app.use(requestContext);
+  app.use(express.json());
+  app.use(createAuthRouter({
+    database: { async execute() { throw new Error('private login database failure'); } },
+    loginLimiter: (_req, _res, next) => next(),
+    jwtSecret
+  }));
+  const originalError = console.error;
+  console.error = () => {};
+
+  try {
+    const response = await request(app)
+      .post('/login')
+      .send({ usuario: 'admin', password: 'incorrecta' });
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(response.body, {
+      success: false,
+      error: 'Ocurri\u00f3 un error interno.',
+      requestId: response.headers['x-request-id']
+    });
+    assert.doesNotMatch(response.text, /private login database failure/);
+  } finally {
+    console.error = originalError;
+  }
 });
 
 test('limits repeated login attempts', async () => {

@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { rateLimit } = require('express-rate-limit');
 const pool = require('../config/database');
+const { sendInternalError } = require('../middleware/errors');
 const { log } = require('../utils/logger');
 
 const GENERIC_LOGIN_FAILURE = { success: false, error: 'Credenciales inválidas.' };
@@ -83,11 +84,7 @@ function createAuthRouter({
 
       return res.json({ success: true, token, user: payload });
     } catch (error) {
-      log('error', 'Unhandled login error', {
-        requestId: req.requestId,
-        error
-      });
-      return res.status(500).json({ success: false, error: 'Error interno del servidor' });
+      return sendInternalError(error, req, res);
     }
   });
 
