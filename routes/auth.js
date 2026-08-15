@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { rateLimit } = require('express-rate-limit');
 const pool = require('../config/database');
+const { log } = require('../utils/logger');
 
 const GENERIC_LOGIN_FAILURE = { success: false, error: 'Credenciales inválidas.' };
 const DUMMY_PASSWORD_HASH = '$2a$10$gp4V0L4mG/1A91ACT5aEde2z6UpWwE/iGLRZ0EYIiVHPK0RZC2Wx.';
@@ -74,12 +75,18 @@ function createAuthRouter({
           [user.id]
         );
       } catch (error) {
-        console.error('Error logging login', error);
+        log('error', 'Failed to record login audit event', {
+          requestId: req.requestId,
+          error
+        });
       }
 
       return res.json({ success: true, token, user: payload });
     } catch (error) {
-      console.error(error);
+      log('error', 'Unhandled login error', {
+        requestId: req.requestId,
+        error
+      });
       return res.status(500).json({ success: false, error: 'Error interno del servidor' });
     }
   });

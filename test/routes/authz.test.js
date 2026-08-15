@@ -138,6 +138,35 @@ test('rolls back permission changes when an insert fails', async () => {
   assert.deepEqual(events.slice(-2), ['rollback', 'release']);
 });
 
+test('correlates permission rollback and release failures', async () => {
+  const originalError = console.error;
+  const logged = [];
+  console.error = (entry) => logged.push(JSON.parse(entry));
+  const connection = {
+    async beginTransaction() {},
+    async execute(statement) {
+      if (statement.startsWith('INSERT')) throw new Error('insert failed');
+    },
+    async rollback() { throw new Error('rollback failed'); },
+    release() { throw new Error('release failed'); }
+  };
+
+  try {
+    await assert.rejects(
+      () => savePermissions(
+        { usuario_id: 4, permisos: ['bodega'], requestId: 'permissions-request' },
+        { async getConnection() { return connection; } }
+      ),
+      /insert failed/
+    );
+
+    assert.equal(logged.length, 2);
+    assert.ok(logged.every((entry) => entry.context.requestId === 'permissions-request'));
+  } finally {
+    console.error = originalError;
+  }
+});
+
 test('uses one generic 401 response for every credential failure', async () => {
   const genericFailure = { success: false, error: 'Credenciales inválidas.' };
   const scenarios = [

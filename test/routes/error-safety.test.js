@@ -68,11 +68,17 @@ for (const [module, makeRequest] of failingRequests) {
 
       assert.equal(response.status, 500);
       assert.deepEqual(response.body, {
-        error: 'Internal server error',
+        success: false,
+        error: 'Ocurri\u00f3 un error interno.',
         requestId: response.headers['x-request-id']
       });
       assert.doesNotMatch(response.text, /private_secret/);
       assert.ok(logged.length > 0, 'internal error must be logged server-side');
+      const structuredLogs = logged.map(([entry]) => JSON.parse(entry));
+      assert.ok(
+        structuredLogs.every((entry) => entry.context?.requestId === response.body.requestId),
+        'every request error log must carry the request ID'
+      );
     } finally {
       console.error = originalError;
     }
@@ -105,7 +111,8 @@ test('connection acquisition failures receive the safe 500 response', async () =
     ));
     assert.equal(response.statusCode, 500);
     assert.deepEqual(response.body, {
-      error: 'Internal server error',
+      success: false,
+      error: 'Ocurri\u00f3 un error interno.',
       requestId: 'request-transaction'
     });
   } finally {
@@ -127,7 +134,8 @@ test('rollback failures do not replace the original safe 500 response', async ()
     ));
     assert.equal(response.statusCode, 500);
     assert.deepEqual(response.body, {
-      error: 'Internal server error',
+      success: false,
+      error: 'Ocurri\u00f3 un error interno.',
       requestId: 'request-transaction'
     });
   } finally {

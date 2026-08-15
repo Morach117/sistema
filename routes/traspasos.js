@@ -36,7 +36,6 @@ router.get('/buscar', authorize({ module: 'traspasos', action: 'read' }), async 
             return res.status(404).json({ success: false, error: 'Producto no encontrado en el catálogo' });
         }
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -71,7 +70,6 @@ router.post('/guardar', authorize({ module: 'traspasos', action: 'write' }), asy
         res.json({ success: true, message: `Orden de traspaso #${traspaso_id} guardada con éxito.` });
     } catch (error) {
         await rollbackTransaction(connection, req.requestId);
-        console.error(error);
         return sendInternalError(error, req, res);
     } finally {
         releaseConnection(connection, req.requestId);
@@ -92,7 +90,6 @@ router.get('/admin_list', authorize({ module: 'admin-traspasos', action: 'read' 
         const [rows] = await pool.execute(sql);
         res.json({ success: true, data: rows });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -110,7 +107,6 @@ router.get('/:id', authorize({ module: 'admin-traspasos', action: 'read' }), asy
         const [rows] = await pool.execute(sql, [req.params.id]);
         res.json({ success: true, data: rows });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -139,7 +135,6 @@ router.post('/completar', authorize({ module: 'admin-traspasos', action: 'write'
         if (error.statusCode === 409 || error.statusCode === 422) {
             return res.status(error.statusCode).json({ success: false, error: error.message });
         }
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });

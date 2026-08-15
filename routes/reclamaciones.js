@@ -23,7 +23,6 @@ router.get('/', async (req, res) => {
         const [rows] = await pool.execute(sql);
         res.json({ success: true, data: rows });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -35,7 +34,6 @@ router.get('/:id', async (req, res) => {
         const [items] = await pool.execute(sql, [req.params.id]);
         res.json({ success: true, items });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -45,10 +43,9 @@ router.post('/recontar', authorize({ module: 'reclamaciones', action: 'write' })
     const { id_item, nuevo_valor } = req.body;
     try {
         await pool.execute(`UPDATE historial_items SET existencia_lapiz = ? WHERE id = ?`, [nuevo_valor, id_item]);
-        await logAudit(req.user.id, 'RECONTAR_RECLAMACION', `Reconteo de item ID ${id_item} a ${nuevo_valor}`);
+        await logAudit(req.user.id, 'RECONTAR_RECLAMACION', `Reconteo de item ID ${id_item} a ${nuevo_valor}`, req.requestId);
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -59,10 +56,9 @@ router.post('/validar', authorize({ module: 'reclamaciones', action: 'write' }),
     const { id_item } = req.body;
     try {
         await pool.execute(`UPDATE historial_items SET revision_pendiente = 0 WHERE id = ?`, [id_item]);
-        await logAudit(req.user.id, 'VALIDAR_RECLAMACION', `Item ID ${id_item} validado`);
+        await logAudit(req.user.id, 'VALIDAR_RECLAMACION', `Item ID ${id_item} validado`, req.requestId);
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });

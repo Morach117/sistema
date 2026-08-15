@@ -4,6 +4,7 @@ const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
 const { authorize, denyAccess } = require('../middleware/authorize');
 const { sendInternalError } = require('../middleware/errors');
+const { log } = require('../utils/logger');
 
 router.use(authMiddleware);
 
@@ -127,7 +128,6 @@ router.post('/verificar', authorize({ module: 'captura', action: 'read' }), asyn
         }
 
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -150,7 +150,6 @@ router.post('/agregar_variante', authorize({ module: 'captura', action: 'write' 
 
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -177,11 +176,15 @@ router.post('/revincular', authorize({ module: 'captura', action: 'write' }), as
                 `INSERT INTO logs_sistema (usuario_id, accion, modulo, detalles, fecha) VALUES (?, 'REVINCULAR', 'CAPTURA', ?, NOW())`,
                 [req.user?.id || 1, notas]
             );
-        } catch(e) { console.error('Error log REVINCULAR:', e); }
+        } catch (error) {
+            log('error', 'Failed to record REVINCULAR audit event', {
+                requestId: req.requestId,
+                error
+            });
+        }
 
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -233,12 +236,14 @@ router.post('/guardar', authorize({ module: 'captura', action: 'write' }), async
                 [usuario_id, `Captura ${tipo_uso || 'VENTA'}: ${descripcion_actual} (${codigo}) - Total: ${total_unidades} pzs`]
             );
         } catch (e) {
-            console.error('Non-critical audit log insert error:', e);
+            log('error', 'Failed to record CAPTURA audit event', {
+                requestId: req.requestId,
+                error: e
+            });
         }
 
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -254,7 +259,6 @@ router.get('/historial', authorize({ module: 'captura', action: 'read' }), async
         const [rows] = await pool.execute(sql);
         res.json({ success: true, data: rows });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -286,7 +290,6 @@ router.get('/admin_list', authorize({ module: 'auditoria', action: 'read' }), as
         const [rows] = await pool.execute(sql, params);
         res.json({ success: true, data: rows });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -302,7 +305,6 @@ router.post('/marcar_exportados', authorize({ module: 'auditoria', action: 'writ
         await pool.execute(`UPDATE historial_rapido SET exportado = 1 WHERE id IN (${placeholders})`, ids);
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -322,7 +324,6 @@ router.post('/eliminar', authorize({ module: 'captura', action: 'write' }), asyn
         await pool.execute('UPDATE historial_rapido SET estatus = 0 WHERE id = ?', [id]);
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -344,11 +345,15 @@ router.post('/registrar_descarga', authorize({ module: 'auditoria', action: 'wri
                 `INSERT INTO logs_sistema (usuario_id, accion, modulo, detalles, fecha) VALUES (?, 'DESCARGAR', 'AUDITORIA', ?, NOW())`,
                 [req.user.id || 1, `Exportación ${tipo_exportacion} (${total_registros} registros)`]
             );
-        } catch(e) { console.error('Error log DESCARGAR:', e); }
+        } catch (error) {
+            log('error', 'Failed to record DESCARGAR audit event', {
+                requestId: req.requestId,
+                error
+            });
+        }
 
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -367,7 +372,6 @@ router.get('/historial_descargas', authorize({ module: 'auditoria', action: 'rea
         const [rows] = await pool.execute(sql);
         res.json({ success: true, data: rows });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -386,7 +390,6 @@ router.get('/logs_sistema', authorize({ module: 'auditoria', action: 'read' }), 
         const [rows] = await pool.execute(sql);
         res.json({ success: true, data: rows });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -399,7 +402,6 @@ router.get('/factores/:clave', authorize({ module: 'captura', action: 'read' }),
         const factores = rows.map(r => r.factor).filter(f => f > 1);
         res.json({ success: true, data: factores });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -470,7 +472,6 @@ router.post('/corregir_captura', authorize({ module: 'auditoria', action: 'write
 
         res.json({ success: true, nueva_desc, nuevo_total, nueva_clave_sicar, factor });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });

@@ -17,7 +17,7 @@ function validationError(message) {
     return error;
 }
 
-async function savePermissions({ usuario_id, permisos }, database = pool) {
+async function savePermissions({ usuario_id, permisos, requestId }, database = pool) {
     if (!Number.isInteger(usuario_id) || usuario_id <= 0) {
         throw validationError('El usuario_id debe ser un entero positivo.');
     }
@@ -45,10 +45,10 @@ async function savePermissions({ usuario_id, permisos }, database = pool) {
         }
         await connection.commit();
     } catch (error) {
-        await rollbackTransaction(connection);
+        await rollbackTransaction(connection, requestId);
         throw error;
     } finally {
-        releaseConnection(connection);
+        releaseConnection(connection, requestId);
     }
 }
 
@@ -73,7 +73,7 @@ router.post('/guardar', authorize({ module: 'usuarios', action: 'write' }), asyn
             if (!password) throw new Error("Contraseña requerida");
             const hash = await bcrypt.hash(password, 10);
             await pool.execute('INSERT INTO usuarios (nombre, usuario, password, rol) VALUES (?, ?, ?, ?)', [nombre, usuario, hash, rol]);
-            await logAudit(req.user.id, 'CREAR_USUARIO', `Creado usuario ${usuario} (${rol})`);
+            await logAudit(req.user.id, 'CREAR_USUARIO', `Creado usuario ${usuario} (${rol})`, req.requestId);
         } else {
             // Editar
             if (password) {
@@ -82,7 +82,7 @@ router.post('/guardar', authorize({ module: 'usuarios', action: 'write' }), asyn
             } else {
                 await pool.execute('UPDATE usuarios SET nombre=?, usuario=?, rol=? WHERE id=?', [nombre, usuario, rol, id]);
             }
-            await logAudit(req.user.id, 'EDITAR_USUARIO', `Editado usuario ID ${id} (${usuario})`);
+            await logAudit(req.user.id, 'EDITAR_USUARIO', `Editado usuario ID ${id} (${usuario})`, req.requestId);
         }
         res.json({ success: true });
     } catch (error) {
@@ -95,7 +95,7 @@ router.post('/eliminar', authorize({ module: 'usuarios', action: 'write' }), asy
     const { id } = req.body;
     try {
         await pool.execute('DELETE FROM usuarios WHERE id = ?', [id]);
-        await logAudit(req.user.id, 'ELIMINAR_USUARIO', `Eliminado usuario ID ${id}`);
+        await logAudit(req.user.id, 'ELIMINAR_USUARIO', `Eliminado usuario ID ${id}`, req.requestId);
         res.json({ success: true });
     } catch (error) {
         return sendInternalError(error, req, res);
@@ -133,8 +133,8 @@ router.post('/permisos/guardar', authorize({ module: 'usuarios', action: 'write'
     if (req.user.rol !== 'admin') return denyAccess(res);
     const { usuario_id, modulos } = req.body;
     try {
-        await savePermissions({ usuario_id, permisos: modulos });
-        await logAudit(req.user.id, 'EDITAR_PERMISOS', `Editados permisos de usuario ID ${usuario_id}`);
+        await savePermissions({ usuario_id, permisos: modulos, requestId: req.requestId });
+        await logAudit(req.user.id, 'EDITAR_PERMISOS', `Editados permisos de usuario ID ${usuario_id}`, req.requestId);
         res.json({ success: true });
     } catch (error) {
         if (error.status === 400 && error.isPublic === true) {

@@ -5,6 +5,29 @@ const authMiddleware = require('../middleware/auth');
 const { authorize } = require('../middleware/authorize');
 const { sendInternalError } = require('../middleware/errors');
 
+const DEFAULT_LIMIT = 10;
+const MAX_LIMIT = 100;
+
+function positiveInteger(value, fallback) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parsePagination(query = {}) {
+    const limitKey = query.length === undefined ? 'limit' : 'length';
+    const limit = Math.min(positiveInteger(query[limitKey], DEFAULT_LIMIT), MAX_LIMIT);
+
+    if (query.start !== undefined) {
+        const parsedStart = Number.parseInt(query.start, 10);
+        const offset = Number.isSafeInteger(parsedStart) && parsedStart >= 0 ? parsedStart : 0;
+        return { offset, limit };
+    }
+
+    const page = positiveInteger(query.page, 1);
+    const offset = Math.min((page - 1) * limit, Number.MAX_SAFE_INTEGER);
+    return { offset, limit };
+}
+
 // Middleware to protect routes
 router.use(authMiddleware);
 router.use(authorize({ module: 'catalogo', action: 'read' }));
@@ -12,8 +35,7 @@ router.use(authorize({ module: 'catalogo', action: 'read' }));
 // Endpoint for DataTables (Server-side processing)
 router.post('/dt', async (req, res) => {
     const draw = parseInt(req.body.draw) || 1;
-    const start = parseInt(req.body.start) || 0;
-    const length = parseInt(req.body.length) || 10;
+    const { offset, limit } = parsePagination(req.body);
     const searchValue = req.body.search && req.body.search.value ? req.body.search.value : '';
 
     try {
@@ -35,8 +57,8 @@ router.post('/dt', async (req, res) => {
         const [filteredRows] = await pool.execute(countSql, params);
         const recordsFiltered = filteredRows[0].count;
 
-        sql += ` ORDER BY fecha_actualizacion DESC LIMIT ${start}, ${length}`;
-        const [data] = await pool.execute(sql, params);
+        sql += ' ORDER BY fecha_actualizacion DESC LIMIT ? OFFSET ?';
+        const [data] = await pool.execute(sql, [...params, limit, offset]);
 
         res.json({
             draw,
@@ -51,10 +73,9 @@ router.post('/dt', async (req, res) => {
 
 // Endpoint REST estándar para paginación server-side con React
 router.get('/list', async (req, res) => {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const { offset, limit } = parsePagination(req.query);
+    const page = Math.floor(offset / limit) + 1;
     const search = req.query.search || '';
-    const offset = (page - 1) * limit;
 
     try {
         let sql = 'SELECT * FROM cat_productos ';
@@ -72,8 +93,8 @@ router.get('/list', async (req, res) => {
         const [totalRows] = await pool.execute(countSql, params);
         const total = totalRows[0].count;
 
-        sql += ` ORDER BY fecha_actualizacion DESC LIMIT ${offset}, ${limit}`;
-        const [data] = await pool.execute(sql, params);
+        sql += ' ORDER BY fecha_actualizacion DESC LIMIT ? OFFSET ?';
+        const [data] = await pool.execute(sql, [...params, limit, offset]);
 
         res.json({
             data,
@@ -90,3 +111,4 @@ router.get('/list', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.parsePagination = parsePagination;

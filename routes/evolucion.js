@@ -61,7 +61,6 @@ router.get('/', async (req, res) => {
         const [rows] = await pool.execute(sql, params);
         res.json({ success: true, data: rows });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });

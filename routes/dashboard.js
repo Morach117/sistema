@@ -10,19 +10,25 @@ router.use(authorize({ module: 'dashboard', action: 'read' }));
 
 router.get('/', async (req, res) => {
     try {
-        const [pendientesRows] = await pool.execute("SELECT COUNT(*) as count FROM historial_remisiones WHERE estado IN ('PENDIENTE', 'REVISION')");
-        const pendientes = pendientesRows[0].count;
-
-        const [finalizadasHoyRows] = await pool.execute("SELECT COUNT(*) as count FROM historial_remisiones WHERE estado = 'FINALIZADO' AND DATE(fecha_carga) = CURDATE()");
-        const finalizadasHoy = finalizadasHoyRows[0].count;
-
-        const [totalItemsRows] = await pool.execute("SELECT COUNT(*) as count FROM historial_items");
-        const totalItems = totalItemsRows[0].count;
+        const [summaryRows] = await pool.execute(`
+            SELECT
+                (SELECT COUNT(*) FROM historial_remisiones WHERE estado IN (?, ?)) AS pendientes,
+                (SELECT COUNT(*) FROM historial_remisiones
+                    WHERE estado = ?
+                      AND fecha_carga >= CURRENT_DATE
+                      AND fecha_carga < CURRENT_DATE + INTERVAL 1 DAY) AS finalizadas_hoy,
+                (SELECT COUNT(*) FROM historial_items) AS total_items
+        `, ['PENDIENTE', 'REVISION', 'FINALIZADO']);
+        const {
+            pendientes,
+            finalizadas_hoy: finalizadasHoy,
+            total_items: totalItems
+        } = summaryRows[0];
 
         const [chartData] = await pool.execute(`
             SELECT DATE_FORMAT(fecha_carga, '%d/%m') as fecha, COUNT(*) as total 
             FROM historial_remisiones 
-            WHERE fecha_carga >= DATE(NOW()) - INTERVAL 7 DAY
+            WHERE fecha_carga >= CURRENT_DATE - INTERVAL 7 DAY
             GROUP BY DATE(fecha_carga) 
             ORDER BY fecha_carga ASC
         `);
@@ -39,7 +45,12 @@ router.get('/', async (req, res) => {
             
             // KPIs de Captura del día para el empleado
             const [capturasHoyRows] = await pool.execute(
-                "SELECT COUNT(*) as count, COALESCE(SUM(cantidad_bultos * factor + existencia), 0) as total_piezas FROM historial_rapido WHERE usuario_id = ? AND DATE(fecha) = CURDATE()",
+                `SELECT COUNT(*) as count,
+                        COALESCE(SUM(cantidad_bultos * factor + existencia), 0) as total_piezas
+                 FROM historial_rapido
+                 WHERE usuario_id = ?
+                   AND fecha >= CURRENT_DATE
+                   AND fecha < CURRENT_DATE + INTERVAL 1 DAY`,
                 [userId]
             );
             

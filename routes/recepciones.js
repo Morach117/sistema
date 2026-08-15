@@ -114,7 +114,6 @@ router.post('/generar_excel', authorize({ module: 'recepciones', action: 'write'
         res.setHeader('Expires', '0');
         res.send(xml);
     } catch (error) {
-        console.error('Error generating Excel:', error);
         return sendInternalError(error, req, res);
     }
 });
@@ -132,7 +131,6 @@ router.get('/', async (req, res) => {
         const [rows] = await pool.execute(sql);
         res.json({ success: true, data: rows });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -225,7 +223,6 @@ router.get('/:id', async (req, res) => {
 
         res.json({ success: true, datos, estado: remision[0].estado, proveedor: remision[0].proveedor });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -252,7 +249,6 @@ router.post('/actualizar_campo', authorize({ module: 'recepciones', action: 'wri
         await pool.execute(`UPDATE historial_items SET \`${dbField}\` = ? WHERE id = ?`, [valor, id_item]);
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -268,7 +264,6 @@ router.post('/asignar_proveedor', authorize({ module: 'recepciones', action: 'wr
         await pool.execute(`UPDATE historial_remisiones SET proveedor = ? WHERE id = ?`, [proveedor, id_remision]);
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -282,7 +277,6 @@ router.post('/finalizar', authorize({ module: 'recepciones', action: 'write' }),
         await pool.execute(`UPDATE historial_remisiones SET estado = 'FINALIZADO' WHERE numero_remision = ?`, [remision_id]);
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -296,7 +290,6 @@ router.delete('/item/:id', authorize({ module: 'recepciones', action: 'write' })
         await pool.execute(`DELETE FROM historial_items WHERE id = ?`, [id]);
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
         return sendInternalError(error, req, res);
     }
 });
@@ -395,7 +388,6 @@ router.post('/upload', authorize({ module: 'recepciones', action: 'write' }), re
         if (error instanceof UploadValidationError) {
             return res.status(error.statusCode).json({ success: false, error: error.message });
         }
-        console.error('Upload error:', error);
         return sendInternalError(error, req, res);
     } finally {
         releaseConnection(connection, req.requestId);

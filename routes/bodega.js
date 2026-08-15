@@ -20,9 +20,8 @@ router.get('/', async (req, res) => {
         if (q) {
             sql += ` AND (c.clave_sicar LIKE ? OR c.descripcion LIKE ?)`;
             params = [`%${q}%`, `%${q}%`];
-        } else {
-            sql += ` ORDER BY b.fecha_actualizacion DESC, c.fecha_actualizacion DESC LIMIT 100`;
         }
+        sql += ` ORDER BY b.fecha_actualizacion DESC, c.fecha_actualizacion DESC LIMIT 100`;
 
         const [rows] = await pool.execute(sql, params);
         res.json(rows);
