@@ -17,6 +17,23 @@ function resolveDumpExecutable(explicitExecutable) {
     return fs.existsSync(xamppDump) ? xamppDump : 'mysqldump';
 }
 
+function decodeStderrWithinLimit(chunks, maxBytes = 16_384) {
+    const decoded = Buffer.concat(chunks).toString('utf8');
+    const accepted = [];
+    let acceptedBytes = 0;
+
+    for (const character of decoded) {
+        const characterBytes = Buffer.byteLength(character, 'utf8');
+        if (acceptedBytes + characterBytes > maxBytes) {
+            break;
+        }
+        accepted.push(character);
+        acceptedBytes += characterBytes;
+    }
+
+    return accepted.join('');
+}
+
 function waitForDump(child, stderrChunks) {
     return new Promise((resolve, reject) => {
         child.once('error', reject);
@@ -25,7 +42,7 @@ function waitForDump(child, stderrChunks) {
                 resolve();
                 return;
             }
-            const detail = Buffer.concat(stderrChunks).toString('utf8').trim();
+            const detail = decodeStderrWithinLimit(stderrChunks).trim();
             reject(
                 new Error(
                     `mysqldump terminó con código ${code ?? 'desconocido'}` +
@@ -94,10 +111,16 @@ async function createBackup({
         }
 
         const stderrChunks = [];
+        let stderrBytes = 0;
         child.stderr.on('data', (chunk) => {
-            if (stderrChunks.reduce((total, item) => total + item.length, 0) < 16_384) {
-                stderrChunks.push(Buffer.from(chunk));
+            const remaining = 16_384 - stderrBytes;
+            if (remaining <= 0) {
+                return;
             }
+            const buffer = Buffer.from(chunk);
+            const captured = buffer.subarray(0, remaining);
+            stderrChunks.push(captured);
+            stderrBytes += captured.length;
         });
         child.stdout.pipe(output);
 

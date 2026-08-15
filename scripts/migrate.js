@@ -1,8 +1,20 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 
 const historyMigration = require('../database/migrations/001_migration_history');
+const { assertCatalogUnchanged } = require('./verify-backup');
 const { version: appVersion } = require('../package.json');
+
+const catalogColumns = Object.freeze([
+    'clave_sicar',
+    'codigo_barras',
+    'descripcion',
+    'precio_compra',
+    'precio_venta',
+    'existencia',
+    'fecha_actualizacion',
+]);
 
 function loadMigrations(migrationsDir) {
     return fs
@@ -103,14 +115,55 @@ async function runMigrations({
     }
 }
 
+async function captureCatalogSnapshot({ pool } = {}) {
+    if (!pool || typeof pool.query !== 'function') {
+        throw new TypeError('La captura de cat_productos requiere un pool consultable.');
+    }
+    const [rows] = await pool.query(
+        `SELECT ${catalogColumns.map((column) => `\`${column}\``).join(', ')}
+           FROM \`cat_productos\`
+          ORDER BY \`clave_sicar\``
+    );
+    if (!Array.isArray(rows)) {
+        throw new Error('No se pudieron leer las filas de cat_productos.');
+    }
+    const hash = createHash('sha256');
+    for (const row of rows) {
+        const serialized = JSON.stringify(
+            catalogColumns.map((column) => {
+                const value = row[column];
+                if (value == null) return null;
+                if (value instanceof Date) return value.toISOString();
+                return String(value);
+            })
+        );
+        const payload = Buffer.from(serialized, 'utf8');
+        const length = Buffer.allocUnsafe(4);
+        length.writeUInt32BE(payload.length);
+        hash.update(length);
+        hash.update(payload);
+    }
+
+    return {
+        rowCount: rows.length,
+        checksum: hash.digest('hex'),
+    };
+}
+
 async function runMigrationCli({
     pool,
     createBackupFn = require('../backup_bd').createBackup,
     backupOptions,
     migrationsDir,
+    migrations,
+    captureCatalogSnapshotFn = captureCatalogSnapshot,
 } = {}) {
     await createBackupFn(backupOptions);
-    return runMigrations({ pool, migrationsDir });
+    const before = await captureCatalogSnapshotFn({ pool });
+    const results = await runMigrations({ pool, migrationsDir, migrations });
+    const after = await captureCatalogSnapshotFn({ pool });
+    assertCatalogUnchanged({ before, after });
+    return results;
 }
 
 async function main() {
@@ -133,6 +186,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+    captureCatalogSnapshot,
     loadMigrations,
     runMigrationCli,
     runMigrations,

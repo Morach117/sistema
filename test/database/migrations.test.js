@@ -8,18 +8,34 @@ const { EventEmitter } = require('node:events');
 const { PassThrough, Writable } = require('node:stream');
 
 const { createBackup } = require('../../backup_bd');
-const { runMigrationCli, runMigrations } = require('../../scripts/migrate');
+const {
+    captureCatalogSnapshot,
+    runMigrationCli,
+    runMigrations,
+} = require('../../scripts/migrate');
 const {
     assertCatalogUnchanged,
     verifyBackupFile,
 } = require('../../scripts/verify-backup');
 const safeIndexMigration = require('../../database/migrations/002_safe_indexes');
 
-function fakeMigrationPool({ indexDefinitions = [], missingColumns = [] } = {}) {
+function fakeMigrationPool({
+    catalogSnapshots = [],
+    indexDefinitions = [],
+    missingColumns = [],
+} = {}) {
     const applied = new Map();
-    const indexes = indexDefinitions.map((index) => ({ ...index, columns: [...index.columns] }));
+    const indexes = indexDefinitions.map((index) => ({
+        ...index,
+        columns: [...index.columns],
+        subParts: index.subParts ? [...index.subParts] : index.columns.map(() => null),
+        indexType: index.indexType ?? 'BTREE',
+        visible: index.visible ?? true,
+        visibilityField: index.visibilityField ?? 'is_visible',
+    }));
     const absentColumns = new Set(missingColumns);
     const statements = [];
+    let catalogSnapshotReads = 0;
 
     const connection = {
         async query(sql, params = []) {
@@ -33,6 +49,15 @@ function fakeMigrationPool({ indexDefinitions = [], missingColumns = [] } = {}) 
             if (/^INSERT INTO `_node_migrations`/i.test(normalized)) {
                 applied.set(params[0], params[1]);
                 return [{ affectedRows: 1 }];
+            }
+
+            if (/FROM `?cat_productos`?/i.test(normalized)) {
+                const rows = catalogSnapshots[catalogSnapshotReads];
+                catalogSnapshotReads += 1;
+                if (!rows) {
+                    throw new Error('unexpected catalog snapshot read');
+                }
+                return [rows];
             }
 
             if (/information_schema\.statistics/i.test(normalized)) {
@@ -50,6 +75,11 @@ function fakeMigrationPool({ indexDefinitions = [], missingColumns = [] } = {}) 
                                 index_name: index.name,
                                 seq_in_index: position + 1,
                                 column_name: column,
+                                sub_part: index.subParts[position],
+                                index_type: index.indexType,
+                                ...(index.visibilityField === 'ignored'
+                                    ? { ignored: index.visible ? 'NO' : 'YES' }
+                                    : { is_visible: index.visible ? 'YES' : 'NO' }),
                             }))
                         ),
                 ];
@@ -71,7 +101,15 @@ function fakeMigrationPool({ indexDefinitions = [], missingColumns = [] } = {}) 
                 const columns = [...normalized.matchAll(/`([^`]+)`/g)]
                     .slice(2)
                     .map((match) => match[1]);
-                indexes.push({ table: addIndex[1], name: addIndex[2], columns });
+                indexes.push({
+                    table: addIndex[1],
+                    name: addIndex[2],
+                    columns,
+                    subParts: columns.map(() => null),
+                    indexType: 'BTREE',
+                    visible: true,
+                    visibilityField: 'is_visible',
+                });
                 return [{ affectedRows: 0 }];
             }
 
@@ -86,6 +124,9 @@ function fakeMigrationPool({ indexDefinitions = [], missingColumns = [] } = {}) 
     return {
         appliedMigrationIds: applied,
         statements,
+        get catalogSnapshotReads() {
+            return catalogSnapshotReads;
+        },
         get catalogWriteStatements() {
             return statements.filter(({ sql }) =>
                 /^(?:INSERT|UPDATE|DELETE|REPLACE|ALTER)\s+(?:INTO\s+)?`?cat_productos`?/i.test(sql)
@@ -93,6 +134,9 @@ function fakeMigrationPool({ indexDefinitions = [], missingColumns = [] } = {}) 
         },
         async getConnection() {
             return connection;
+        },
+        async query(...args) {
+            return connection.query(...args);
         },
     };
 }
@@ -152,6 +196,41 @@ test('does not duplicate an equivalent index with a different name', async () =>
         pool.statements.some(({ sql }) => /^ALTER TABLE `historial_items`/i.test(sql)),
         false
     );
+});
+
+test('does not treat partial, invisible, or non-BTREE indexes as equivalent', async (t) => {
+    const variants = [
+        { label: 'partial', subParts: [12] },
+        { label: 'invisible', visible: false },
+        { label: 'mariadb-ignored', visible: false, visibilityField: 'ignored' },
+        { label: 'non-BTREE', indexType: 'HASH' },
+    ];
+
+    for (const variant of variants) {
+        await t.test(variant.label, async () => {
+            const pool = fakeMigrationPool({
+                indexDefinitions: [
+                    {
+                        table: 'historial_items',
+                        name: `legacy_${variant.label.toLowerCase()}`,
+                        columns: ['clave_sicar'],
+                        ...variant,
+                    },
+                ],
+            });
+
+            await safeIndexMigration.up(await pool.getConnection());
+
+            assert.equal(
+                pool.statements.some(({ sql }) =>
+                    /^ALTER TABLE `historial_items` ADD INDEX `idx_historial_items_clave_sicar`/i.test(
+                        sql
+                    )
+                ),
+                true
+            );
+        });
+    }
 });
 
 test('rejects an allowlisted index name that points to different columns', async () => {
@@ -284,6 +363,110 @@ test('does not acquire a database connection when the pre-migration backup fails
         /backup failed/i
     );
     assert.equal(connectionAttempts, 0);
+});
+
+test('fails the operational migration when cat_productos changes', async () => {
+    const catalogRow = {
+        clave_sicar: 'SKU-1',
+        codigo_barras: '750000000001',
+        descripcion: 'Producto original',
+        precio_compra: '10.00',
+        precio_venta: '15.00',
+        existencia: '2.00',
+        fecha_actualizacion: '2026-08-14 12:00:00',
+    };
+    const pool = fakeMigrationPool({
+        catalogSnapshots: [
+            [catalogRow],
+            [{ ...catalogRow, descripcion: 'Producto alterado' }],
+        ],
+    });
+    const migration = {
+        id: '901_catalog_guard',
+        checksum: 'catalog-guard-checksum',
+        async up() {},
+    };
+
+    await assert.rejects(
+        runMigrationCli({
+            pool,
+            migrations: [migration],
+            async createBackupFn() {
+                return { filePath: 'verified.sql', size: 1024 };
+            },
+        }),
+        /cat_productos/i
+    );
+
+    assert.deepEqual([...pool.appliedMigrationIds.keys()], [migration.id]);
+    assert.equal(pool.catalogSnapshotReads, 2);
+});
+
+test('allows the operational migration when cat_productos is unchanged', async () => {
+    const catalogRow = {
+        clave_sicar: 'SKU-1',
+        codigo_barras: '750000000001',
+        descripcion: 'Producto original',
+        precio_compra: '10.00',
+        precio_venta: '15.00',
+        existencia: '2.00',
+        fecha_actualizacion: '2026-08-14 12:00:00',
+    };
+    const pool = fakeMigrationPool({
+        catalogSnapshots: [[catalogRow], [{ ...catalogRow }]],
+    });
+    const migration = {
+        id: '902_catalog_unchanged',
+        checksum: 'catalog-unchanged-checksum',
+        async up() {},
+    };
+
+    const results = await runMigrationCli({
+        pool,
+        migrations: [migration],
+        async createBackupFn() {
+            return { filePath: 'verified.sql', size: 1024 };
+        },
+    });
+
+    assert.deepEqual(results, [{ id: migration.id, status: 'applied' }]);
+    assert.equal(pool.catalogSnapshotReads, 2);
+});
+
+test('distinguishes real null, sentinel-like, and delimiter-bearing catalog values', async () => {
+    const baseRow = {
+        clave_sicar: 'SKU-1',
+        codigo_barras: '750000000001',
+        descripcion: 'Producto',
+        precio_compra: '10.00',
+        precio_venta: '15.00',
+        existencia: '2.00',
+        fecha_actualizacion: '2026-08-14 12:00:00',
+    };
+    const snapshotFor = (row) =>
+        captureCatalogSnapshot({
+            pool: {
+                async query() {
+                    return [[row]];
+                },
+            },
+        });
+
+    const sqlNull = await snapshotFor({ ...baseRow, codigo_barras: null });
+    const literalSentinel = await snapshotFor({ ...baseRow, codigo_barras: '<NULL>' });
+    const delimiterInFirstField = await snapshotFor({
+        ...baseRow,
+        codigo_barras: `a${String.fromCharCode(31)}b`,
+        descripcion: 'c',
+    });
+    const delimiterInSecondField = await snapshotFor({
+        ...baseRow,
+        codigo_barras: 'a',
+        descripcion: `b${String.fromCharCode(31)}c`,
+    });
+
+    assert.notEqual(sqlNull.checksum, literalSentinel.checksum);
+    assert.notEqual(delimiterInFirstField.checksum, delimiterInSecondField.checksum);
 });
 
 test('rejects a changed cat_productos snapshot', () => {
@@ -427,6 +610,59 @@ test('removes the temporary dump when backup verification fails', async (t) => {
     );
 
     assert.deepEqual(fs.readdirSync(tempDir), []);
+});
+
+test('caps mysqldump stderr details at exactly 16 KiB', async (t) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sistema-backup-stderr-'));
+    t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+    const oversizedStderr = `${'x'.repeat(16_384)}TAIL_AFTER_CAP`;
+    let capturedError;
+
+    try {
+        await createBackup({
+            backupDir: tempDir,
+            config: { host: 'localhost', user: 'root', password: '', database: 'papeleria' },
+            dumpExecutable: 'fake-mysqldump',
+            spawnImpl() {
+                return fakeDumpProcess({ exitCode: 2, stderr: oversizedStderr });
+            },
+        });
+    } catch (error) {
+        capturedError = error;
+    }
+
+    assert.ok(capturedError);
+    const detail = capturedError.message.slice(capturedError.message.indexOf(': ') + 2);
+    assert.equal(Buffer.byteLength(detail, 'utf8'), 16_384);
+    assert.equal(capturedError.message.includes('TAIL_AFTER_CAP'), false);
+});
+
+test('keeps rendered stderr within 16 KiB at a truncated UTF-8 boundary', async (t) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sistema-backup-stderr-utf8-'));
+    t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+    const splitMultibyteStderr = Buffer.concat([
+        Buffer.from('x'.repeat(16_383)),
+        Buffer.from([0xf0, 0x9f]),
+    ]);
+    let capturedError;
+
+    try {
+        await createBackup({
+            backupDir: tempDir,
+            config: { host: 'localhost', user: 'root', password: '', database: 'papeleria' },
+            dumpExecutable: 'fake-mysqldump',
+            spawnImpl() {
+                return fakeDumpProcess({ exitCode: 2, stderr: splitMultibyteStderr });
+            },
+        });
+    } catch (error) {
+        capturedError = error;
+    }
+
+    assert.ok(capturedError);
+    const detail = capturedError.message.slice(capturedError.message.indexOf(': ') + 2);
+    assert.ok(Buffer.byteLength(detail, 'utf8') <= 16_384);
+    assert.equal(detail.includes('\uFFFD'), false);
 });
 
 test('terminates the dump process before cleaning up after an output failure', async (t) => {

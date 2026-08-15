@@ -19,21 +19,53 @@ const indexes = Object.freeze([
     }),
 ]);
 
-function collectIndexColumns(rows) {
+function normalizeStatisticRow(row) {
+    return Object.fromEntries(
+        Object.entries(row).map(([key, value]) => [key.toLowerCase(), value])
+    );
+}
+
+function statisticIsVisible(row) {
+    if (row.is_visible != null) {
+        return String(row.is_visible).toUpperCase() !== 'NO';
+    }
+    if (row.ignored != null) {
+        return String(row.ignored).toUpperCase() !== 'YES';
+    }
+    return true;
+}
+
+function collectIndexDefinitions(rows) {
     const definitions = new Map();
-    for (const row of rows) {
+    for (const originalRow of rows) {
+        const row = normalizeStatisticRow(originalRow);
         const normalizedName = String(row.index_name).toLowerCase();
-        const current = definitions.get(normalizedName) || [];
-        current[Number(row.seq_in_index) - 1] = row.column_name;
+        const current = definitions.get(normalizedName) || {
+            columns: [],
+            subParts: [],
+            indexTypes: new Set(),
+            visible: true,
+        };
+        const position = Number(row.seq_in_index) - 1;
+        current.columns[position] = row.column_name;
+        current.subParts[position] = row.sub_part ?? null;
+        current.indexTypes.add(String(row.index_type ?? '').toUpperCase());
+        current.visible = current.visible && statisticIsVisible(row);
         definitions.set(normalizedName, current);
     }
     return definitions;
 }
 
-function hasIndexPrefix(actualColumns, requiredColumns) {
-    return requiredColumns.every(
-        (column, position) =>
-            String(actualColumns[position]).toLowerCase() === column.toLowerCase()
+function isUsableIndexPrefix(definition, requiredColumns) {
+    return (
+        definition.visible &&
+        definition.indexTypes.size === 1 &&
+        definition.indexTypes.has('BTREE') &&
+        requiredColumns.every(
+            (column, position) =>
+                definition.subParts[position] == null &&
+                String(definition.columns[position]).toLowerCase() === column.toLowerCase()
+        )
     );
 }
 
@@ -42,7 +74,7 @@ async function up(connection) {
 
     for (const index of indexes) {
         const [indexRows] = await connection.query(
-            `SELECT index_name, seq_in_index, column_name
+            `SELECT *
                    FROM information_schema.statistics
                   WHERE table_schema = DATABASE()
                     AND table_name = ?
@@ -70,9 +102,9 @@ async function up(connection) {
             );
         }
 
-        const definitions = collectIndexColumns(indexRows);
-        const equivalentIndex = [...definitions.values()].some((columns) =>
-            hasIndexPrefix(columns, index.columns)
+        const definitions = collectIndexDefinitions(indexRows);
+        const equivalentIndex = [...definitions.values()].some((definition) =>
+            isUsableIndexPrefix(definition, index.columns)
         );
         if (equivalentIndex) {
             continue;
@@ -95,8 +127,9 @@ async function up(connection) {
 
 const checksum = createHash('sha256')
     .update(
-        `${JSON.stringify(indexes)}\n${collectIndexColumns.toString()}\n` +
-            `${hasIndexPrefix.toString()}\n${up.toString()}`
+        `${JSON.stringify(indexes)}\n${normalizeStatisticRow.toString()}\n` +
+            `${statisticIsVisible.toString()}\n${collectIndexDefinitions.toString()}\n` +
+            `${isUsableIndexPrefix.toString()}\n${up.toString()}`
     )
     .digest('hex');
 
