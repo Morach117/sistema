@@ -13,10 +13,11 @@ entendibles para personal no técnico.
   acción principal por contexto y tarjetas con bordes suaves.
 - Recepciones mantiene el esquema de captura por renglón de la versión
   anterior. No se sustituye por un formulario o pantalla distinta por producto.
-- Cada renglón muestra únicamente cantidad del XML, producto/SICAR, conteo
-  físico, caja/piezas, costo y el descuento ya aplicado. Rechazo, faltante,
-  reclamación, nota y excepción de descuento viven en un menú o panel de
-  “Más opciones”.
+- Cada renglón conserva la distribución aprobada de cuatro zonas: Factura,
+  Producto y SICAR, Físico y caja, Decisión y precios. Muestra cantidad del
+  XML, producto/SICAR, conteo físico, caja/piezas, descuento ya aplicado y
+  precios. Rechazo, faltante, reclamación, nota y excepción de descuento viven
+  en un menú o panel de “Más opciones”.
 - Historial conserva su lista y filtros al abrir una factura; el detalle se
   presenta en un modal accesible y amplio, no en una página de reemplazo.
 - El primer arranque muestra un asistente de dos decisiones explícitas:
@@ -52,6 +53,16 @@ entendibles para personal no técnico.
 - Se muestran costo final, IVA, descuento aplicado, costo neto y precios
   sugeridos de margen. Excel permite elegir si incluye conteo físico; por
   defecto no lo incluye.
+- El bloque de precios muestra siempre cuatro cifras separadas: precio de
+  compra (costo neto final), precio sugerido con 20%, precio sugerido con 30% y
+  precio de venta vigente en la base de datos. Bajo venta vigente se calcula la
+  ganancia en pesos y porcentaje frente al precio de compra. Las sugerencias
+  son sólo lectura: jamás cambian el precio de venta ni piden confirmación.
+- Al capturar o recuperar un SICAR, la pantalla valida contra el catálogo y
+  muestra el resultado junto al campo: verde cuando el código y producto
+  coinciden, ámbar si no existe o falta asignarlo y rojo si corresponde a otro
+  artículo. El detalle incluye el nombre de catálogo para una revisión humana
+  inmediata.
 
 ### Operación y validación
 
@@ -65,6 +76,10 @@ entendibles para personal no técnico.
 - Las acciones masivas aparecen sólo al seleccionar al menos un producto. El
   resumen de recepción muestra artículos, cajas, piezas, costo y artículos en
   revisión.
+- La tarjeta reproduce la captura directa que funcionaba en PHP: número de
+  factura a la izquierda, producto y SICAR en el centro, físico/caja después y
+  decisiones/precios al extremo derecho. El diseño nuevo no obliga a abrir un
+  modal para cada producto ni oculta los datos cotidianos.
 
 ## Historial de recepciones
 
@@ -110,7 +125,8 @@ entendibles para personal no técnico.
 - Una factura del historial se abre y cierra en modal preservando filtros y
   listado.
 - Una recepción puede capturarse de principio a fin desde los renglones,
-  incluyendo caja/piezas/cálculo, descuentos automáticos, físico opcional,
+  incluyendo caja/piezas/cálculo, descuentos automáticos, validación visual de
+  SICAR, físico opcional, las cuatro referencias de precio, ganancia actual,
   notas, rechazo y exportación.
 - Las pruebas cubren el nuevo contrato LAN, los estados de pantalla, el modal
   de historial, la visibilidad condicional de controles y la validación no
