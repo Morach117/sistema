@@ -56,6 +56,13 @@ const PROVIDERS = [
 
 const DISCOUNT_PERCENT = 5
 
+function automaticDiscountAnnouncement(provider) {
+  if (provider === 'paola') return `Descuento automático: Paola aplica ${DISCOUNT_PERCENT}% a todos los artículos.`
+  if (provider === 'tony') return 'Descuento automático: Tony se detecta artículo por artículo desde el XML.'
+  if (provider === 'optivosa' || provider === 'sindesc') return 'Descuento automático: este proveedor no aplica descuento.'
+  return 'Descuento automático: no aplica con proveedor manual.'
+}
+
 const formatMoney = (value) => Number(value || 0).toLocaleString('es-MX', {
   style: 'currency',
   currency: 'MXN',
@@ -217,6 +224,7 @@ export default function Recepciones() {
   const [priceHistoryItem, setPriceHistoryItem] = useState(null)
   const [noteTarget, setNoteTarget] = useState('factura')
   const [noteText, setNoteText] = useState('')
+  const [showAllIssues, setShowAllIssues] = useState(false)
   const editor = useReceptionEditor(selectedRemision)
 
   const { data: remisiones = [], isLoading: loadingList } = useQuery({
@@ -281,6 +289,7 @@ export default function Recepciones() {
     revision_pendiente: editor.getDraftField(item.id, 'revision_pendiente', item.revision_pendiente ?? 0),
   })), [editor, persistedItems, remisionDetails?.proveedor])
   const finalised = remisionDetails?.estado === 'FINALIZADO'
+  const automaticDiscountLabel = automaticDiscountAnnouncement(selectedProvider)
   const issues = useMemo(() => validateReceptionItems(items), [items])
   const blockingIssues = issues.filter((issue) => issue.severity === 'error')
   const validationBlocksFinalize = blockingIssues.length > 0
@@ -525,9 +534,9 @@ export default function Recepciones() {
                         {PROVIDERS.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}
                       </select>
                     </div>
-                    <div aria-label="Descuento automático fijo: 5%" className="flex min-h-11 flex-col justify-center rounded-lg border border-border bg-secondary/50 px-3">
+                    <div aria-label={automaticDiscountLabel} className="flex min-h-11 max-w-64 flex-col justify-center rounded-lg border border-border bg-secondary/50 px-3">
                       <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">DTO automático</span>
-                      <span className="text-sm font-black">Descuento automático fijo: 5%</span>
+                      <span className="text-xs font-black">{automaticDiscountLabel.replace('Descuento automático: ', '')}</span>
                     </div>
                     {!finalised && (
                       <>
@@ -567,15 +576,25 @@ export default function Recepciones() {
               </section>
 
               <section aria-label="Revisión antes de finalizar" className={`rounded-xl border p-4 ${blockingIssues.length ? 'border-destructive/40 bg-destructive/10' : 'border-emerald-500/30 bg-emerald-500/10'}`}>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
                   {blockingIssues.length ? <AlertCircle aria-hidden="true" className="h-5 w-5 text-destructive" /> : <CheckCircle2 aria-hidden="true" className="h-5 w-5 text-emerald-500" />}
-                  <h2 className="font-black">Revisión antes de finalizar</h2>
+                    <div>
+                      <h2 className="font-black">Revisión antes de finalizar</h2>
+                      <p className="text-xs font-bold text-muted-foreground">{issues.length ? `${issues.length} puntos por resolver` : 'Listo para finalizar'}</p>
+                    </div>
+                  </div>
+                  {issues.length > 3 && (
+                    <Button type="button" variant="outline" size="sm" className="min-h-9" onClick={() => setShowAllIssues((current) => !current)}>
+                      {showAllIssues ? 'Ocultar detalles' : `Ver los ${issues.length} errores`}
+                    </Button>
+                  )}
                 </div>
                 {issues.length === 0 ? (
                   <p className="mt-2 text-sm font-bold text-muted-foreground">Sin errores bloqueantes.</p>
                 ) : (
-                  <ul className="mt-2 space-y-1 text-sm font-bold">
-                    {issues.map((issue) => <li key={`${issue.itemId}-${issue.code}`}>{issue.message}</li>)}
+                  <ul className="mt-3 space-y-1.5 text-sm font-bold">
+                    {(showAllIssues ? issues : issues.slice(0, 3)).map((issue) => <li key={`${issue.itemId}-${issue.code}`}>{issue.message}</li>)}
                   </ul>
                 )}
               </section>

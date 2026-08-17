@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   ArrowLeftRight,
   ArrowRightLeft,
+  ContactRound,
   History,
   LayoutDashboard,
   LogOut,
@@ -12,6 +13,7 @@ import {
   PackageOpen,
   ScanBarcode,
   Search,
+  Settings2,
   ShieldAlert,
   TrendingUp,
   Users,
@@ -29,6 +31,7 @@ const primaryItems = [
   { name: 'Recepción (Activos)', path: '/recepciones', icon: PackageOpen },
   { name: 'Historial de Recepciones', path: '/historial-recepciones', icon: History },
   { name: 'Reclamaciones', path: '/reclamaciones', icon: MessageSquareWarning },
+  { name: 'Clientes', path: '/clientes', icon: ContactRound },
 ]
 
 const adminItems = [
@@ -37,6 +40,7 @@ const adminItems = [
   { name: 'Catálogo Maestro', path: '/catalogo', icon: Search },
   { name: 'Evolución Precios', path: '/evolucion-precios', icon: TrendingUp },
   { name: 'Gestión Usuarios', path: '/usuarios', icon: Users },
+  { name: 'Configuración de Clientes', path: '/clientes-configuracion', icon: Settings2 },
 ]
 
 const focusStyles = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background'

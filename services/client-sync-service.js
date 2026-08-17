@@ -2,6 +2,8 @@ const { createPublicKey, randomUUID, sign, verify } = require('node:crypto');
 const {
   createLinkCode: createIdentityLinkCode,
   fingerprintPublicKey,
+  generateBranchIdentity,
+  generateCentralIdentity,
   issueBranchCredential,
   verifyBranchCredential,
   verifyCentralFingerprint,
@@ -261,7 +263,7 @@ function createSqlSyncStore({ database = require('../config/database'), executor
     throw new TypeError('Se requiere una conexión de base de datos válida.');
   }
   return {
-    async readConfiguration() {
+    async readConfiguration({ allowMissing = false, forUpdate = false } = {}) {
       const [rows] = await executor.execute(
         `SELECT configuracion.sucursal_id, configuracion.rol_nodo,
                 configuracion.central_fingerprint, configuracion.central_public_key,
@@ -269,6 +271,56 @@ function createSqlSyncStore({ database = require('../config/database'), executor
                 configuracion.sucursal_private_key, configuracion.sucursal_credential,
                 sucursal.nombre AS sucursal_nombre,
                 COALESCE(sucursal.ultimo_cursor_recibido, 0) AS ultimo_cursor_recibido
+          FROM cliente_configuracion AS configuracion
+          LEFT JOIN sucursales AS sucursal ON sucursal.id = configuracion.sucursal_id
+          WHERE configuracion.alcance_local = 1
+          LIMIT 1${forUpdate ? ' FOR UPDATE' : ''}`
+      );
+      if (rows.length !== 1) {
+        if (allowMissing) return null;
+        throw new ClientSyncError('Esta instalación no tiene identidad LAN configurada.', 409);
+      }
+      return rows[0];
+    },
+
+    async initializeConfiguration(initialization) {
+      await executor.execute(
+        `INSERT INTO sucursales
+           (id, nombre, rol_nodo, public_key, key_fingerprint, credential, activo)
+         VALUES (?, ?, ?, ?, ?, NULL, 1)`,
+        [initialization.nodeId, initialization.name, initialization.role,
+          initialization.nodePublicKey, initialization.nodeFingerprint]
+      );
+      await executor.execute(
+        `INSERT INTO cliente_configuracion
+           (id, alcance_local, sucursal_id, rol_nodo, central_fingerprint,
+            central_public_key, central_private_key, sucursal_public_key,
+            sucursal_private_key, sucursal_credential)
+         VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        [initialization.configurationId, initialization.nodeId, initialization.role,
+          initialization.centralFingerprint, initialization.centralPublicKey,
+          initialization.centralPrivateKey, initialization.branchPublicKey,
+          initialization.branchPrivateKey]
+      );
+    },
+
+    async renameLocalBranch({ branchId, name }) {
+      await executor.execute(
+        'UPDATE sucursales SET nombre = ? WHERE id = ? AND activo = 1',
+        [name, branchId]
+      );
+    },
+
+    async readStatus() {
+      const [rows] = await executor.execute(
+        `SELECT configuracion.sucursal_id, configuracion.rol_nodo,
+                configuracion.central_fingerprint,
+                sucursal.nombre AS sucursal_nombre,
+                (SELECT COUNT(*) FROM cliente_operaciones_sync AS operacion
+                  WHERE operacion.sucursal_id = configuracion.sucursal_id
+                    AND operacion.estado = 'pendiente') AS pendientes,
+                (SELECT COUNT(*) FROM cliente_conflictos AS conflicto
+                  WHERE conflicto.estado = 'pendiente') AS conflictos
            FROM cliente_configuracion AS configuracion
            LEFT JOIN sucursales AS sucursal ON sucursal.id = configuracion.sucursal_id
           WHERE configuracion.alcance_local = 1
@@ -622,6 +674,8 @@ function createClientSyncService({
   store = createSqlSyncStore(),
   now = Date.now,
   createUuid = randomUUID,
+  createCentralIdentity = generateCentralIdentity,
+  createBranchIdentity = generateBranchIdentity,
   batchLimit = DEFAULT_BATCH_LIMIT,
   credentialTtlMs = 90 * 24 * 60 * 60 * 1000,
   discoveryService,
@@ -656,6 +710,7 @@ function createClientSyncService({
   let syncTimer;
   let nextRetryDelay = retryBaseMs;
   let lifecycleGeneration = 0;
+  let lastConnectivityStatus;
 
   function nextCredential(configuration, branchId, branchPublicKey) {
     return issueBranchCredential({
@@ -666,6 +721,97 @@ function createClientSyncService({
       now: now() + credentialSequence++,
       ttlMs: credentialTtlMs,
     });
+  }
+
+  async function configureNode({ role, name, requestId } = {}) {
+    const normalizedRole = String(role || '').trim().toLowerCase();
+    if (!['central', 'sucursal'].includes(normalizedRole)) {
+      throw new ClientSyncError('El rol debe ser Central o Sucursal.');
+    }
+    const visibleName = text(name, 'El nombre visible', 120, { required: true });
+
+    try {
+      return await store.transaction(async (transaction) => {
+        const existing = await transaction.readConfiguration({ allowMissing: true, forUpdate: true });
+        if (existing) {
+          const existingRole = String(existing.rol_nodo || '').trim().toLowerCase();
+          if (existingRole !== normalizedRole) {
+            throw new ClientSyncError(
+              'El rol no puede cambiar después de crear la identidad de esta instalación.',
+              409
+            );
+          }
+          await transaction.renameLocalBranch({ branchId: existing.sucursal_id, name: visibleName });
+          return { sucursal: { nombre: visibleName, rol: existingRole } };
+        }
+
+        const identity = normalizedRole === 'central'
+          ? createCentralIdentity()
+          : createBranchIdentity();
+        const nodeId = uuid(createUuid(), 'La sucursal local');
+        const configurationId = uuid(createUuid(), 'La configuración local');
+        await transaction.initializeConfiguration({
+          configurationId,
+          nodeId,
+          name: visibleName,
+          role: normalizedRole,
+          nodePublicKey: identity.publicKey,
+          nodeFingerprint: identity.fingerprint,
+          centralFingerprint: normalizedRole === 'central' ? identity.fingerprint : null,
+          centralPublicKey: normalizedRole === 'central' ? identity.publicKey : null,
+          centralPrivateKey: normalizedRole === 'central' ? identity.privateKey : null,
+          branchPublicKey: normalizedRole === 'sucursal' ? identity.publicKey : null,
+          branchPrivateKey: normalizedRole === 'sucursal' ? identity.privateKey : null,
+        });
+        return { sucursal: { nombre: visibleName, rol: normalizedRole } };
+      }, requestId);
+    } catch (error) {
+      if (error?.code === 'ER_DUP_ENTRY' || error?.errno === 1062) {
+        throw new ClientSyncError('Esta instalación ya tiene una identidad configurada.', 409);
+      }
+      throw error;
+    }
+  }
+
+  async function getStatus() {
+    let summary;
+    try {
+      summary = typeof store.readStatus === 'function'
+        ? await store.readStatus()
+        : await store.readConfiguration();
+    } catch (error) {
+      if (error instanceof ClientSyncError && error.status === 409) {
+        return {
+          configuracionRequerida: true,
+          sucursal: null,
+          centralVinculada: false,
+          centralFingerprint: null,
+          estado: 'configuracion-requerida',
+          pendientes: 0,
+          conflictos: 0,
+        };
+      }
+      throw error;
+    }
+    const role = String(summary.rol_nodo || '').trim().toLowerCase();
+    const fingerprint = summary.central_fingerprint || null;
+    let status = 'sin-vincular';
+    if (role === 'central') status = 'central';
+    else if (fingerprint && lastConnectivityStatus === 'conectado') status = 'conectado';
+    else if (fingerprint && lastConnectivityStatus === 'offline') status = 'offline';
+    else if (fingerprint) status = 'offline';
+
+    return {
+      sucursal: {
+        nombre: summary.sucursal_nombre || 'Sucursal local',
+        rol: role,
+      },
+      centralVinculada: role === 'central' || Boolean(fingerprint),
+      centralFingerprint: fingerprint,
+      estado: status,
+      pendientes: Number(summary.pendientes || 0),
+      conflictos: Number(summary.conflictos || 0),
+    };
   }
 
   async function createPairingCode() {
@@ -954,6 +1100,7 @@ function createClientSyncService({
   async function syncOnce() {
     const configuration = branchConfiguration(await store.readConfiguration());
     const branchId = uuid(configuration.sucursal_id, 'La sucursal local');
+    lastConnectivityStatus = 'offline';
     let endpoint = discoveryService?.getLastCentral?.() || null;
     if (!endpoint && discoveryService?.discover) {
       try {
@@ -1044,6 +1191,7 @@ function createClientSyncService({
         credential: response.credential,
       });
     });
+    lastConnectivityStatus = 'conectado';
     return {
       status: 'synchronized',
       sent: pending.length,
@@ -1075,7 +1223,9 @@ function createClientSyncService({
 
   return {
     acceptSync,
+    configureNode,
     createPairingCode,
+    getStatus,
     linkBranch,
     pairWithCentral,
     syncOnce,

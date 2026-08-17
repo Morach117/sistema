@@ -164,7 +164,7 @@ describe('Recepciones presentation and cost review', () => {
     expect(within(summary).getByText('10')).toBeVisible()
     expect(within(summary).getByText('5')).toBeVisible()
     expect(within(summary).getByText('$145.00')).toBeVisible()
-    expect(screen.getByText(/descuento automático fijo: 5%/i)).toBeVisible()
+    expect(screen.getByText(/paola aplica 5% a todos los artículos/i)).toBeVisible()
     expect(screen.queryByRole('spinbutton', { name: /dto/i })).not.toBeInTheDocument()
   })
 
@@ -224,6 +224,33 @@ describe('Recepciones presentation and cost review', () => {
     expect(within(review).getByText(/costo debe ser mayor que cero/i)).toBeVisible()
     expect(within(review).getByText(/configuración de caja no es válida/i)).toBeVisible()
     expect(screen.getByRole('button', { name: /finalizar/i })).toBeDisabled()
+  })
+
+  it('explains the automatic discount rule for the selected supplier instead of showing a fixed discount', async () => {
+    renderPage(createAdapter())
+    await openReception()
+
+    expect(screen.getByText(/paola aplica 5% a todos los artículos/i)).toBeVisible()
+    fireEvent.change(screen.getByLabelText(/^prov$/i), { target: { value: 'custom' } })
+    expect(screen.getByText(/no aplica con proveedor manual/i)).toBeVisible()
+    fireEvent.change(screen.getByLabelText(/^prov$/i), { target: { value: 'paola' } })
+    expect(screen.getByText(/paola aplica 5% a todos los artículos/i)).toBeVisible()
+  })
+
+  it('keeps a long validation list compact until the user expands it', async () => {
+    renderPage(createAdapter({
+      detailsItems: [
+        item({ id: 11, clave_final: '', clave_sicar: '', costo: 0, costo_unitario: 0, piezas_por_paquete: 0 }),
+        item({ id: 12, desc: 'Segundo artículo sin revisar', clave_final: '', clave_sicar: '', costo: 0, costo_unitario: 0, piezas_por_paquete: 0 }),
+      ],
+    }))
+    await openReception()
+
+    const review = screen.getByRole('region', { name: /revisión antes de finalizar/i })
+    expect(within(review).getByRole('button', { name: /ver los \d+ errores/i })).toBeVisible()
+    expect(within(review).queryByText(/Segundo artículo sin revisar/i)).not.toBeInTheDocument()
+    fireEvent.click(within(review).getByRole('button', { name: /ver los \d+ errores/i }))
+    expect(within(review).getAllByText(/Segundo artículo sin revisar/i)).toHaveLength(3)
   })
 
   it('blocks missing physical counts and rejected items, with a reversible rejection', async () => {

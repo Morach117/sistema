@@ -14,7 +14,7 @@
     "migrate": "node scripts/migrate.js",
     "pm2:start": "npx pm2 start ecosystem.config.js",
     "pm2:stop": "npx pm2 stop papeleria-sistema",
-    "pm2:restart": "npx pm2 restart papeleria-sistema",
+    "pm2:restart": "npx pm2 restart ecosystem.config.js --update-env",
     "pm2:status": "npx pm2 status",
     "pm2:save": "npx pm2 save",
     "pm2:autostart": "node pm2_autostart_windows.js"

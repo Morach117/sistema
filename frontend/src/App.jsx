@@ -16,6 +16,8 @@ const Recepciones = lazy(() => import('./pages/Recepciones'))
 const HistorialRecepciones = lazy(() => import('./pages/HistorialRecepciones'))
 const Reclamaciones = lazy(() => import('./pages/Reclamaciones'))
 const EvolucionPrecios = lazy(() => import('./pages/EvolucionPrecios'))
+const Clientes = lazy(() => import('./pages/Clientes'))
+const ClientesConfiguracion = lazy(() => import('./pages/ClientesConfiguracion'))
 
 function RouteLoadingFallback() {
   return (
@@ -60,6 +62,8 @@ function App() {
         <Route path="evolucion-precios" element={<ProtectedModule module="evolucion-precios"><EvolucionPrecios /></ProtectedModule>} />
         <Route path="catalogo" element={<ProtectedModule module="catalogo"><Catalogo /></ProtectedModule>} />
         <Route path="usuarios" element={<ProtectedModule module="usuarios"><Usuarios /></ProtectedModule>} />
+        <Route path="clientes" element={<ProtectedModule module="clientes"><Clientes /></ProtectedModule>} />
+        <Route path="clientes-configuracion" element={<ProtectedModule module="clientes-configuracion"><ClientesConfiguracion /></ProtectedModule>} />
       </Route>
     </Routes>
   )

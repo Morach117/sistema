@@ -53,3 +53,17 @@ it('shows an accessible loading status while a lazy route resolves', async () =>
   expect(screen.getByRole('status', { name: /cargando módulo/i })).toBeInTheDocument()
   expect(await screen.findByRole('heading', { name: /auditoría de captura/i }, { timeout: 5_000 })).toBeInTheDocument()
 })
+
+it.each([
+  ['/clientes', /clientes/i],
+  ['/clientes-configuracion', /configuración de clientes/i],
+])('mounts the lazy %s module for an administrator', async (path, heading) => {
+  saveSession({
+    token: 'signed-token',
+    user: { id: 1, usuario: 'admin', nombre: 'Administrador', rol: 'admin', permisos: [] },
+  })
+
+  renderAt(path)
+
+  expect(await screen.findByRole('heading', { name: heading }, { timeout: 5_000 })).toBeInTheDocument()
+})

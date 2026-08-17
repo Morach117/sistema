@@ -51,12 +51,12 @@ function employee(permisos) {
   }
 }
 
-function renderShell() {
-  saveSession({ token: 'signed-token', user: employee(['dashboard']) })
+function renderShell(user = employee(['dashboard']), path = '/dashboard') {
+  saveSession({ token: 'signed-token', user })
 
   return render(
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
-      <MemoryRouter initialEntries={['/dashboard']}>
+      <MemoryRouter initialEntries={[path]}>
         <AppShell><p>Contenido</p></AppShell>
       </MemoryRouter>
     </ThemeProvider>,
@@ -90,6 +90,19 @@ describe('AppShell', () => {
 
     expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /bodega/i })).not.toBeInTheDocument()
+  })
+
+  it('shows clients by permission while keeping LAN configuration administrator-only', () => {
+    const { unmount } = renderShell(employee(['clientes']), '/clientes')
+
+    expect(screen.getByRole('link', { name: /^clientes$/i })).toHaveAttribute('aria-current', 'page')
+    expect(screen.queryByRole('link', { name: /configuración de clientes/i })).not.toBeInTheDocument()
+
+    unmount()
+    renderShell({ id: 1, usuario: 'admin', nombre: 'Administrador', rol: 'admin', permisos: [] }, '/clientes-configuracion')
+
+    expect(screen.getByRole('link', { name: /^clientes$/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /configuración de clientes/i })).toHaveAttribute('aria-current', 'page')
   })
 
   it('moves focus into the drawer and returns it after Escape', () => {

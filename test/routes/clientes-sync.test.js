@@ -27,6 +27,8 @@ function adminToken(overrides = {}) {
 
 function serviceDouble(overrides = {}) {
   return {
+    async configureNode() { assert.fail('unexpected configureNode call'); },
+    async getStatus() { assert.fail('unexpected getStatus call'); },
     async linkBranch() { assert.fail('unexpected linkBranch call'); },
     async acceptSync() { assert.fail('unexpected acceptSync call'); },
     async createPairingCode() { assert.fail('unexpected createPairingCode call'); },
@@ -34,6 +36,87 @@ function serviceDouble(overrides = {}) {
     ...overrides,
   };
 }
+
+test('lets only a local administrator initialize or rename the client node without manual network identity', async () => {
+  const calls = [];
+  const app = buildApp({
+    syncService: serviceDouble({
+      async configureNode(input) {
+        calls.push(input);
+        return { sucursal: { nombre: input.name, rol: input.role } };
+      },
+    }),
+    discoveryService: { discover: async () => null },
+    lanAccess: () => true,
+  });
+  const body = { rol_nodo: 'central', nombre: 'Matriz', ip: '203.0.113.10', hostname: 'manual' };
+
+  const denied = await request(app)
+    .put('/api/clientes-sync/configuracion')
+    .set('Authorization', `Bearer ${adminToken({ rol: 'empleado', permisos: ['clientes'] })}`)
+    .send(body);
+  const allowed = await request(app)
+    .put('/api/clientes-sync/configuracion')
+    .set('Authorization', `Bearer ${adminToken()}`)
+    .send(body);
+
+  assert.equal(denied.status, 403);
+  assert.equal(allowed.status, 200, allowed.text);
+  assert.deepEqual(allowed.body, {
+    success: true,
+    data: { sucursal: { nombre: 'Matriz', rol: 'central' } },
+  });
+  assert.deepEqual(calls, [{
+    role: 'central',
+    name: 'Matriz',
+    requestId: allowed.headers['x-request-id'],
+  }]);
+});
+
+test('returns only safe local sync status to an authenticated clients user', async () => {
+  const calls = [];
+  const safeStatus = {
+    sucursal: { nombre: 'Sucursal Norte', rol: 'sucursal' },
+    centralVinculada: true,
+    centralFingerprint: 'a'.repeat(64),
+    estado: 'offline',
+    pendientes: 3,
+    conflictos: 1,
+  };
+  const serviceStatus = {
+    ...safeStatus,
+    sucursal: { id: 'branch-id', ...safeStatus.sucursal },
+    ultimaSincronizacion: '2026-08-15T10:00:00.000Z',
+    privateKey: 'must-not-leak',
+  };
+  const app = buildApp({
+    syncService: serviceDouble({
+      async getStatus() {
+        calls.push('status');
+        return serviceStatus;
+      },
+    }),
+    discoveryService: { discover: async () => null },
+    lanAccess: () => true,
+  });
+
+  const anonymous = await request(app).get('/api/clientes-sync/estado');
+  const denied = await request(app)
+    .get('/api/clientes-sync/estado')
+    .set('Authorization', `Bearer ${adminToken({ rol: 'empleado', permisos: [] })}`);
+  const allowed = await request(app)
+    .get('/api/clientes-sync/estado')
+    .set('Authorization', `Bearer ${adminToken({ rol: 'empleado', permisos: ['clientes'] })}`);
+
+  assert.equal(anonymous.status, 401);
+  assert.equal(denied.status, 403);
+  assert.equal(allowed.status, 200, allowed.text);
+  assert.deepEqual(allowed.body, { success: true, data: safeStatus });
+  assert.deepEqual(calls, ['status']);
+  assert.equal(JSON.stringify(allowed.body).includes('private_key'), false);
+  assert.equal(JSON.stringify(allowed.body).includes('credential'), false);
+  assert.equal(JSON.stringify(allowed.body).includes('192.168.'), false);
+});
 
 test('mounts the LAN pairing route in the main application', async () => {
   const response = await request(createApp())

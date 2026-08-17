@@ -35,6 +35,45 @@ function createClientesSyncRouter({
   const router = express.Router();
   const lanBoundary = requireLan(lanAccess);
 
+  router.put(
+    '/configuracion',
+    auth,
+    authorize({ module: 'clientes-configuracion', action: 'write' }),
+    lanBoundary,
+    asyncHandler(async (req, res) => {
+      const result = await syncService.configureNode({
+        role: req.body?.rol_nodo,
+        name: req.body?.nombre,
+        requestId: req.requestId,
+      });
+      res.json({ success: true, data: result });
+    })
+  );
+
+  router.get(
+    '/estado',
+    auth,
+    authorize({ module: 'clientes', action: 'read' }),
+    lanBoundary,
+    asyncHandler(async (_req, res) => {
+      const status = await syncService.getStatus();
+      res.json({
+        success: true,
+        data: {
+          sucursal: {
+            nombre: status.sucursal?.nombre,
+            rol: status.sucursal?.rol,
+          },
+          centralVinculada: Boolean(status.centralVinculada),
+          centralFingerprint: status.centralFingerprint || null,
+          estado: status.estado,
+          pendientes: Number(status.pendientes || 0),
+          conflictos: Number(status.conflictos || 0),
+        },
+      });
+    })
+  );
+
   router.post('/vincular', lanBoundary, asyncHandler(async (req, res) => {
     const response = await syncService.linkBranch({
       envelope: req.body,

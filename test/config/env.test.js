@@ -6,6 +6,22 @@ test('rejects a missing JWT_SECRET outside test mode', () => {
   assert.throws(() => loadEnv({ NODE_ENV: 'production' }), /JWT_SECRET/);
 });
 
+test('creates and reuses a private secure secret when an installed configuration has a short secret', () => {
+  let savedSecret;
+  const localSecret = {
+    read() { return savedSecret; },
+    write(value) { savedSecret = value; },
+    generate() { return 'b'.repeat(64); },
+  };
+
+  const first = loadEnv({ NODE_ENV: 'production', JWT_SECRET: 'instalacion-antigua' }, { localSecret });
+  const second = loadEnv({ NODE_ENV: 'production', JWT_SECRET: 'instalacion-antigua' }, { localSecret });
+
+  assert.equal(first.jwtSecret, 'b'.repeat(64));
+  assert.equal(second.jwtSecret, first.jwtSecret);
+  assert.equal(savedSecret, first.jwtSecret);
+});
+
 test('accepts an explicit secret and bounded port', () => {
   const env = loadEnv({
     NODE_ENV: 'test',

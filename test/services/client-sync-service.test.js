@@ -9,6 +9,7 @@ const {
   verifyBranchCredential,
 } = require('../../services/client-identity-service');
 const {
+  ClientSyncError,
   createClientSyncService,
   createSqlSyncStore,
   signEnvelope,
@@ -22,6 +23,7 @@ const SECOND_CLIENT_ID = '5578afe3-8f2c-4b76-8fa7-daa06ec25e26';
 const LOCAL_OPERATION_ID = '113c8f99-edbb-407f-b8bf-a7b1c79d85d1';
 const REMOTE_OPERATION_ID = '7c4649eb-ffbc-4b27-a2e2-a134355900ae';
 const CONFLICT_OPERATION_ID = 'aaf1ff55-0df5-4bc3-b522-044811019d6d';
+const CONFIGURATION_ID = 'c8af2b39-2fb4-4e6b-8a02-59c7c423387e';
 
 function operation(overrides = {}) {
   return {
@@ -48,18 +50,23 @@ function operation(overrides = {}) {
 
 function createMemoryStore({ configuration, branches = [], entities = [], operations = [] } = {}) {
   const state = {
-    configuration: { ...configuration },
+    configuration: configuration ? { ...configuration } : null,
     branches: new Map(branches.map((branch) => [branch.id, { ...branch }])),
     entities: new Map(entities.map((entry) => [`${entry.entidad}:${entry.id}`, { ...entry.payload }])),
     operations: new Map(operations.map((entry) => [entry.id, { ...entry }])),
     conflicts: [],
     savedBranches: [],
     syncStates: [],
+    initializations: [],
   };
 
   const store = {
     state,
-    async readConfiguration() {
+    async readConfiguration({ allowMissing = false } = {}) {
+      if (!state.configuration) {
+        if (allowMissing) return null;
+        throw new Error('missing configuration');
+      }
       return { ...state.configuration };
     },
     async transaction(work) {
@@ -146,9 +153,89 @@ function createMemoryStore({ configuration, branches = [], entities = [], operat
         activo: true,
       });
     },
+    async initializeConfiguration(initialization) {
+      state.initializations.push({ ...initialization });
+      state.configuration = {
+        sucursal_id: initialization.nodeId,
+        sucursal_nombre: initialization.name,
+        rol_nodo: initialization.role,
+        central_fingerprint: initialization.centralFingerprint,
+        central_public_key: initialization.centralPublicKey,
+        central_private_key: initialization.centralPrivateKey,
+        sucursal_public_key: initialization.branchPublicKey,
+        sucursal_private_key: initialization.branchPrivateKey,
+        sucursal_credential: null,
+      };
+      state.branches.set(initialization.nodeId, {
+        id: initialization.nodeId,
+        nombre: initialization.name,
+        rolNodo: initialization.role,
+        activo: true,
+      });
+    },
+    async renameLocalBranch({ branchId, name }) {
+      state.configuration.sucursal_nombre = name;
+      const branch = state.branches.get(branchId) || { id: branchId };
+      state.branches.set(branchId, { ...branch, nombre: name });
+    },
   };
   return store;
 }
+
+test('initializes a fresh node once with role-specific identity and no network address', async () => {
+  const identities = {
+    central: { publicKey: 'central-public', privateKey: 'central-private', fingerprint: 'a'.repeat(64) },
+    sucursal: { publicKey: 'branch-public', privateKey: 'branch-private', fingerprint: 'b'.repeat(64) },
+  };
+
+  for (const role of ['central', 'sucursal']) {
+    const store = createMemoryStore();
+    const generatedIds = [BRANCH_ID, CONFIGURATION_ID];
+    const sync = createClientSyncService({
+      store,
+      createUuid: () => generatedIds.shift(),
+      createCentralIdentity: () => identities.central,
+      createBranchIdentity: () => identities.sucursal,
+    });
+
+    const result = await sync.configureNode({ role, name: role === 'central' ? 'Matriz' : 'Sucursal Norte' });
+
+    assert.deepEqual(result, {
+      sucursal: { nombre: role === 'central' ? 'Matriz' : 'Sucursal Norte', rol: role },
+    });
+    assert.equal(store.state.initializations.length, 1);
+    const initialization = store.state.initializations[0];
+    assert.equal(initialization.nodeId, BRANCH_ID);
+    assert.equal(initialization.configurationId, CONFIGURATION_ID);
+    assert.equal(initialization.role, role);
+    assert.equal(Object.keys(initialization).some((key) => /address|hostname|\bip\b/i.test(key)), false);
+    if (role === 'central') {
+      assert.equal(initialization.centralPrivateKey, 'central-private');
+      assert.equal(initialization.branchPrivateKey, null);
+    } else {
+      assert.equal(initialization.centralPrivateKey, null);
+      assert.equal(initialization.branchPrivateKey, 'branch-private');
+    }
+  }
+});
+
+test('renames an initialized node but rejects changing its identity role', async () => {
+  const store = createMemoryStore({
+    configuration: { sucursal_id: BRANCH_ID, sucursal_nombre: 'Sucursal Norte', rol_nodo: 'sucursal' },
+    branches: [{ id: BRANCH_ID, nombre: 'Sucursal Norte', rolNodo: 'sucursal', activo: true }],
+  });
+  const sync = createClientSyncService({ store });
+
+  assert.deepEqual(await sync.configureNode({ role: 'sucursal', name: 'Sucursal Centro' }), {
+    sucursal: { nombre: 'Sucursal Centro', rol: 'sucursal' },
+  });
+  assert.equal(store.state.branches.get(BRANCH_ID).nombre, 'Sucursal Centro');
+  await assert.rejects(
+    sync.configureNode({ role: 'central', name: 'Matriz' }),
+    /rol.*no puede cambiar|identidad.*creada/i
+  );
+  assert.equal(store.state.configuration.rol_nodo, 'sucursal');
+});
 
 function centralConfig(central) {
   return {
@@ -222,6 +309,76 @@ test('loads the durable receive cursor from the local branch record after a rest
   const configuration = await createSqlSyncStore({ database }).readConfiguration();
 
   assert.equal(configuration.ultimo_cursor_recibido, 37);
+});
+
+test('reports a safe offline summary without reading credentials or persisted network addresses', async () => {
+  const statements = [];
+  const database = {
+    async getConnection() { assert.fail('status must not start a transaction'); },
+    async execute(sql) {
+      statements.push(sql);
+      return [[{
+        sucursal_id: BRANCH_ID,
+        sucursal_nombre: 'Sucursal Norte',
+        rol_nodo: 'sucursal',
+        central_fingerprint: 'a'.repeat(64),
+        ultima_sincronizacion_en: new Date('2026-08-15T10:00:00.000Z'),
+        pendientes: 3,
+        conflictos: 1,
+      }], []];
+    },
+  };
+  const store = createSqlSyncStore({ database });
+  const sync = createClientSyncService({
+    store,
+    discoveryService: { getLastCentral: () => null },
+  });
+
+  const status = await sync.getStatus();
+
+  assert.deepEqual(status, {
+    sucursal: { nombre: 'Sucursal Norte', rol: 'sucursal' },
+    centralVinculada: true,
+    centralFingerprint: 'a'.repeat(64),
+    estado: 'offline',
+    pendientes: 3,
+    conflictos: 1,
+  });
+  const sql = statements.join('\n').toLowerCase();
+  assert.doesNotMatch(sql, /private_key|credential|address|hostname|\bip\b/);
+});
+
+test('does not report a cached central as connected before a verified sync succeeds', async () => {
+  const central = generateCentralIdentity();
+  const branch = generateBranchIdentity();
+  const credential = issueBranchCredential({
+    privateKey: central.privateKey,
+    centralFingerprint: central.fingerprint,
+    branchId: BRANCH_ID,
+    branchPublicKey: branch.publicKey,
+    now: NOW,
+  });
+  const store = createMemoryStore({
+    configuration: {
+      ...branchConfig({ central, branch, credential }),
+      sucursal_nombre: 'Sucursal Norte',
+    },
+  });
+  const endpoint = {
+    address: '192.168.50.10',
+    port: 4312,
+    centralFingerprint: central.fingerprint,
+  };
+  const sync = createClientSyncService({
+    store,
+    now: () => NOW,
+    discoveryService: { getLastCentral: () => endpoint },
+    async transport() { throw new Error('Central no disponible'); },
+  });
+
+  assert.equal((await sync.getStatus()).estado, 'offline');
+  await assert.rejects(sync.syncOnce(), /central no disponible/i);
+  assert.equal((await sync.getStatus()).estado, 'offline');
 });
 
 test('an unpaired branch discovers by link code, signs activation, and pins only central identity material', async () => {
@@ -839,6 +996,28 @@ test('stopping sync while configuration is pending prevents a later background s
   await starting;
 
   assert.deepEqual(scheduled, []);
+});
+
+test('reports a first-run installation as ready to configure instead of throwing a LAN error', async () => {
+  const store = createMemoryStore();
+  store.readStatus = async () => {
+    throw new ClientSyncError('Esta instalación no tiene identidad LAN configurada.', 409);
+  };
+  const sync = createClientSyncService({
+    store,
+  });
+
+  const status = await sync.getStatus();
+
+  assert.deepEqual(status, {
+    configuracionRequerida: true,
+    sucursal: null,
+    centralVinculada: false,
+    centralFingerprint: null,
+    estado: 'configuracion-requerida',
+    pendientes: 0,
+    conflictos: 0,
+  });
 });
 
 test('a valid signed response marks acknowledgements, applies remote changes, and records divergent concurrent edits', async () => {
