@@ -109,6 +109,11 @@ entendibles para personal no técnico.
 - Node conserva cálculos, reglas de proveedor/XML, permisos, persistencia,
   aprendizaje y validación. React sólo presenta metadatos calculados y envía
   decisiones explícitas del usuario.
+- Las mutaciones de recepción se guardan en segundo plano sin recargar la
+  página. React actualiza la tarjeta de inmediato, identifica “Guardando”,
+  “Guardado” o “No se pudo guardar” y conserva el dato capturado hasta que
+  Node confirme o permita reintentar. Las consultas de listas e historial se
+  refrescan en segundo plano sin interrumpir la captura activa.
 - Se corrige el DTO de estado LAN sin exponer claves, IPs o datos internos. Un
   backend reiniciado expone la ruta actual; el frontend muestra recuperación
   clara si la versión de servidor todavía no la tiene.
