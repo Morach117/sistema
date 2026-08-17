@@ -76,6 +76,7 @@ test('lets only a local administrator initialize or rename the client node witho
 test('returns only safe local sync status to an authenticated clients user', async () => {
   const calls = [];
   const safeStatus = {
+    configuracionRequerida: false,
     sucursal: { nombre: 'Sucursal Norte', rol: 'sucursal' },
     centralVinculada: true,
     centralFingerprint: 'a'.repeat(64),
@@ -116,6 +117,30 @@ test('returns only safe local sync status to an authenticated clients user', asy
   assert.equal(JSON.stringify(allowed.body).includes('private_key'), false);
   assert.equal(JSON.stringify(allowed.body).includes('credential'), false);
   assert.equal(JSON.stringify(allowed.body).includes('192.168.'), false);
+});
+
+test('reports setup required without leaking node identity details', async () => {
+  const app = buildApp({
+    syncService: serviceDouble({
+      async getStatus() {
+        return {
+          configuracionRequerida: true,
+          sucursal: null,
+          privateKey: 'must-not-leak',
+        };
+      },
+    }),
+    discoveryService: { discover: async () => null },
+    lanAccess: () => true,
+  });
+
+  const response = await request(app)
+    .get('/api/clientes-sync/estado')
+    .set('Authorization', `Bearer ${adminToken({ rol: 'empleado', permisos: ['clientes'] })}`);
+
+  assert.equal(response.status, 200, response.text);
+  assert.equal(response.body.data.configuracionRequerida, true);
+  assert.equal('privateKey' in response.body.data, false);
 });
 
 test('mounts the LAN pairing route in the main application', async () => {

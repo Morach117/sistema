@@ -60,6 +60,7 @@ function createClientesSyncRouter({
       res.json({
         success: true,
         data: {
+          configuracionRequerida: Boolean(status.configuracionRequerida),
           sucursal: {
             nombre: status.sucursal?.nombre,
             rol: status.sucursal?.rol,
