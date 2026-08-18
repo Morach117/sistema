@@ -33,6 +33,7 @@ function serviceDouble(overrides = {}) {
     async acceptSync() { assert.fail('unexpected acceptSync call'); },
     async createPairingCode() { assert.fail('unexpected createPairingCode call'); },
     async pairWithCentral() { assert.fail('unexpected pairWithCentral call'); },
+    async start() {},
     ...overrides,
   };
 }
@@ -46,7 +47,7 @@ test('lets only a local administrator initialize or rename the client node witho
         return { sucursal: { nombre: input.name, rol: input.role } };
       },
     }),
-    discoveryService: { discover: async () => null },
+    discoveryService: { discover: async () => null, async start() {} },
     lanAccess: () => true,
   });
   const body = { rol_nodo: 'central', nombre: 'Matriz', ip: '203.0.113.10', hostname: 'manual' };
@@ -73,6 +74,36 @@ test('lets only a local administrator initialize or rename the client node witho
   }]);
 });
 
+test('starts sync and discovery immediately after a successful node configuration', async () => {
+  const calls = [];
+  const app = buildApp({
+    syncService: serviceDouble({
+      async configureNode(input) {
+        calls.push(['configure', input.role, input.name]);
+        return { sucursal: { nombre: input.name, rol: input.role } };
+      },
+      async start() { calls.push(['sync-start']); },
+    }),
+    discoveryService: {
+      async discover() { return null; },
+      async start() { calls.push(['discovery-start']); },
+    },
+    lanAccess: () => true,
+  });
+
+  const response = await request(app)
+    .put('/api/clientes-sync/configuracion')
+    .set('Authorization', `Bearer ${adminToken()}`)
+    .send({ rol_nodo: 'sucursal', nombre: 'Sucursal Norte' });
+
+  assert.equal(response.status, 200, response.text);
+  assert.deepEqual(calls, [
+    ['configure', 'sucursal', 'Sucursal Norte'],
+    ['sync-start'],
+    ['discovery-start'],
+  ]);
+});
+
 test('returns only safe local sync status to an authenticated clients user', async () => {
   const calls = [];
   const safeStatus = {
@@ -83,6 +114,7 @@ test('returns only safe local sync status to an authenticated clients user', asy
     estado: 'offline',
     pendientes: 3,
     conflictos: 1,
+    centralesDetectadas: [],
   };
   const serviceStatus = {
     ...safeStatus,
@@ -117,6 +149,47 @@ test('returns only safe local sync status to an authenticated clients user', asy
   assert.equal(JSON.stringify(allowed.body).includes('private_key'), false);
   assert.equal(JSON.stringify(allowed.body).includes('credential'), false);
   assert.equal(JSON.stringify(allowed.body).includes('192.168.'), false);
+});
+
+test('publishes only safe ephemeral central candidates in the local status', async () => {
+  const app = buildApp({
+    syncService: serviceDouble({
+      async getStatus() {
+        return {
+          configuracionRequerida: false,
+          sucursal: { nombre: 'Sucursal Norte', rol: 'sucursal' },
+          centralVinculada: false,
+          centralFingerprint: null,
+          estado: 'sin-vincular',
+        };
+      },
+    }),
+    discoveryService: {
+      async discover() { return null; },
+      listCandidates() {
+        return [{
+          name: 'Central Matriz',
+          fingerprint: 'b'.repeat(64),
+          seenAt: 1_786_723_200_000,
+          address: '192.168.80.20',
+          centralPublicKey: 'must-not-leak',
+        }];
+      },
+    },
+    lanAccess: () => true,
+  });
+
+  const response = await request(app)
+    .get('/api/clientes-sync/estado')
+    .set('Authorization', `Bearer ${adminToken({ rol: 'empleado', permisos: ['clientes'] })}`);
+
+  assert.equal(response.status, 200, response.text);
+  assert.deepEqual(response.body.data.centralesDetectadas, [{
+    name: 'Central Matriz',
+    fingerprint: 'b'.repeat(64),
+    seenAt: 1_786_723_200_000,
+  }]);
+  assert.doesNotMatch(response.text, /192\.168\.80\.20|must-not-leak/);
 });
 
 test('reports setup required without leaking node identity details', async () => {

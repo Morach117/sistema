@@ -45,6 +45,7 @@ class FakeSocket extends EventEmitter {
 function centralConfiguration(identity, overrides = {}) {
   return {
     rol_nodo: 'central',
+    sucursal_nombre: 'Central Matriz',
     central_fingerprint: identity.fingerprint,
     central_public_key: identity.publicKey,
     central_private_key: identity.privateKey,
@@ -96,6 +97,7 @@ test('a central announces a signed identity only to directed broadcasts on local
     now: 1_786_723_200_000,
   });
   assert.equal(payload.centralFingerprint, central.fingerprint);
+  assert.equal(payload.centralName, 'Central Matriz');
   assert.equal(payload.apiPort, 4312);
   assert.equal(Object.hasOwn(payload, 'address'), false);
   assert.equal(Object.hasOwn(payload, 'hostname'), false);
@@ -280,6 +282,55 @@ test('an unpaired branch accepts first discovery only when the announcement vali
     centralFingerprint: central.fingerprint,
     centralPublicKey: central.publicKey,
   });
+  await service.stop();
+});
+
+test('an unpaired branch lists a signed local central candidate but still requires a link code to discover it', async () => {
+  const central = generateCentralIdentity();
+  const socket = new FakeSocket();
+  const service = createClientDiscoveryService({
+    createSocket: () => socket,
+    getConfiguration: async () => ({
+      rol_nodo: 'sucursal',
+      central_fingerprint: null,
+      central_public_key: null,
+    }),
+    networkInterfaces: () => ({
+      Ethernet: [{
+        family: 'IPv4',
+        internal: false,
+        address: '192.168.80.12',
+        netmask: '255.255.255.0',
+      }],
+    }),
+    now: () => 1_786_723_200_000,
+  });
+  await service.start();
+
+  const announcement = signEnvelope({
+    privateKey: central.privateKey,
+    payload: {
+      version: 1,
+      type: 'clientes-central-announcement',
+      centralName: 'Central Matriz',
+      centralFingerprint: central.fingerprint,
+      centralPublicKey: central.publicKey,
+      apiPort: 4312,
+      issuedAt: 1_786_723_200_000,
+    },
+  });
+  socket.emit('message', Buffer.from(JSON.stringify(announcement)), {
+    address: '192.168.80.20',
+    port: 39091,
+  });
+
+  assert.deepEqual(service.listCandidates(), [{
+    name: 'Central Matriz',
+    fingerprint: central.fingerprint,
+    seenAt: 1_786_723_200_000,
+  }]);
+  await assert.rejects(service.discover(), /c[oó]digo.*v[ií]nculo/i);
+  assert.equal(service.getLastCentral(), null);
   await service.stop();
 });
 

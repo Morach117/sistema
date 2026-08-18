@@ -46,6 +46,8 @@ function createClientesSyncRouter({
         name: req.body?.nombre,
         requestId: req.requestId,
       });
+      await syncService.start();
+      await discoveryService.start();
       res.json({ success: true, data: result });
     })
   );
@@ -57,6 +59,11 @@ function createClientesSyncRouter({
     lanBoundary,
     asyncHandler(async (_req, res) => {
       const status = await syncService.getStatus();
+      const centralesDetectadas = (discoveryService.listCandidates?.() || []).map((candidate) => ({
+        name: candidate.name,
+        fingerprint: candidate.fingerprint,
+        seenAt: candidate.seenAt,
+      }));
       res.json({
         success: true,
         data: {
@@ -70,6 +77,7 @@ function createClientesSyncRouter({
           estado: status.estado,
           pendientes: Number(status.pendientes || 0),
           conflictos: Number(status.conflictos || 0),
+          centralesDetectadas,
         },
       });
     })

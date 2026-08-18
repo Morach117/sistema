@@ -11,6 +11,8 @@ const {
 
 const DEFAULT_DISCOVERY_PORT = 39091;
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 2_000;
+const DEFAULT_CANDIDATE_TTL_MS = 15_000;
+const MAX_CANDIDATES = 32;
 const MAX_PACKET_SIZE = 32 * 1024;
 
 function ipv4Number(address) {
@@ -71,8 +73,13 @@ function createClientDiscoveryService({
   createSocket = () => dgram.createSocket({ type: 'udp4', reuseAddr: true }),
   getConfiguration = async () => {
     const [rows] = await require('../config/database').execute(
-      `SELECT rol_nodo, central_fingerprint, central_public_key, central_private_key
-         FROM cliente_configuracion WHERE alcance_local = 1 LIMIT 1`
+      `SELECT configuracion.rol_nodo, configuracion.central_fingerprint,
+              configuracion.central_public_key, configuracion.central_private_key,
+              sucursal.nombre AS sucursal_nombre
+         FROM cliente_configuracion AS configuracion
+         INNER JOIN sucursales AS sucursal ON sucursal.id = configuracion.sucursal_id
+        WHERE configuracion.alcance_local = 1
+        LIMIT 1`
     );
     if (rows.length !== 1) throw new Error('No hay identidad LAN configurada.');
     return rows[0];
@@ -82,6 +89,7 @@ function createClientDiscoveryService({
   apiPort = Number(process.env.PORT || 3000),
   discoveryTimeoutMs = DEFAULT_DISCOVERY_TIMEOUT_MS,
   announceIntervalMs = 5_000,
+  candidateTtlMs = DEFAULT_CANDIDATE_TTL_MS,
   now = Date.now,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
@@ -93,6 +101,9 @@ function createClientDiscoveryService({
   if (!Number.isInteger(discoveryTimeoutMs) || discoveryTimeoutMs < 1) {
     throw new TypeError('discoveryTimeoutMs debe ser un entero positivo.');
   }
+  if (!Number.isInteger(candidateTtlMs) || candidateTtlMs < 1) {
+    throw new TypeError('candidateTtlMs debe ser un entero positivo.');
+  }
   let socket;
   let configuration;
   let startPromise;
@@ -102,6 +113,7 @@ function createClientDiscoveryService({
   let lastCentral = null;
   let lifecycleGeneration = 0;
   const waiters = new Set();
+  const candidates = new Map();
 
   function send(packet, address, port = udpPort) {
     if (!socket || stopped) return;
@@ -120,6 +132,7 @@ function createClientDiscoveryService({
       payload: {
         version: 1,
         type: 'clientes-central-announcement',
+        centralName: configuration.sucursal_nombre,
         centralFingerprint: configuration.central_fingerprint,
         centralPublicKey: configuration.central_public_key,
         apiPort: localApiPort,
@@ -161,6 +174,23 @@ function createClientDiscoveryService({
       }
     }
     return accepted;
+  }
+
+  function removeExpiredCandidates() {
+    const expiresBefore = now() - candidateTtlMs;
+    for (const [fingerprint, candidate] of candidates) {
+      if (candidate.seenAt < expiresBefore) candidates.delete(fingerprint);
+    }
+  }
+
+  function rememberCandidate({ name, fingerprint }) {
+    removeExpiredCandidates();
+    const candidate = { name, fingerprint, seenAt: now() };
+    candidates.delete(fingerprint);
+    candidates.set(fingerprint, candidate);
+    while (candidates.size > MAX_CANDIDATES) {
+      candidates.delete(candidates.keys().next().value);
+    }
   }
 
   function handleMessage(message, remote) {
@@ -205,6 +235,13 @@ function createClientDiscoveryService({
         port,
         centralFingerprint: payload.centralFingerprint,
       };
+      const centralName = String(payload.centralName || '').trim();
+      if (centralName && centralName.length <= 120) {
+        rememberCandidate({
+          name: centralName,
+          fingerprint: payload.centralFingerprint,
+        });
+      }
       if (isPinned) {
         lastCentral = endpoint;
         resolveWaiters(lastCentral);
@@ -297,6 +334,7 @@ function createClientDiscoveryService({
     started = false;
     startPromise = undefined;
     lastCentral = null;
+    candidates.clear();
     if (announcementTimer) clearIntervalFn(announcementTimer);
     announcementTimer = undefined;
     for (const waiter of waiters) {
@@ -320,6 +358,10 @@ function createClientDiscoveryService({
   return {
     discover,
     getLastCentral: () => lastCentral && { ...lastCentral },
+    listCandidates: () => {
+      removeExpiredCandidates();
+      return [...candidates.values()].map((candidate) => ({ ...candidate }));
+    },
     start,
     stop,
   };
