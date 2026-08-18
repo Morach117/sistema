@@ -22,6 +22,7 @@ export default function ClientesConfiguracion() {
   const [nodeRole, setNodeRole] = useState('sucursal')
   const [nodeName, setNodeName] = useState('')
   const [visibleName, setVisibleName] = useState('')
+  const [selectedCentralFingerprint, setSelectedCentralFingerprint] = useState('')
   const [foundCentral, setFoundCentral] = useState(false)
   const [generatedCode, setGeneratedCode] = useState('')
   const statusQuery = useQuery({
@@ -34,7 +35,10 @@ export default function ClientesConfiguracion() {
     },
   })
   const discover = useMutation({
-    mutationFn: async () => (await api.post('/api/clientes-sync/descubrir', { codigo_vinculo: linkCode.trim() })).data.data,
+    mutationFn: async () => (await api.post('/api/clientes-sync/descubrir', {
+      codigo_vinculo: linkCode.trim(),
+      central_fingerprint: selectedCentralFingerprint,
+    })).data.data,
     onSuccess: () => setFoundCentral(true),
   })
   const generateCode = useMutation({
@@ -45,6 +49,7 @@ export default function ClientesConfiguracion() {
     mutationFn: async () => (await api.post('/api/clientes-sync/emparejar', {
       codigo_vinculo: linkCode.trim(),
       nombre_sucursal: statusQuery.data?.sucursal?.nombre,
+      central_fingerprint: selectedCentralFingerprint,
     })).data.data,
     onSuccess: () => {
       setFoundCentral(false)
@@ -68,6 +73,7 @@ export default function ClientesConfiguracion() {
   const role = status?.sucursal?.rol || ''
   const linked = Boolean(status?.centralVinculada)
   const detectedCentrals = status?.centralesDetectadas ?? []
+  const selectedCentral = detectedCentrals.find((central) => central.fingerprint === selectedCentralFingerprint)
 
   const currentVisibleName = visibleName || status?.sucursal?.nombre || ''
 
@@ -166,21 +172,47 @@ export default function ClientesConfiguracion() {
             ) : (
               <div className="grid gap-3">
                 <section aria-labelledby="central-detectada-title" className="rounded-xl border border-primary/30 bg-primary/5 p-4">
-                  <h3 id="central-detectada-title" className="font-black">1. Central encontrada</h3>
+                  <h3 id="central-detectada-title" className="font-black">1. Selecciona una Central detectada</h3>
                   {detectedCentrals.length > 0 ? (
                     <ul className="mt-2 grid gap-2" aria-label="Centrales detectadas en la red local">
-                      {detectedCentrals.map((central) => <li key={central.fingerprint} className="rounded-lg bg-background/70 px-3 py-2 text-sm font-bold">{central.name}</li>)}
+                      {detectedCentrals.map((central) => (
+                        <li key={central.fingerprint}>
+                          <label className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-colors ${selectedCentralFingerprint === central.fingerprint ? 'border-primary bg-background' : 'border-border bg-background/70 hover:bg-background'}`}>
+                            <input
+                              type="radio"
+                              name="central-detectada"
+                              value={central.fingerprint}
+                              checked={selectedCentralFingerprint === central.fingerprint}
+                              disabled={discover.isPending}
+                              onChange={() => {
+                                setSelectedCentralFingerprint(central.fingerprint)
+                                setFoundCentral(false)
+                              }}
+                              className="h-4 w-4 shrink-0 accent-primary"
+                            />
+                            <span className="min-w-0">
+                              <span className="block break-words font-black">{central.name}</span>
+                              <span className="block text-xs font-bold text-amber-700 dark:text-amber-300">Pendiente de autorización</span>
+                            </span>
+                          </label>
+                        </li>
+                      ))}
                     </ul>
                   ) : (
-                    <p className="mt-1 text-sm text-muted-foreground">Aún no encontramos una Central. Verifica que ambas instalaciones deben tener el sistema iniciado y estar en la misma red local.</p>
+                    <div className="mt-2 grid gap-3">
+                      <p className="text-sm text-muted-foreground">No hay Centrales detectadas. Ambas instalaciones deben tener el sistema iniciado, una identidad Central o Sucursal configurada y estar en la misma red local.</p>
+                      <Button type="button" variant="outline" onClick={() => statusQuery.refetch()} disabled={statusQuery.isFetching}>
+                        <RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${statusQuery.isFetching ? 'animate-spin' : ''}`} />Volver a buscar
+                      </Button>
+                    </div>
                   )}
                 </section>
-                <label className={labelClass}>2. Pega el código temporal — Código de vínculo<textarea className={`${fieldClass} min-h-24 resize-y font-mono text-xs`} value={linkCode} onChange={(event) => { setLinkCode(event.target.value); setFoundCentral(false) }} required /></label>
-                <Button type="button" variant="outline" onClick={() => discover.mutate()} disabled={!linkCode.trim() || discover.isPending}><RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${discover.isPending ? 'animate-spin' : ''}`} />Buscar central y autorizar</Button>
+                <label className={labelClass}>2. Pega el código temporal — Código de vínculo<textarea className={`${fieldClass} min-h-24 resize-y font-mono text-xs`} value={linkCode} disabled={discover.isPending} onChange={(event) => { setLinkCode(event.target.value); setFoundCentral(false) }} required /></label>
+                <Button type="button" variant="outline" onClick={() => discover.mutate()} disabled={!selectedCentral || !linkCode.trim() || discover.isPending}><RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${discover.isPending ? 'animate-spin' : ''}`} />Validar código con la Central seleccionada</Button>
                 {foundCentral && (
                   <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                    <p className="flex items-center gap-2 font-black"><CheckCircle2 aria-hidden="true" className="h-5 w-5" />Central encontrada en la red local y código temporal validado</p>
-                    {!linked && <Button type="button" className="mt-3 w-full" onClick={() => pair.mutate()} disabled={pair.isPending}>Vincular sucursal</Button>}
+                    <p className="flex items-center gap-2 font-black"><CheckCircle2 aria-hidden="true" className="h-5 w-5" />Código temporal e identidad firmada validados para {selectedCentral?.name}</p>
+                    {!linked && <Button type="button" className="mt-3 w-full" onClick={() => pair.mutate()} disabled={pair.isPending}>Autorizar y vincular sucursal</Button>}
                   </div>
                 )}
                 {discover.error && <p role="alert" className="text-sm font-bold text-destructive">{errorMessage(discover.error, 'No se encontró una central válida en la LAN.')}</p>}

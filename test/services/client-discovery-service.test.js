@@ -282,6 +282,13 @@ test('an unpaired branch accepts first discovery only when the announcement vali
     centralFingerprint: central.fingerprint,
     centralPublicKey: central.publicKey,
   });
+  await assert.rejects(
+    service.discover({
+      linkCode: 'codigo-modificado',
+      expectedCentralFingerprint: central.fingerprint,
+    }),
+    /c[oó]digo.*v[ií]nculo|no corresponde/i
+  );
   await service.stop();
 });
 
@@ -330,6 +337,62 @@ test('an unpaired branch lists a signed local central candidate but still requir
     seenAt: 1_786_723_200_000,
   }]);
   await assert.rejects(service.discover(), /c[oó]digo.*v[ií]nculo/i);
+  assert.equal(service.getLastCentral(), null);
+  await service.stop();
+});
+
+test('an unpaired branch never authorizes a different candidate than the one selected', async () => {
+  const selectedCentral = generateCentralIdentity();
+  const otherCentral = generateCentralIdentity();
+  const socket = new FakeSocket();
+  const linkCodeForOtherCentral = createLinkCode({
+    privateKey: otherCentral.privateKey,
+    centralFingerprint: otherCentral.fingerprint,
+    now: 1_786_723_200_000,
+    ttlMs: 60_000,
+  });
+  const service = createClientDiscoveryService({
+    createSocket: () => socket,
+    getConfiguration: async () => ({
+      rol_nodo: 'sucursal',
+      central_fingerprint: null,
+      central_public_key: null,
+    }),
+    networkInterfaces: () => ({
+      Ethernet: [{
+        family: 'IPv4',
+        internal: false,
+        address: '192.168.80.12',
+        netmask: '255.255.255.0',
+      }],
+    }),
+    discoveryTimeoutMs: 10,
+    now: () => 1_786_723_200_000,
+  });
+  await service.start();
+
+  const discovery = service.discover({
+    linkCode: linkCodeForOtherCentral,
+    expectedCentralFingerprint: selectedCentral.fingerprint,
+  });
+  const otherAnnouncement = signEnvelope({
+    privateKey: otherCentral.privateKey,
+    payload: {
+      version: 1,
+      type: 'clientes-central-announcement',
+      centralName: 'Otra Central',
+      centralFingerprint: otherCentral.fingerprint,
+      centralPublicKey: otherCentral.publicKey,
+      apiPort: 4312,
+      issuedAt: 1_786_723_200_000,
+    },
+  });
+  socket.emit('message', Buffer.from(JSON.stringify(otherAnnouncement)), {
+    address: '192.168.80.20',
+    port: 39091,
+  });
+
+  await assert.rejects(discovery, /central.*encontr|tiempo/i);
   assert.equal(service.getLastCentral(), null);
   await service.stop();
 });

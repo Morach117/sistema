@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { MemoryRouter } from 'react-router-dom'
 import Swal from 'sweetalert2'
@@ -9,6 +9,8 @@ import api from '@/lib/api'
 import Recepciones from './Recepciones'
 
 const originalAdapter = api.defaults.adapter
+const originalInnerWidth = window.innerWidth
+const originalResizeObserver = globalThis.ResizeObserver
 
 function responseFor(config, data = {}, headers = {}) {
   return { data, status: 200, statusText: 'OK', headers, config, request: {} }
@@ -125,6 +127,9 @@ afterEach(() => {
   cleanup()
   clearSession()
   api.defaults.adapter = originalAdapter
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth })
+  if (originalResizeObserver === undefined) delete globalThis.ResizeObserver
+  else Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: originalResizeObserver })
   vi.restoreAllMocks()
 })
 
@@ -166,13 +171,32 @@ describe('Recepciones presentation and cost review', () => {
     expect(screen.queryByRole('button', { name: /compras previas/i })).not.toBeInTheDocument()
     expect(screen.getByTitle('Cuaderno caja')).toHaveClass('line-clamp-2')
 
-    const captureGrid = screen.getByRole('article', { name: /captura de Cuaderno caja/i }).firstElementChild
-    expect(captureGrid).toHaveClass('xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]')
-    expect(captureGrid).toHaveClass('2xl:grid-cols-[minmax(7rem,.8fr)_minmax(14rem,1.4fr)_minmax(10rem,1fr)_minmax(17rem,1.4fr)]')
-
     const deleteButton = screen.getByRole('button', { name: 'Eliminar Cuaderno caja' })
     expect(deleteButton).toBeVisible()
     expect(within(deleteButton).queryByText(/eliminar artículo/i)).not.toBeInTheDocument()
+  })
+
+  it('uses a readable four-zone matrix in the 690px capture area left at a 1366px viewport', async () => {
+    let resizeCallback
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1366 })
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      configurable: true,
+      value: class ResizeObserver {
+        constructor(callback) { resizeCallback = callback }
+        observe() {}
+        disconnect() {}
+      },
+    })
+    renderPage(createAdapter())
+    await openReception()
+
+    const captureGrid = screen.getByRole('group', { name: /cuatro zonas de captura de Cuaderno caja/i })
+    act(() => resizeCallback([{ target: captureGrid, contentRect: { width: 690 } }]))
+
+    expect(window.innerWidth).toBe(1366)
+    expect(captureGrid).toHaveAttribute('data-capture-layout', 'matrix')
+    expect(captureGrid).toHaveStyle({ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' })
+    expect(within(captureGrid).getAllByRole('group')).toHaveLength(4)
   })
 
   it('keeps an earlier failed field save visible after another field saves successfully', async () => {

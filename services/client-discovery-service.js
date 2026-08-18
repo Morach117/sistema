@@ -158,6 +158,10 @@ function createClientDiscoveryService({
   function resolveMatchingPairingWaiters(endpoint, publicKey, fingerprint) {
     let accepted = false;
     for (const waiter of [...waiters]) {
+      if (
+        waiter.expectedCentralFingerprint &&
+        waiter.expectedCentralFingerprint !== fingerprint
+      ) continue;
       try {
         verifyLinkCode({
           code: waiter.linkCode,
@@ -306,18 +310,49 @@ function createClientDiscoveryService({
     return startPromise;
   }
 
-  function discover({ linkCode } = {}) {
-    if (!started) return start().then(() => discover({ linkCode }));
-    if (lastCentral) return Promise.resolve({ ...lastCentral });
+  function discover({ linkCode, expectedCentralFingerprint } = {}) {
+    const selectedFingerprint = String(expectedCentralFingerprint || '').trim();
+    if (!started) {
+      return start().then(() => discover({
+        linkCode,
+        expectedCentralFingerprint: selectedFingerprint,
+      }));
+    }
     if (String(configuration?.rol_nodo || '').toLowerCase() !== 'sucursal') {
       return Promise.reject(new Error('Solo una sucursal puede buscar una central.'));
     }
     const isPinned = Boolean(configuration.central_fingerprint && configuration.central_public_key);
+    if (
+      lastCentral &&
+      (!selectedFingerprint || lastCentral.centralFingerprint === selectedFingerprint)
+    ) {
+      if (isPinned) return Promise.resolve({ ...lastCentral });
+      if (typeof linkCode !== 'string' || !linkCode.trim()) {
+        return Promise.reject(new Error('Se requiere un código de vínculo para buscar la central inicial.'));
+      }
+      try {
+        verifyLinkCode({
+          code: linkCode,
+          publicKey: lastCentral.centralPublicKey,
+          expectedCentralFingerprint: lastCentral.centralFingerprint,
+          now: now(),
+        });
+        return Promise.resolve({ ...lastCentral });
+      } catch {
+        return Promise.reject(new Error('El código de vínculo no corresponde a la Central seleccionada.'));
+      }
+    }
     if (!isPinned && (typeof linkCode !== 'string' || !linkCode.trim())) {
       return Promise.reject(new Error('Se requiere un código de vínculo para buscar la central inicial.'));
     }
     return new Promise((resolve, reject) => {
-      const waiter = { resolve, reject, linkCode, timer: undefined };
+      const waiter = {
+        resolve,
+        reject,
+        linkCode,
+        expectedCentralFingerprint: selectedFingerprint,
+        timer: undefined,
+      };
       waiter.timer = setTimeoutFn(() => {
         waiters.delete(waiter);
         reject(new Error('No se encontró una central en la red local dentro del tiempo esperado.'));

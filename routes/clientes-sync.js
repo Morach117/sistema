@@ -46,8 +46,14 @@ function createClientesSyncRouter({
         name: req.body?.nombre,
         requestId: req.requestId,
       });
-      await syncService.start();
-      await discoveryService.start();
+      await Promise.all([
+        syncService.stop?.(),
+        discoveryService.stop?.(),
+      ]);
+      await Promise.all([
+        syncService.start(),
+        discoveryService.start(),
+      ]);
       res.json({ success: true, data: result });
     })
   );
@@ -117,6 +123,7 @@ function createClientesSyncRouter({
       const result = await syncService.pairWithCentral({
         linkCode: req.body?.codigo_vinculo,
         branchName: req.body?.nombre_sucursal,
+        expectedCentralFingerprint: req.body?.central_fingerprint,
         requestId: req.requestId,
       });
       res.json({ success: true, data: result });
@@ -130,6 +137,7 @@ function createClientesSyncRouter({
     asyncHandler(async (req, res) => {
       const endpoint = await discoveryService.discover({
         linkCode: req.body?.codigo_vinculo,
+        expectedCentralFingerprint: req.body?.central_fingerprint,
       });
       res.json({ success: true, data: endpoint });
     })

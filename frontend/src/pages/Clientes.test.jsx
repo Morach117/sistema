@@ -365,7 +365,19 @@ describe('Configuración LAN de clientes', () => {
 
   it('searches for the central through the same-origin local API without asking for a manual IP', async () => {
     const requests = []
-    renderPage(<ClientesConfiguracion />, createAdapter({ requests }))
+    renderPage(<ClientesConfiguracion />, createAdapter({
+      requests,
+      status: syncStatus({
+        centralVinculada: false,
+        centralFingerprint: null,
+        estado: 'sin-vincular',
+        centralesDetectadas: [{
+          name: 'Central Matriz',
+          fingerprint: 'a'.repeat(64),
+          seenAt: '2026-08-18T12:00:00.000Z',
+        }],
+      }),
+    }))
 
     expect(await screen.findByRole('heading', { name: /configuración de clientes/i })).toBeVisible()
     await screen.findByDisplayValue('Sucursal Norte')
@@ -376,12 +388,16 @@ describe('Configuración LAN de clientes', () => {
     expect(screen.queryByLabelText(/identificador de sucursal/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/dirección ip|hostname|servidor manual/i)).not.toBeInTheDocument()
 
+    fireEvent.click(screen.getByRole('radio', { name: /Central Matriz.*pendiente de autorización/i }))
     fireEvent.change(screen.getByLabelText(/código de vínculo/i), { target: { value: 'codigo-firmado' } })
-    fireEvent.click(screen.getByRole('button', { name: /buscar central/i }))
+    fireEvent.click(screen.getByRole('button', { name: /validar código/i }))
 
-    expect(await screen.findByText(/central encontrada en la red local/i)).toBeVisible()
+    expect(await screen.findByText(/código temporal e identidad firmada validados/i)).toBeVisible()
     const discovery = requests.find((request) => request.url === '/api/clientes-sync/descubrir')
-    expect(bodyOf(discovery)).toEqual({ codigo_vinculo: 'codigo-firmado' })
+    expect(bodyOf(discovery)).toEqual({
+      codigo_vinculo: 'codigo-firmado',
+      central_fingerprint: 'a'.repeat(64),
+    })
     expect(requests.every((request) => request.url.startsWith('/api/'))).toBe(true)
   })
 })

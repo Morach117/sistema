@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDebounce } from 'use-debounce'
 import {
@@ -212,6 +212,44 @@ function SummaryCard({ label, value, icon: Icon, tone = 'text-primary' }) {
         </div>
       </div>
     </Card>
+  )
+}
+
+function captureLayout(width) {
+  if (width >= 960) return { name: 'columns', count: 4 }
+  if (width >= 560) return { name: 'matrix', count: 2 }
+  return { name: 'stack', count: 1 }
+}
+
+function CaptureZoneGrid({ description, children }) {
+  const gridRef = useRef(null)
+  const [layout, setLayout] = useState(() => captureLayout(0))
+
+  useEffect(() => {
+    const grid = gridRef.current
+    if (!grid) return undefined
+    const updateWidth = (width) => setLayout(captureLayout(width))
+    updateWidth(grid.getBoundingClientRect().width)
+    if (typeof ResizeObserver !== 'function') return undefined
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries.find((candidate) => candidate.target === grid)
+      if (entry) updateWidth(entry.contentRect.width)
+    })
+    observer.observe(grid)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div
+      ref={gridRef}
+      role="group"
+      aria-label={`Cuatro zonas de captura de ${description}`}
+      data-capture-layout={layout.name}
+      className="grid gap-3 p-3"
+      style={{ gridTemplateColumns: `repeat(${layout.count}, minmax(0, 1fr))` }}
+    >
+      {children}
+    </div>
   )
 }
 
@@ -641,8 +679,8 @@ export default function Recepciones() {
                   const differenceSign = difference?.diferencia > 0 ? '+' : ''
                   return (
                     <article key={item.id} aria-label={`Captura de ${item.desc}`} className={`overflow-hidden rounded-2xl border shadow-sm ${rejected ? 'border-destructive/40 bg-destructive/5' : missing ? 'border-amber-500/40 bg-amber-500/5' : 'border-border bg-card/90'}`}>
-                      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] xl:items-start 2xl:grid-cols-[minmax(7rem,.8fr)_minmax(14rem,1.4fr)_minmax(10rem,1fr)_minmax(17rem,1.4fr)]">
-                        <section role="group" aria-label={`Factura de ${item.desc}`} className="space-y-3 xl:border-r xl:border-border xl:pr-4">
+                      <CaptureZoneGrid description={item.desc}>
+                        <section role="group" aria-label={`Factura de ${item.desc}`} className="min-w-0 space-y-3 rounded-xl border border-border bg-background/40 p-3">
                           <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Factura</h3>
                           <label className="block text-xs font-black text-muted-foreground">
                             Cantidad XML
@@ -660,7 +698,7 @@ export default function Recepciones() {
                           <p className="text-center text-[10px] font-bold text-muted-foreground">piezas facturadas</p>
                         </section>
 
-                        <section role="group" aria-label={`Producto y SICAR de ${item.desc}`} className="min-w-0 space-y-3 xl:border-r xl:border-border xl:pr-4">
+                        <section role="group" aria-label={`Producto y SICAR de ${item.desc}`} className="min-w-0 space-y-3 rounded-xl border border-border bg-background/40 p-3">
                           <div className="min-w-0">
                             <h3 className="line-clamp-2 text-base font-black" title={item.desc}>{item.desc}</h3>
                             <p className="mt-1 text-xs font-bold text-muted-foreground">Artículo #{item.id} · proveedor {item.cod_prov || 'sin código'}</p>
@@ -668,7 +706,7 @@ export default function Recepciones() {
                           <SicarInput item={item} editor={editor} disabled={finalised} canValidateCatalog={canValidateCatalog} />
                         </section>
 
-                        <section role="group" aria-label={`Físico y caja de ${item.desc}`} className="space-y-3 xl:border-r xl:border-border xl:pr-4">
+                        <section role="group" aria-label={`Físico y caja de ${item.desc}`} className="min-w-0 space-y-3 rounded-xl border border-border bg-background/40 p-3">
                           <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Físico / Caja</h3>
                           <label className="block text-xs font-black text-muted-foreground">
                             Conteo físico
@@ -699,7 +737,7 @@ export default function Recepciones() {
                           ) : <p className="text-xs font-bold text-destructive">La configuración de caja no es válida.</p>}
                         </section>
 
-                        <section role="group" aria-label={`Decisión y precios de ${item.desc}`} className="space-y-3">
+                        <section role="group" aria-label={`Decisión y precios de ${item.desc}`} className="min-w-0 space-y-3 rounded-xl border border-border bg-background/40 p-3">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Decisión / Precios</h3>
                             {rejected && <span className="rounded-full bg-destructive px-2 py-1 text-[9px] font-black uppercase text-destructive-foreground">En reclamación</span>}
@@ -761,7 +799,7 @@ export default function Recepciones() {
                             </Button>
                           )}
                         </section>
-                      </div>
+                      </CaptureZoneGrid>
                     </article>
                   )
                 })}

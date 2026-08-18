@@ -2,9 +2,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const { EventEmitter } = require('node:events');
 
 const { createApp } = require('../../app');
 const { createClientesSyncRouter } = require('../../routes/clientes-sync');
+const { generateCentralIdentity } = require('../../services/client-identity-service');
+const { createClientDiscoveryService } = require('../../services/client-discovery-service');
+const { verifySignedEnvelope } = require('../../services/client-sync-service');
 const { errorHandler } = require('../../middleware/errors');
 const { requestContext } = require('../../middleware/request-context');
 const { request } = require('../helpers/app');
@@ -34,8 +38,31 @@ function serviceDouble(overrides = {}) {
     async createPairingCode() { assert.fail('unexpected createPairingCode call'); },
     async pairWithCentral() { assert.fail('unexpected pairWithCentral call'); },
     async start() {},
+    async stop() {},
     ...overrides,
   };
+}
+
+class LifecycleSocket extends EventEmitter {
+  constructor() {
+    super();
+    this.sent = [];
+  }
+
+  bind() {
+    queueMicrotask(() => this.emit('listening'));
+  }
+
+  setBroadcast() {}
+
+  send(packet, port, address, callback) {
+    this.sent.push({ packet: Buffer.from(packet), port, address });
+    callback?.();
+  }
+
+  close(callback) {
+    callback?.();
+  }
 }
 
 test('lets only a local administrator initialize or rename the client node without manual network identity', async () => {
@@ -82,10 +109,12 @@ test('starts sync and discovery immediately after a successful node configuratio
         calls.push(['configure', input.role, input.name]);
         return { sucursal: { nombre: input.name, rol: input.role } };
       },
+      async stop() { calls.push(['sync-stop']); },
       async start() { calls.push(['sync-start']); },
     }),
     discoveryService: {
       async discover() { return null; },
+      async stop() { calls.push(['discovery-stop']); },
       async start() { calls.push(['discovery-start']); },
     },
     lanAccess: () => true,
@@ -99,9 +128,84 @@ test('starts sync and discovery immediately after a successful node configuratio
   assert.equal(response.status, 200, response.text);
   assert.deepEqual(calls, [
     ['configure', 'sucursal', 'Sucursal Norte'],
+    ['sync-stop'],
+    ['discovery-stop'],
     ['sync-start'],
     ['discovery-start'],
   ]);
+});
+
+test('configuration recovers discovery after missing identity and reloads a renamed announcement', async () => {
+  const identity = generateCentralIdentity();
+  const sockets = [];
+  let configuration;
+  const discoveryService = createClientDiscoveryService({
+    createSocket() {
+      const socket = new LifecycleSocket();
+      sockets.push(socket);
+      return socket;
+    },
+    async getConfiguration() {
+      if (!configuration) throw new Error('No hay identidad LAN configurada.');
+      return configuration;
+    },
+    networkInterfaces: () => ({
+      Ethernet: [{
+        family: 'IPv4',
+        internal: false,
+        address: '192.168.40.10',
+        netmask: '255.255.255.0',
+      }],
+    }),
+    setIntervalFn: () => ({ unref() {} }),
+    clearIntervalFn: () => {},
+    now: () => 1_786_723_200_000,
+  });
+  await assert.rejects(discoveryService.start(), /identidad LAN/i);
+  const syncService = serviceDouble({
+    async configureNode({ role, name }) {
+      configuration = {
+        rol_nodo: role,
+        sucursal_nombre: name,
+        central_fingerprint: identity.fingerprint,
+        central_public_key: identity.publicKey,
+        central_private_key: identity.privateKey,
+      };
+      return { sucursal: { nombre: name, rol: role } };
+    },
+  });
+  const app = buildApp({ syncService, discoveryService, lanAccess: () => true });
+  const token = adminToken();
+
+  const initialized = await request(app)
+    .put('/api/clientes-sync/configuracion')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ rol_nodo: 'central', nombre: 'Central Inicial' });
+  const renamed = await request(app)
+    .put('/api/clientes-sync/configuracion')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ rol_nodo: 'central', nombre: 'Central Vigente' });
+
+  assert.equal(initialized.status, 200, initialized.text);
+  assert.equal(renamed.status, 200, renamed.text);
+  assert.equal(sockets.length, 2);
+  const initialEnvelope = JSON.parse(sockets[0].sent[0].packet.toString('utf8'));
+  const initialAnnouncement = verifySignedEnvelope({
+    envelope: initialEnvelope,
+    publicKey: identity.publicKey,
+    expectedType: 'clientes-central-announcement',
+    now: 1_786_723_200_000,
+  });
+  assert.equal(initialAnnouncement.centralName, 'Central Inicial');
+  const latestEnvelope = JSON.parse(sockets[1].sent[0].packet.toString('utf8'));
+  const latestAnnouncement = verifySignedEnvelope({
+    envelope: latestEnvelope,
+    publicKey: identity.publicKey,
+    expectedType: 'clientes-central-announcement',
+    now: 1_786_723_200_000,
+  });
+  assert.equal(latestAnnouncement.centralName, 'Central Vigente');
+  await discoveryService.stop();
 });
 
 test('returns only safe local sync status to an authenticated clients user', async () => {
@@ -292,8 +396,8 @@ test('limits manual discovery to local administrators while returning only a vol
   const app = buildApp({
     syncService: serviceDouble(),
     discoveryService: {
-      async discover() {
-        calls.push('discover');
+      async discover(input) {
+        calls.push(['discover', input]);
         return endpoint;
       },
     },
@@ -304,12 +408,22 @@ test('limits manual discovery to local administrators while returning only a vol
     .set('Authorization', `Bearer ${adminToken({ rol: 'empleado', permisos: ['clientes'] })}`);
   const allowed = await request(app)
     .post('/api/clientes-sync/descubrir')
-    .set('Authorization', `Bearer ${adminToken()}`);
+    .set('Authorization', `Bearer ${adminToken()}`)
+    .send({
+      codigo_vinculo: 'signed-link-code',
+      central_fingerprint: 'a'.repeat(64),
+    });
 
   assert.equal(denied.status, 403);
   assert.equal(allowed.status, 200, allowed.text);
   assert.deepEqual(allowed.body.data, endpoint);
-  assert.deepEqual(calls, ['discover']);
+  assert.deepEqual(calls, [[
+    'discover',
+    {
+      linkCode: 'signed-link-code',
+      expectedCentralFingerprint: 'a'.repeat(64),
+    },
+  ]]);
 });
 
 test('lets only an administrator generate and consume a link code without forwarding a manual IP', async () => {
@@ -338,6 +452,7 @@ test('lets only an administrator generate and consume a link code without forwar
     .send({
       codigo_vinculo: 'signed-link-code',
       nombre_sucursal: 'Sucursal Norte',
+      central_fingerprint: 'a'.repeat(64),
       ip: '203.0.113.20',
       hostname: 'manual-central',
     });
@@ -350,6 +465,7 @@ test('lets only an administrator generate and consume a link code without forwar
     ['pair', {
       linkCode: 'signed-link-code',
       branchName: 'Sucursal Norte',
+      expectedCentralFingerprint: 'a'.repeat(64),
       requestId: paired.headers['x-request-id'],
     }],
   ]);

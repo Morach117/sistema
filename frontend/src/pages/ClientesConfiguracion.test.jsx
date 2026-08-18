@@ -62,8 +62,9 @@ afterEach(() => {
 })
 
 describe('ClientesConfiguracion first use', () => {
-  it('shows a detected Central before a temporary code without enabling pairing', async () => {
-    renderPage(statusAdapter({
+  it('lets the operator select one of multiple detected Centrales without authorizing before a code', async () => {
+    const requests = []
+    const status = {
       configuracionRequerida: false,
       sucursal: { nombre: 'Sucursal Centro', rol: 'sucursal' },
       centralVinculada: false,
@@ -73,27 +74,120 @@ describe('ClientesConfiguracion first use', () => {
         name: 'Central Matriz',
         fingerprint: 'central-matriz-fingerprint',
         seenAt: '2026-08-18T12:00:00.000Z',
+        address: '192.168.1.20',
+        hostname: 'matriz-host',
+        centralPublicKey: 'must-not-leak',
+      }, {
+        name: 'Central Norte',
+        fingerprint: 'central-norte-fingerprint',
+        seenAt: '2026-08-18T12:00:01.000Z',
       }],
-    }))
+    }
+    renderPage(async (config) => {
+      requests.push(config)
+      return statusAdapter(status)(config)
+    })
 
-    expect(await screen.findByText('Central Matriz')).toBeVisible()
-    expect(screen.getByText(/1\. central encontrada/i)).toBeVisible()
+    const matriz = await screen.findByRole('radio', { name: /Central Matriz.*pendiente de autorización/i })
+    const norte = screen.getByRole('radio', { name: /Central Norte.*pendiente de autorización/i })
+    expect(matriz).not.toBeChecked()
+    expect(norte).not.toBeChecked()
+    fireEvent.click(norte)
+
+    expect(matriz).not.toBeChecked()
+    expect(norte).toBeChecked()
+    expect(screen.getByText(/1\. selecciona una central detectada/i)).toBeVisible()
     expect(screen.getByText(/2\. pega el código temporal/i)).toBeVisible()
-    expect(screen.getByRole('button', { name: /buscar central/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /validar código/i })).toBeDisabled()
     expect(screen.queryByRole('button', { name: /vincular sucursal/i })).not.toBeInTheDocument()
+    expect(requests.filter((request) => request.method !== 'get')).toHaveLength(0)
+    expect(screen.queryByText(/192\.168\.1\.20|matriz-host|must-not-leak/i)).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('textbox', { name: /código de vínculo/i }), {
+      target: { value: 'signed-link-code' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /validar código/i }))
+    await waitFor(() => {
+      const discoveryRequest = requests.find((request) => request.url === '/api/clientes-sync/descubrir')
+      expect(JSON.parse(discoveryRequest.data)).toEqual({
+        codigo_vinculo: 'signed-link-code',
+        central_fingerprint: 'central-norte-fingerprint',
+      })
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: /vincular sucursal/i }))
+    await waitFor(() => {
+      const pairingRequest = requests.find((request) => request.url === '/api/clientes-sync/emparejar')
+      expect(JSON.parse(pairingRequest.data)).toEqual({
+        codigo_vinculo: 'signed-link-code',
+        nombre_sucursal: 'Sucursal Centro',
+        central_fingerprint: 'central-norte-fingerprint',
+      })
+    })
   })
 
-  it('explains that both installations must be running when no Central is detected', async () => {
-    renderPage(statusAdapter({
+  it('explains the complete no-candidate requirements and refreshes candidates without requesting authorization', async () => {
+    const requests = []
+    const status = {
       configuracionRequerida: false,
       sucursal: { nombre: 'Sucursal Centro', rol: 'sucursal' },
       centralVinculada: false,
       pendientes: 0,
       conflictos: 0,
       centralesDetectadas: [],
-    }))
+    }
+    renderPage(async (config) => {
+      requests.push(config)
+      return statusAdapter(status)(config)
+    })
 
-    expect(await screen.findByText(/ambas instalaciones deben tener el sistema iniciado/i)).toBeVisible()
+    const emptyMessage = await screen.findByText(/ambas instalaciones deben tener el sistema iniciado/i)
+    expect(emptyMessage).toHaveTextContent(/identidad.*configurada/i)
+    expect(emptyMessage).toHaveTextContent(/Central o Sucursal/i)
+    fireEvent.click(screen.getByRole('button', { name: /volver a buscar/i }))
+
+    await waitFor(() => expect(requests.filter((request) => request.method === 'get')).toHaveLength(2))
+    expect(requests.some((request) => request.url === '/api/clientes-sync/descubrir')).toBe(false)
+    expect(requests.some((request) => request.url === '/api/clientes-sync/emparejar')).toBe(false)
+  })
+
+  it('keeps the submitted Central and code immutable while signed validation is pending', async () => {
+    let releaseDiscovery
+    const pendingDiscovery = new Promise((resolve) => { releaseDiscovery = resolve })
+    const status = {
+      configuracionRequerida: false,
+      sucursal: { nombre: 'Sucursal Centro', rol: 'sucursal' },
+      centralVinculada: false,
+      pendientes: 0,
+      conflictos: 0,
+      centralesDetectadas: [{
+        name: 'Central Matriz',
+        fingerprint: 'central-matriz-fingerprint',
+        seenAt: '2026-08-18T12:00:00.000Z',
+      }, {
+        name: 'Central Norte',
+        fingerprint: 'central-norte-fingerprint',
+        seenAt: '2026-08-18T12:00:01.000Z',
+      }],
+    }
+    renderPage(async (config) => {
+      if (config.url === '/api/clientes-sync/descubrir') return pendingDiscovery
+      return statusAdapter(status)(config)
+    })
+
+    const matriz = await screen.findByRole('radio', { name: /Central Matriz.*pendiente de autorización/i })
+    const norte = screen.getByRole('radio', { name: /Central Norte.*pendiente de autorización/i })
+    const code = screen.getByRole('textbox', { name: /código de vínculo/i })
+    fireEvent.click(matriz)
+    fireEvent.change(code, { target: { value: 'signed-link-code' } })
+    fireEvent.click(screen.getByRole('button', { name: /validar código/i }))
+
+    await waitFor(() => {
+      expect(matriz).toBeDisabled()
+      expect(norte).toBeDisabled()
+      expect(code).toBeDisabled()
+    })
+    releaseDiscovery(statusAdapter(status)({ url: '/api/clientes-sync/descubrir', method: 'post' }))
   })
 
   it('shows a first-use Central or Sucursal choice when setup is required', async () => {

@@ -825,7 +825,12 @@ function createClientSyncService({
     };
   }
 
-  async function pairWithCentral({ linkCode, branchName, requestId: httpRequestId } = {}) {
+  async function pairWithCentral({
+    linkCode,
+    branchName,
+    expectedCentralFingerprint,
+    requestId: httpRequestId,
+  } = {}) {
     const local = unpairedBranchConfiguration(await store.readConfiguration());
     if (local.configuration.central_fingerprint || local.configuration.central_public_key) {
       throw new ClientSyncError('Esta sucursal ya está vinculada con una central.', 409);
@@ -835,7 +840,11 @@ function createClientSyncService({
     if (!discoveryService?.discover) {
       throw new ClientSyncError('El descubrimiento LAN no está disponible.', 503);
     }
-    const endpoint = assertLanEndpoint(await discoveryService.discover({ linkCode: code }));
+    const discoveryOptions = { linkCode: code };
+    if (expectedCentralFingerprint) {
+      discoveryOptions.expectedCentralFingerprint = expectedCentralFingerprint;
+    }
+    const endpoint = assertLanEndpoint(await discoveryService.discover(discoveryOptions));
     if (
       !endpoint?.centralPublicKey ||
       !verifyCentralFingerprint({
