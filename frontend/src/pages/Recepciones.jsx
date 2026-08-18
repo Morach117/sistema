@@ -111,13 +111,14 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
 
     let alive = true
     setValidating(true)
-    api.get('/api/catalogo/list', { params: { page: 1, limit: 25, search: debouncedValue } })
+    api.get('/api/catalogo/exact', { params: { code: debouncedValue } })
       .then((response) => {
         if (!alive) return
-        const result = (response.data?.data || []).find((candidate) => [candidate.clave_sicar, candidate.codigo_barras]
-          .some((code) => String(code || '').toUpperCase() === debouncedValue.toUpperCase()))
-        setSicarStatus(result ? 'confirmed' : 'mismatch')
-        setDescription(result ? result.descripcion : 'El código no coincide con el catálogo')
+        const result = response.data?.data
+        const matches = result && [result.clave_sicar, result.codigo_barras]
+          .some((code) => String(code || '').toUpperCase() === debouncedValue.toUpperCase())
+        setSicarStatus(matches ? 'confirmed' : 'mismatch')
+        setDescription(matches ? result.descripcion : 'El código no coincide con el catálogo')
       })
       .catch(() => {
         if (!alive) return

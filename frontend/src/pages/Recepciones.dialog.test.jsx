@@ -83,13 +83,10 @@ describe('Recepciones dialogs', () => {
           },
         })
       }
-      if (url === '/api/catalogo/list') {
+      if (url === '/api/catalogo/exact') {
         return Promise.resolve({
           data: {
-            data: [
-              { clave_sicar: '750226963465', descripcion: 'Resultado parcial' },
-              { clave_sicar: '7502269634659', descripcion: 'ABACO PLAST CH BOLSA JOCAR' },
-            ],
+            data: { clave_sicar: '7502269634659', descripcion: 'ABACO PLAST CH BOLSA JOCAR' },
           },
         })
       }
@@ -108,8 +105,8 @@ describe('Recepciones dialogs', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/guardado/i))
     expect(screen.getByRole('heading', { name: /Orden #REM-7/i })).toBeVisible()
     expect(await screen.findByText(/SICAR confirmado/i)).toHaveTextContent(/ABACO PLAST CH BOLSA JOCAR/i)
-    const catalogRequest = api.get.mock.calls.find(([url]) => url === '/api/catalogo/list')
-    expect(catalogRequest[1].params.limit).toBeGreaterThan(1)
+    const catalogRequest = api.get.mock.calls.find(([url]) => url === '/api/catalogo/exact')
+    expect(catalogRequest[1].params).toEqual({ code: '7502269634659' })
   })
 
   it('returns a previously confirmed SICAR to pending and then mismatch when its catalog code changes', async () => {
@@ -140,9 +137,9 @@ describe('Recepciones dialogs', () => {
           },
         })
       }
-      if (url === '/api/catalogo/list') {
-        const matches = config?.params?.search === '7502269634659'
-        return Promise.resolve({ data: { data: [{ clave_sicar: matches ? '7502269634659' : 'OTRO-CODIGO', descripcion: 'ABACO PLAST CH BOLSA JOCAR' }] } })
+      if (url === '/api/catalogo/exact') {
+        const matches = config?.params?.code === '7502269634659'
+        return Promise.resolve({ data: { data: { clave_sicar: matches ? '7502269634659' : 'OTRO-CODIGO', descripcion: 'ABACO PLAST CH BOLSA JOCAR' } } })
       }
       return Promise.resolve({ data: { data: [] } })
     })
@@ -186,7 +183,7 @@ describe('Recepciones dialogs', () => {
           },
         })
       }
-      if (url === '/api/catalogo/list') return Promise.reject(new Error('Catálogo no disponible'))
+      if (url === '/api/catalogo/exact') return Promise.reject(new Error('Catálogo no disponible'))
       return Promise.resolve({ data: { data: [] } })
     })
     api.post.mockResolvedValue({ data: { ok: true } })

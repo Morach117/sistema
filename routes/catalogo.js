@@ -42,6 +42,26 @@ function parsePagination(query = {}) {
 router.use(authMiddleware);
 router.use(authorize({ module: 'catalogo', action: 'read' }));
 
+router.get('/exact', async (req, res) => {
+    const code = String(req.query.code || '').trim();
+    if (!code) {
+        const error = new RangeError('Código requerido.');
+        error.status = 400;
+        error.isPublic = true;
+        return sendInternalError(error, req, res);
+    }
+
+    try {
+        const [rows] = await pool.execute(
+            'SELECT clave_sicar, codigo_barras, descripcion FROM cat_productos WHERE clave_sicar = ? OR codigo_barras = ? LIMIT 1',
+            [code, code]
+        );
+        return res.json({ data: rows[0] || null });
+    } catch (error) {
+        return sendInternalError(error, req, res);
+    }
+});
+
 // Endpoint for DataTables (Server-side processing)
 router.post('/dt', async (req, res) => {
     const draw = parseInt(req.body.draw) || 1;

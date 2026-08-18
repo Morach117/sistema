@@ -52,6 +52,34 @@ test('uses bounded parameters in the DataTables catalog query', async () => {
   }
 });
 
+test('finds a catalog product by exact SICAR or barcode without generic pagination', async () => {
+  const originalExecute = database.execute;
+  const calls = [];
+  const product = {
+    clave_sicar: '7502269634659',
+    codigo_barras: '7502269634659',
+    descripcion: 'ABACO PLAST CH BOLSA JOCAR'
+  };
+  database.execute = async (statement, parameters) => {
+    calls.push([statement, parameters]);
+    return [[product], []];
+  };
+
+  try {
+    const response = responseRecorder();
+    await routeHandler(catalogoRouter, 'get', '/exact')(
+      { query: { code: '7502269634659' } },
+      response
+    );
+
+    assert.match(calls[0][0], /WHERE clave_sicar = \? OR codigo_barras = \? LIMIT 1$/);
+    assert.deepEqual(calls[0][1], ['7502269634659', '7502269634659']);
+    assert.deepEqual(response.body, { data: product });
+  } finally {
+    database.execute = originalExecute;
+  }
+});
+
 for (const [method, path, requestInput] of [
   ['post', '/dt', { body: { start: '100001', length: '10' }, query: {} }],
   ['get', '/list', { body: {}, query: { page: '10002', limit: '10' } }]
