@@ -133,6 +133,21 @@ it('keeps a limited history session read only while exposing detail, notes and a
   expect(within(detail).queryByRole('button', { name: /eliminar/i })).not.toBeInTheDocument()
 })
 
+it('opens a receipt detail in a dialog and retains the filtered results after closing it', async () => {
+  renderHistory()
+
+  fireEvent.change(screen.getByLabelText(/buscar folio/i), { target: { value: 'REM-77' } })
+  const openReceipt = await screen.findByRole('button', { name: /abrir REM-77/i })
+  fireEvent.click(openReceipt)
+
+  expect(await screen.findByRole('dialog', { name: /recepción REM-77/i })).toHaveTextContent('REM-77')
+  fireEvent.click(screen.getByRole('button', { name: /cerrar detalle/i }))
+
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(screen.getByLabelText(/buscar folio/i)).toHaveValue('REM-77')
+  expect(screen.getByRole('button', { name: /abrir REM-77/i })).toBeVisible()
+})
+
 it('lets an administrator edit a pending reception, add notes and export Excel without physical by default', async () => {
   const requests = renderHistory({ role: 'admin', editable: true })
   fireEvent.click(await screen.findByRole('button', { name: /abrir REM-77/i }))

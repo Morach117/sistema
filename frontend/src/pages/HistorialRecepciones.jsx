@@ -20,6 +20,12 @@ import Swal from 'sweetalert2'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import EmptyState from '@/components/ui/EmptyState'
 import LoadingState from '@/components/ui/LoadingState'
 import { buildReceptionSummary, displayNumber } from '@/features/recepciones/receptionCalculations'
@@ -370,51 +376,45 @@ export default function HistorialRecepciones() {
         {isFetching && !isLoading && <p role="status" className="flex items-center gap-2 text-xs font-bold text-muted-foreground"><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> Actualizando resultados…</p>}
       </header>
 
-      {selectedId ? (
-        loadingDetail ? <LoadingState label="Cargando detalle del historial…" className="min-h-72" />
-          : detail ? <HistoryDetail detail={detail} detailId={selectedId} onClose={() => setSelectedId(null)} />
-            : <EmptyState icon={PackageSearch} title="No se pudo cargar el detalle" />
-      ) : (
-        <>
-          <Card className="border-border bg-card/90 p-4 shadow-sm">
-            <div className="mb-3 flex items-center gap-2">
-              <Filter aria-hidden="true" className="h-5 w-5 text-primary" />
-              <h2 className="font-black">Filtros del servidor</h2>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-              <label className="text-xs font-black text-muted-foreground">
-                Buscar folio
-                <span className="relative mt-1 block">
-                  <Search aria-hidden="true" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
-                  <input value={folio} onChange={(event) => setFolio(event.target.value)} className="min-h-11 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-                </span>
-              </label>
-              <label className="text-xs font-black text-muted-foreground">
-                Buscar producto
-                <input value={product} onChange={(event) => setProduct(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-              </label>
-              <label className="text-xs font-black text-muted-foreground">
-                Proveedor
-                <input value={provider} onChange={(event) => { setProvider(event.target.value); setPage(1) }} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-              </label>
-              <label className="text-xs font-black text-muted-foreground">
-                Estado
-                <select value={state} onChange={(event) => { setState(event.target.value); setPage(1) }} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  {STATES.map((value) => <option key={value || 'todos'} value={value}>{value || 'Todos'}</option>)}
-                </select>
-              </label>
-              <label className="text-xs font-black text-muted-foreground">
-                Desde
-                <input type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPage(1) }} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-              </label>
-              <label className="text-xs font-black text-muted-foreground">
-                Hasta
-                <input type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPage(1) }} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-              </label>
-            </div>
-          </Card>
+      <Card className="border-border bg-card/90 p-4 shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
+          <Filter aria-hidden="true" className="h-5 w-5 text-primary" />
+          <h2 className="font-black">Filtros del servidor</h2>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+          <label className="text-xs font-black text-muted-foreground">
+            Buscar folio
+            <span className="relative mt-1 block">
+              <Search aria-hidden="true" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+              <input value={folio} onChange={(event) => setFolio(event.target.value)} className="min-h-11 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+            </span>
+          </label>
+          <label className="text-xs font-black text-muted-foreground">
+            Buscar producto
+            <input value={product} onChange={(event) => setProduct(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          </label>
+          <label className="text-xs font-black text-muted-foreground">
+            Proveedor
+            <input value={provider} onChange={(event) => { setProvider(event.target.value); setPage(1) }} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          </label>
+          <label className="text-xs font-black text-muted-foreground">
+            Estado
+            <select value={state} onChange={(event) => { setState(event.target.value); setPage(1) }} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {STATES.map((value) => <option key={value || 'todos'} value={value}>{value || 'Todos'}</option>)}
+            </select>
+          </label>
+          <label className="text-xs font-black text-muted-foreground">
+            Desde
+            <input type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPage(1) }} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          </label>
+          <label className="text-xs font-black text-muted-foreground">
+            Hasta
+            <input type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPage(1) }} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          </label>
+        </div>
+      </Card>
 
-          <Card className="overflow-hidden border-border bg-card/90 shadow-sm">
+      <Card className="overflow-hidden border-border bg-card/90 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
               <div>
                 <h2 className="flex items-center gap-2 font-black"><ClipboardList aria-hidden="true" className="h-5 w-5 text-primary" /> Resultados</h2>
@@ -451,9 +451,25 @@ export default function HistorialRecepciones() {
                 ))}
               </div>
             ) : <EmptyState icon={CheckCircle2} title="Sin recepciones para estos filtros" className="min-h-64" />}
-          </Card>
-        </>
-      )}
+      </Card>
+
+      <Dialog open={Boolean(selectedId)} onOpenChange={(open) => !open && setSelectedId(null)}>
+        {selectedId && (
+          <DialogContent className="max-h-[90vh] max-w-6xl overflow-y-auto bg-card p-6" showCloseButton={false}>
+            <div className="flex items-center justify-between gap-4">
+              <DialogTitle>Recepción {detail?.remision?.numero_remision || ''}</DialogTitle>
+              <DialogClose asChild>
+                <Button type="button" variant="outline" className="min-h-11 font-black">
+                  Cerrar detalle
+                </Button>
+              </DialogClose>
+            </div>
+            {loadingDetail ? <LoadingState label="Cargando detalle del historial…" className="min-h-72" />
+              : detail ? <HistoryDetail detail={detail} detailId={selectedId} onClose={() => setSelectedId(null)} />
+                : <EmptyState icon={PackageSearch} title="No se pudo cargar el detalle" />}
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   )
 }
