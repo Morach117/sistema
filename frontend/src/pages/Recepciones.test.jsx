@@ -128,6 +128,71 @@ afterEach(() => {
 })
 
 describe('Recepciones presentation and cost review', () => {
+  it('shows the four direct-capture zones with read-only price references and real gain', async () => {
+    renderPage(createAdapter({
+      detailsItems: [item({
+        costo: 19.49,
+        costo_bruto: 19.49,
+        costo_unitario: 19.49,
+        precio_venta_sistema: 24,
+        aplica_descuento_manual: 0,
+      })],
+    }))
+    await openReception()
+
+    expect(screen.getByRole('group', { name: /factura de Cuaderno caja/i })).toBeVisible()
+    expect(screen.getByRole('group', { name: /producto y SICAR de Cuaderno caja/i })).toBeVisible()
+    expect(screen.getByRole('group', { name: /físico y caja de Cuaderno caja/i })).toBeVisible()
+    const prices = screen.getByRole('group', { name: /decisión y precios de Cuaderno caja/i })
+    expect(within(prices).getByText(/precio compra/i)).toBeVisible()
+    expect(within(prices).getByText(/sugerido 20%/i)).toBeVisible()
+    expect(within(prices).getByText(/sugerido 30%/i)).toBeVisible()
+    expect(within(prices).getByText(/precio venta actual/i)).toBeVisible()
+    expect(within(prices).getByText(/ganancia real \$4\.51 · 23\.1%/i)).toBeVisible()
+    expect(within(prices).queryByRole('spinbutton', { name: /sugerido|venta actual/i })).not.toBeInTheDocument()
+  })
+
+  it('hides bulk controls until an item is selected', async () => {
+    renderPage(createAdapter())
+    await openReception()
+
+    expect(screen.queryByLabelText(/presentación masiva/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: /seleccionar Cuaderno caja/i }))
+    expect(screen.getByRole('region', { name: /acciones masivas/i })).toBeVisible()
+    expect(screen.getByLabelText(/presentación masiva/i)).toBeVisible()
+  })
+
+  it('keeps uncommon item actions inside an accessible more-options disclosure', async () => {
+    renderPage(createAdapter())
+    await openReception()
+
+    const moreOptions = screen.getByRole('button', { name: /más opciones de Cuaderno caja/i })
+    expect(moreOptions).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByLabelText(/descuento Cuaderno caja/i)).not.toBeInTheDocument()
+
+    fireEvent.click(moreOptions)
+
+    expect(moreOptions).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByLabelText(/descuento Cuaderno caja/i)).toBeVisible()
+    expect(screen.getByLabelText(/nota interna Cuaderno caja/i)).toBeVisible()
+    expect(screen.getByRole('button', { name: /marcar Cuaderno caja como faltante/i })).toBeVisible()
+    expect(screen.getByRole('button', { name: /enviar Cuaderno caja a reclamación/i })).toBeVisible()
+  })
+
+  it('keeps invoice notes available behind their own accessible disclosure', async () => {
+    renderPage(createAdapter())
+    await openReception()
+
+    const invoiceOptions = screen.getByRole('button', { name: /más opciones de factura/i })
+    expect(invoiceOptions).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByLabelText(/^Nota$/i)).not.toBeInTheDocument()
+
+    fireEvent.click(invoiceOptions)
+
+    expect(invoiceOptions).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByLabelText(/^Nota$/i)).toBeVisible()
+  })
+
   it('shows exact box math, invoice/physical difference, automatic discount and a manual exception', async () => {
     const detailsItems = [
       item(),
@@ -176,6 +241,7 @@ describe('Recepciones presentation and cost review', () => {
     }))
     await openReception()
 
+    fireEvent.click(screen.getByRole('button', { name: /más opciones de Cuaderno caja/i }))
     fireEvent.change(screen.getByLabelText(/descuento Cuaderno caja/i), { target: { value: 'automatico' } })
 
     await waitFor(() => {
@@ -266,6 +332,7 @@ describe('Recepciones presentation and cost review', () => {
     expect(within(review).getByText(/artículo rechazado/i)).toBeVisible()
     expect(screen.getByRole('button', { name: /finalizar/i })).toBeDisabled()
 
+    fireEvent.click(screen.getByRole('button', { name: /más opciones de Cuaderno caja/i }))
     fireEvent.click(screen.getByRole('button', { name: /restaurar Cuaderno caja/i }))
     fireEvent.change(screen.getByLabelText('FÍSICO Cuaderno caja'), { target: { value: '8' } })
     fireEvent.blur(screen.getByLabelText('FÍSICO Cuaderno caja'))
@@ -359,11 +426,15 @@ describe('Recepciones preview and context', () => {
     const requests = []
     renderPage(createAdapter({ requests }), ['recepciones', 'evolucion-precios'])
     await openReception()
+    fireEvent.click(screen.getByRole('button', { name: /más opciones de Cuaderno caja/i }))
     fireEvent.click(screen.getByRole('button', { name: /compras previas de Cuaderno caja/i }))
 
     expect(await screen.findByText(/ANT-1/)).toBeVisible()
     expect(screen.getByText(/TONY · \$88\.00/)).toBeVisible()
     const request = requests.find((entry) => entry.url === '/api/evolucion-precios')
     expect(request.params).toEqual({ buscar_codigo: 'SICAR-11' })
+
+    fireEvent.click(screen.getByRole('button', { name: /más opciones de Cuaderno caja/i }))
+    expect(screen.queryByText(/ANT-1/)).not.toBeInTheDocument()
   })
 })

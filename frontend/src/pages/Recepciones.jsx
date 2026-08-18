@@ -42,6 +42,7 @@ import {
   calculatePresentation,
   displayNumber,
   invoicePhysicalDifference,
+  priceComparison,
   validateReceptionItems,
 } from '@/features/recepciones/receptionCalculations'
 import { useReceptionEditor } from '@/features/recepciones/useReceptionEditor'
@@ -239,6 +240,8 @@ export default function Recepciones() {
   const [selectedProvider, setSelectedProvider] = useState('custom')
   const [includePhysical, setIncludePhysical] = useState(false)
   const [selectedItems, setSelectedItems] = useState([])
+  const [expandedItemOptions, setExpandedItemOptions] = useState([])
+  const [invoiceOptionsExpanded, setInvoiceOptionsExpanded] = useState(false)
   const [bulkPresentation, setBulkPresentation] = useState('pieza')
   const [bulkPieces, setBulkPieces] = useState(1)
   const [bulkDiscount, setBulkDiscount] = useState('automatico')
@@ -288,6 +291,8 @@ export default function Recepciones() {
 
   useEffect(() => {
     setSelectedItems([])
+    setExpandedItemOptions([])
+    setInvoiceOptionsExpanded(false)
     setPriceHistoryItem(null)
     setIncludePhysical(false)
     setNoteTarget('factura')
@@ -477,6 +482,9 @@ export default function Recepciones() {
   const toggleItem = (itemId, checked) => setSelectedItems((current) => (
     checked ? [...new Set([...current, itemId])] : current.filter((id) => id !== itemId)
   ))
+  const toggleItemOptions = (itemId) => setExpandedItemOptions((current) => (
+    current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId]
+  ))
 
   return (
     <Dialog
@@ -625,18 +633,21 @@ export default function Recepciones() {
               </section>
 
               {!finalised && items.length > 0 && (
-                <Card className="border-border bg-card/90 p-4 shadow-sm">
+                <label className="flex min-h-11 w-fit items-center gap-2 rounded-lg border border-border bg-card/70 px-3 text-sm font-black">
+                  <input
+                    type="checkbox"
+                    aria-label="Seleccionar todo"
+                    checked={selectedItems.length === items.length}
+                    onChange={(event) => selectAll(event.target.checked)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  {selectedItems.length} seleccionados
+                </label>
+              )}
+
+              {!finalised && selectedItems.length > 0 && (
+                <Card role="region" aria-label="Acciones masivas" className="border-primary/30 bg-primary/5 p-4 shadow-sm">
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-                    <label className="flex min-h-11 items-center gap-2 text-sm font-black">
-                      <input
-                        type="checkbox"
-                        aria-label="Seleccionar todo"
-                        checked={selectedItems.length === items.length}
-                        onChange={(event) => selectAll(event.target.checked)}
-                        className="h-4 w-4 accent-primary"
-                      />
-                      {selectedItems.length} seleccionados
-                    </label>
                     <div className="grid flex-1 gap-3 sm:grid-cols-3">
                       <label className="text-xs font-black text-muted-foreground">
                         Presentación masiva
@@ -658,7 +669,7 @@ export default function Recepciones() {
                         </select>
                       </label>
                     </div>
-                    <Button type="button" className="min-h-11 font-black" disabled={selectedItems.length === 0 || editor.hasPending} onClick={applyBulk}>
+                    <Button type="button" className="min-h-11 font-black" disabled={editor.hasPending} onClick={applyBulk}>
                       Aplicar a {selectedItems.length} artículos
                     </Button>
                   </div>
@@ -678,111 +689,153 @@ export default function Recepciones() {
                   }
                   const cost = calculateCost(item, { proveedor: remisionDetails.proveedor, porcentaje: DISCOUNT_PERCENT })
                   const rejected = Number(item.revision_pendiente) === 2
+                  const missing = String(item.clave_final || item.clave_sicar || '').trim().toUpperCase() === 'FALTANTE'
                   const discountLabel = cost.descuento.origen === 'manual'
                     ? `Excepción manual: ${cost.descuento.aplica ? 'aplicar descuento' : 'sin descuento'}`
                     : `Descuento automático: ${cost.descuento.origen}`
+                  const comparison = priceComparison({
+                    ...item,
+                    precioVenta: item.precio_venta_sistema ?? item.precioVenta,
+                  }, cost.costoFinal)
                   const unit = presentation?.esPaquete ? 'cajas' : 'piezas'
                   const differenceSign = difference?.diferencia > 0 ? '+' : ''
+                  const optionsExpanded = expandedItemOptions.includes(item.id)
+                  const optionsId = `item-options-${item.id}`
 
                   return (
-                    <Card key={item.id} className={`overflow-hidden border shadow-sm ${rejected ? 'border-destructive/40 bg-destructive/5' : 'border-border bg-card/90'}`}>
-                      <div className="grid gap-4 p-4 xl:grid-cols-[auto_minmax(12rem,1.4fr)_minmax(13rem,1fr)_minmax(13rem,1fr)] xl:items-start">
-                        {!finalised && (
-                          <label className="flex min-h-11 items-center gap-2 text-xs font-black">
-                            <input
-                              type="checkbox"
-                              aria-label={`Seleccionar ${item.desc}`}
-                              checked={selectedItems.includes(item.id)}
-                              onChange={(event) => toggleItem(item.id, event.target.checked)}
-                              className="h-4 w-4 accent-primary"
-                            />
-                            Seleccionar
-                          </label>
-                        )}
-                        <div className="min-w-0 space-y-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <h3 className="truncate text-base font-black" title={item.desc}>{item.desc}</h3>
-                              <p className="mt-1 text-xs font-bold text-muted-foreground">Artículo #{item.id}</p>
-                            </div>
+                    <article key={item.id} aria-label={`Captura de ${item.desc}`} className={`overflow-hidden rounded-2xl border shadow-sm ${rejected ? 'border-destructive/40 bg-destructive/5' : missing ? 'border-amber-500/40 bg-amber-500/5' : 'border-border bg-card/90'}`}>
+                      <div className="grid gap-4 p-4 xl:grid-cols-[7rem_minmax(16rem,1.2fr)_10rem_minmax(20rem,.95fr)] xl:items-start">
+                        <section role="group" aria-label={`Factura de ${item.desc}`} className="space-y-3 xl:border-r xl:border-border xl:pr-4">
+                          <div className="flex items-center justify-between gap-2">
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Factura</h3>
                             {!finalised && (
-                              <button type="button" aria-label={`Eliminar ${item.desc}`} disabled={editor.hasPending} onClick={() => handleDelete(item.id, item.desc)} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40">
-                                <Trash2 aria-hidden="true" className="h-4 w-4" />
-                              </button>
+                              <input
+                                type="checkbox"
+                                aria-label={`Seleccionar ${item.desc}`}
+                                checked={selectedItems.includes(item.id)}
+                                onChange={(event) => toggleItem(item.id, event.target.checked)}
+                                className="h-4 w-4 accent-primary"
+                              />
                             )}
                           </div>
-                          <SicarInput item={item} editor={editor} disabled={finalised} canValidateCatalog={canValidateCatalog} />
-                          {canViewPriceHistory && (
-                            <Button type="button" variant="ghost" size="sm" className="min-h-11 gap-2 px-2 text-xs font-black" onClick={() => setPriceHistoryItem((current) => current?.id === item.id ? null : item)}>
-                              <History aria-hidden="true" className="h-4 w-4" /> Compras previas de {item.desc}
-                            </Button>
-                          )}
-                        </div>
-
-                        <div className="space-y-3 rounded-xl border border-border bg-secondary/30 p-3">
-                          <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Factura y físico</h4>
-                          <div className="grid grid-cols-2 gap-3">
-                            <label className="text-xs font-black text-muted-foreground">
-                              FACTURA
-                              <input
-                                aria-label={`FACTURA ${item.desc}`}
-                                type="number"
-                                value={item.cantidad}
-                                disabled={finalised}
-                                onChange={(event) => editor.setDraftField(item.id, 'cantidad', event.target.value)}
-                                onBlur={(event) => editor.saveField(item.id, 'cantidad', event.target.value)}
-                                onKeyDown={(event) => saveOnEnter(event, item.id, 'cantidad')}
-                                className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-center text-lg font-black text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                              />
-                            </label>
-                            <label className="text-xs font-black text-muted-foreground">
-                              FÍSICO
-                              <input
-                                aria-label={`FÍSICO ${item.desc}`}
-                                type="number"
-                                value={item.existencia_lapiz}
-                                disabled={finalised}
-                                onChange={(event) => editor.setDraftField(item.id, 'existencia_lapiz', event.target.value)}
-                                onBlur={(event) => editor.saveField(item.id, 'existencia_lapiz', event.target.value)}
-                                onKeyDown={(event) => saveOnEnter(event, item.id, 'existencia_lapiz')}
-                                className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-center text-lg font-black text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                              />
-                            </label>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <label className="flex min-h-11 items-center gap-2 text-xs font-black">
-                              <input type="checkbox" checked={Boolean(Number(item.es_paquete))} disabled={finalised} onChange={(event) => updateField(item.id, 'es_paquete', event.target.checked ? 1 : 0)} className="h-4 w-4 accent-primary" />
-                              Es caja
-                            </label>
-                            <label className="text-xs font-black text-muted-foreground">
-                              Piezas por caja
-                              <input type="number" min="1" value={item.piezas_por_paquete} disabled={finalised || !Number(item.es_paquete)} onChange={(event) => editor.setDraftField(item.id, 'piezas_por_paquete', event.target.value)} onBlur={(event) => editor.saveField(item.id, 'piezas_por_paquete', event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-2 text-center text-foreground disabled:opacity-50" />
-                            </label>
-                          </div>
-                          {presentation ? (
-                            <>
-                              {presentation.esPaquete && <p className="text-sm font-black">{displayNumber(presentation.cantidadFacturada)} piezas ÷ {displayNumber(presentation.piezasPorPaquete)} = {displayNumber(presentation.cantidadPresentacion)} cajas</p>}
-                              <p className="text-xs font-bold text-muted-foreground">Factura {displayNumber(presentation.cantidadPresentacion)} {unit} · Físico {displayNumber(difference.fisico)} · Diferencia {differenceSign}{displayNumber(difference.diferencia)} {unit}</p>
-                            </>
-                          ) : <p className="text-xs font-bold text-destructive">La configuración de caja no es válida.</p>}
-                        </div>
-
-                        <div className="space-y-3 rounded-xl border border-border bg-secondary/30 p-3">
-                          <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Costo y decisión</h4>
                           <label className="block text-xs font-black text-muted-foreground">
-                            COSTO FINAL
+                            Cantidad XML
                             <input
-                              aria-label={`COSTO FINAL ${item.desc}`}
+                              aria-label={`FACTURA ${item.desc}`}
                               type="number"
-                              step="0.01"
-                              value={item.costo_unitario}
+                              value={item.cantidad}
                               disabled={finalised}
-                              onChange={(event) => editor.setDraftField(item.id, 'costo_unitario', event.target.value)}
-                              onBlur={(event) => editor.saveField(item.id, 'costo_unitario', event.target.value)}
-                              onKeyDown={(event) => saveOnEnter(event, item.id, 'costo_unitario')}
-                              className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-center text-base font-black text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                              onChange={(event) => editor.setDraftField(item.id, 'cantidad', event.target.value)}
+                              onBlur={(event) => editor.saveField(item.id, 'cantidad', event.target.value)}
+                              onKeyDown={(event) => saveOnEnter(event, item.id, 'cantidad')}
+                              className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-2 text-center text-xl font-black text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
                             />
                           </label>
+                          <p className="text-center text-[10px] font-bold text-muted-foreground">piezas facturadas</p>
+                        </section>
+
+                        <section role="group" aria-label={`Producto y SICAR de ${item.desc}`} className="min-w-0 space-y-3 xl:border-r xl:border-border xl:pr-4">
+                          <div className="min-w-0">
+                            <h3 className="truncate text-base font-black" title={item.desc}>{item.desc}</h3>
+                            <p className="mt-1 text-xs font-bold text-muted-foreground">Artículo #{item.id} · proveedor {item.cod_prov || 'sin código'}</p>
+                          </div>
+                          <SicarInput item={item} editor={editor} disabled={finalised} canValidateCatalog={canValidateCatalog} />
+                        </section>
+
+                        <section role="group" aria-label={`Físico y caja de ${item.desc}`} className="space-y-3 xl:border-r xl:border-border xl:pr-4">
+                          <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Físico / Caja</h3>
+                          <label className="block text-xs font-black text-muted-foreground">
+                            Conteo físico
+                            <input
+                              aria-label={`FÍSICO ${item.desc}`}
+                              type="number"
+                              value={item.existencia_lapiz}
+                              disabled={finalised}
+                              onChange={(event) => editor.setDraftField(item.id, 'existencia_lapiz', event.target.value)}
+                              onBlur={(event) => editor.saveField(item.id, 'existencia_lapiz', event.target.value)}
+                              onKeyDown={(event) => saveOnEnter(event, item.id, 'existencia_lapiz')}
+                              className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-2 text-center text-xl font-black text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                            />
+                          </label>
+                          <label className="flex min-h-9 items-center gap-2 text-xs font-black">
+                            <input type="checkbox" aria-label={`Es caja ${item.desc}`} checked={Boolean(Number(item.es_paquete))} disabled={finalised} onChange={(event) => updateField(item.id, 'es_paquete', event.target.checked ? 1 : 0)} className="h-4 w-4 accent-primary" />
+                            Es caja
+                          </label>
+                          <label className="block text-xs font-black text-muted-foreground">
+                            Piezas por caja
+                            <input aria-label={`Piezas por caja ${item.desc}`} type="number" min="1" value={item.piezas_por_paquete} disabled={finalised || !Number(item.es_paquete)} onChange={(event) => editor.setDraftField(item.id, 'piezas_por_paquete', event.target.value)} onBlur={(event) => editor.saveField(item.id, 'piezas_por_paquete', event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-2 text-center text-foreground disabled:opacity-50" />
+                          </label>
+                          {presentation ? (
+                            <div className="rounded-lg border border-border bg-background/60 p-2">
+                              {presentation.esPaquete && <p className="text-sm font-black">{displayNumber(presentation.cantidadFacturada)} piezas ÷ {displayNumber(presentation.piezasPorPaquete)} = {displayNumber(presentation.cantidadPresentacion)} cajas</p>}
+                              <p className="mt-1 text-xs font-bold text-muted-foreground">Factura {displayNumber(presentation.cantidadPresentacion)} {unit} · Físico {displayNumber(difference.fisico)} · Diferencia {differenceSign}{displayNumber(difference.diferencia)} {unit}</p>
+                            </div>
+                          ) : <p className="text-xs font-bold text-destructive">La configuración de caja no es válida.</p>}
+                        </section>
+
+                        <section role="group" aria-label={`Decisión y precios de ${item.desc}`} className="space-y-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Decisión / Precios</h3>
+                            {rejected && <span className="rounded-full bg-destructive px-2 py-1 text-[9px] font-black uppercase text-destructive-foreground">En reclamación</span>}
+                            {missing && !rejected && <span className="rounded-full bg-amber-500/15 px-2 py-1 text-[9px] font-black uppercase text-amber-700 dark:text-amber-300">Faltante</span>}
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
+                            <label className="block text-xs font-black text-muted-foreground">
+                              Costo final
+                              <input
+                                aria-label={`COSTO FINAL ${item.desc}`}
+                                type="number"
+                                step="0.01"
+                                value={item.costo_unitario}
+                                disabled={finalised}
+                                onChange={(event) => editor.setDraftField(item.id, 'costo_unitario', event.target.value)}
+                                onBlur={(event) => editor.saveField(item.id, 'costo_unitario', event.target.value)}
+                                onKeyDown={(event) => saveOnEnter(event, item.id, 'costo_unitario')}
+                                className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-2 text-center text-base font-black text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                              />
+                            </label>
+                            <div className="rounded-lg border border-border bg-background/60 p-2">
+                              <p className="text-[10px] font-bold text-muted-foreground">{discountLabel}</p>
+                              <p className="mt-1 text-sm font-black text-primary">Costo neto {formatMoney(cost.costoFinal)}</p>
+                            </div>
+                          </div>
+                          <dl className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="rounded-lg border border-border bg-background/60 p-2">
+                              <dt className="font-black text-muted-foreground">Precio compra</dt>
+                              <dd className="mt-1 text-sm font-black">{formatMoney(comparison.compra)}</dd>
+                            </div>
+                            <div className="rounded-lg border border-blue-500/25 bg-blue-500/10 p-2">
+                              <dt className="font-black text-blue-700 dark:text-blue-300">Sugerido 20%</dt>
+                              <dd className="mt-1 text-sm font-black text-blue-700 dark:text-blue-300">{formatMoney(comparison.sugerido20)}</dd>
+                            </div>
+                            <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-2">
+                              <dt className="font-black text-emerald-700 dark:text-emerald-300">Sugerido 30%</dt>
+                              <dd className="mt-1 text-sm font-black text-emerald-700 dark:text-emerald-300">{formatMoney(comparison.sugerido30)}</dd>
+                            </div>
+                            <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-2">
+                              <dt className="font-black text-amber-700 dark:text-amber-300">Precio venta actual</dt>
+                              <dd className="mt-1 text-sm font-black text-amber-700 dark:text-amber-300">{formatMoney(comparison.ventaActual)}</dd>
+                            </div>
+                          </dl>
+                          <p className={`rounded-lg px-3 py-2 text-center text-xs font-black ${comparison.gananciaActual >= 0 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-destructive/10 text-destructive'}`}>
+                            Ganancia real {formatMoney(comparison.gananciaActual)} · {displayNumber(comparison.margenActual)}%
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            aria-expanded={optionsExpanded}
+                            aria-controls={optionsId}
+                            aria-label={`Más opciones de ${item.desc}`}
+                            className="min-h-11 w-full font-black"
+                            onClick={() => toggleItemOptions(item.id)}
+                          >
+                            Más opciones
+                          </Button>
+                        </section>
+                      </div>
+
+                      {optionsExpanded && (
+                        <div id={optionsId} className="grid gap-3 border-t border-border bg-background/50 p-4 md:grid-cols-2 xl:grid-cols-4">
                           <label className="block text-xs font-black text-muted-foreground">
                             Descuento {item.desc}
                             <select
@@ -796,21 +849,67 @@ export default function Recepciones() {
                               <option value="no-aplicar">No aplicar</option>
                             </select>
                           </label>
-                          <p className="text-xs font-bold text-muted-foreground">{discountLabel}</p>
-                          <p className="text-sm font-black text-primary">Costo neto {formatMoney(cost.costoFinal)}</p>
-                          {!finalised && !rejected ? (
-                            <Button type="button" variant="outline" className="min-h-11 w-full gap-2 border-destructive/40 text-destructive" onClick={() => updateField(item.id, 'revision_pendiente', 2)}>
-                              <XCircle aria-hidden="true" className="h-4 w-4" /> Rechazar
-                            </Button>
-                          ) : rejected && !finalised ? (
-                            <Button type="button" variant="outline" aria-label={`Restaurar ${item.desc}`} className="min-h-11 w-full gap-2 border-amber-500/50 text-amber-700 dark:text-amber-300" onClick={() => updateField(item.id, 'revision_pendiente', 0)}>
-                              <Save aria-hidden="true" className="h-4 w-4" /> Restaurar artículo
-                            </Button>
-                          ) : rejected ? <p className="rounded-lg bg-destructive px-3 py-2 text-center text-xs font-black text-destructive-foreground">REPORTADO</p> : null}
-                        </div>
-                      </div>
 
-                      {priceHistoryItem?.id === item.id && (
+                          {canManageNotes && (
+                            <div className="space-y-2 md:col-span-2">
+                              <label className="block text-xs font-black text-muted-foreground">
+                                Nota interna {item.desc}
+                                <input
+                                  value={String(noteTarget) === String(item.id) ? noteText : ''}
+                                  disabled={finalised}
+                                  onChange={(event) => {
+                                    setNoteTarget(String(item.id))
+                                    setNoteText(event.target.value)
+                                  }}
+                                  placeholder="Observación verificable"
+                                  className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                                />
+                              </label>
+                              <Button type="button" size="sm" className="min-h-9 font-black" disabled={String(noteTarget) !== String(item.id) || !noteText.trim() || noteMutation.isPending || editor.hasPending} onClick={() => noteMutation.mutate()}>
+                                Guardar nota del artículo
+                              </Button>
+                            </div>
+                          )}
+
+                          <div className="flex flex-wrap items-end gap-2">
+                            {!finalised && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                aria-label={missing ? `Quitar marca de faltante de ${item.desc}` : `Marcar ${item.desc} como faltante`}
+                                className="min-h-11 border-amber-500/50 text-amber-700 dark:text-amber-300"
+                                onClick={() => {
+                                  updateField(item.id, 'clave_final', missing ? '' : 'FALTANTE')
+                                  if (!missing) updateField(item.id, 'existencia_lapiz', 0)
+                                }}
+                              >
+                                {missing ? 'Quitar marca de faltante' : 'Marcar faltante'}
+                              </Button>
+                            )}
+                            {!finalised && !rejected ? (
+                              <Button type="button" variant="outline" aria-label={`Enviar ${item.desc} a reclamación`} className="min-h-11 gap-2 border-destructive/40 text-destructive" onClick={() => updateField(item.id, 'revision_pendiente', 2)}>
+                                <XCircle aria-hidden="true" className="h-4 w-4" /> Enviar a reclamación
+                              </Button>
+                            ) : rejected && !finalised ? (
+                              <Button type="button" variant="outline" aria-label={`Restaurar ${item.desc}`} className="min-h-11 gap-2 border-amber-500/50 text-amber-700 dark:text-amber-300" onClick={() => updateField(item.id, 'revision_pendiente', 0)}>
+                                <Save aria-hidden="true" className="h-4 w-4" /> Restaurar artículo
+                              </Button>
+                            ) : null}
+                            {canViewPriceHistory && (
+                              <Button type="button" variant="ghost" className="min-h-11 gap-2 text-xs font-black" onClick={() => setPriceHistoryItem((current) => current?.id === item.id ? null : item)}>
+                                <History aria-hidden="true" className="h-4 w-4" /> Compras previas de {item.desc}
+                              </Button>
+                            )}
+                            {!finalised && (
+                              <Button type="button" variant="ghost" aria-label={`Eliminar ${item.desc}`} disabled={editor.hasPending} onClick={() => handleDelete(item.id, item.desc)} className="min-h-11 gap-2 text-destructive disabled:opacity-40">
+                                <Trash2 aria-hidden="true" className="h-4 w-4" /> Eliminar artículo
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {optionsExpanded && priceHistoryItem?.id === item.id && (
                         <div className="border-t border-border bg-background/60 p-4">
                           <h4 className="flex items-center gap-2 text-sm font-black"><History aria-hidden="true" className="h-4 w-4" /> Compras previas</h4>
                           {loadingPriceHistory ? <LoadingState compact label="Cargando compras previas…" /> : priceHistory.length === 0 ? (
@@ -828,41 +927,54 @@ export default function Recepciones() {
                           )}
                         </div>
                       )}
-                    </Card>
+                    </article>
                   )
                 })}
               </div>
 
               {canManageNotes && (
                 <Card className="border-border bg-card/90 p-4 shadow-sm">
-                  <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    aria-expanded={invoiceOptionsExpanded}
+                    aria-controls="invoice-note-options"
+                    aria-label="Más opciones de factura"
+                    className="min-h-11 w-full justify-start gap-2 font-black"
+                    onClick={() => setInvoiceOptionsExpanded((current) => !current)}
+                  >
                     <Save aria-hidden="true" className="h-5 w-5 text-primary" />
-                    <h2 className="font-black">Notas de factura y artículo</h2>
-                  </div>
-                  <div className="mt-3 grid gap-3 md:grid-cols-[12rem_1fr_auto] md:items-end">
-                    <label className="text-xs font-black text-muted-foreground">
-                      Nota para
-                      <select value={noteTarget} onChange={(event) => setNoteTarget(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground">
-                        <option value="factura">Factura completa</option>
-                        {items.map((item) => <option key={item.id} value={item.id}>{item.desc}</option>)}
-                      </select>
-                    </label>
-                    <label className="text-xs font-black text-muted-foreground">
-                      Nota
-                      <input value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Escribe una observación verificable" className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-                    </label>
-                    <Button type="button" className="min-h-11 font-black" disabled={!noteText.trim() || noteMutation.isPending || editor.hasPending} onClick={() => noteMutation.mutate()}>
-                      Guardar nota
-                    </Button>
-                  </div>
-                  {noteDetails?.notas?.length > 0 && (
-                    <ul className="mt-4 space-y-2">
-                      {noteDetails.notas.slice(0, 5).map((note) => (
-                        <li key={note.id} className="rounded-lg border border-border bg-secondary/30 p-3 text-xs font-bold">
-                          {note.nota} <span className="text-muted-foreground">· {note.usuario}</span>
-                        </li>
-                      ))}
-                    </ul>
+                    Más opciones de factura
+                    {noteDetails?.notas?.length > 0 && <span className="ml-auto text-xs text-muted-foreground">{noteDetails.notas.length} notas</span>}
+                  </Button>
+                  {invoiceOptionsExpanded && (
+                    <div id="invoice-note-options">
+                      <div className="mt-3 grid gap-3 md:grid-cols-[12rem_1fr_auto] md:items-end">
+                        <label className="text-xs font-black text-muted-foreground">
+                          Nota para
+                          <select value={noteTarget} onChange={(event) => setNoteTarget(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground">
+                            <option value="factura">Factura completa</option>
+                            {items.map((item) => <option key={item.id} value={item.id}>{item.desc}</option>)}
+                          </select>
+                        </label>
+                        <label className="text-xs font-black text-muted-foreground">
+                          Nota
+                          <input value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Escribe una observación verificable" className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                        </label>
+                        <Button type="button" className="min-h-11 font-black" disabled={!noteText.trim() || noteMutation.isPending || editor.hasPending} onClick={() => noteMutation.mutate()}>
+                          Guardar nota
+                        </Button>
+                      </div>
+                      {noteDetails?.notas?.length > 0 && (
+                        <ul className="mt-4 space-y-2">
+                          {noteDetails.notas.slice(0, 5).map((note) => (
+                            <li key={note.id} className="rounded-lg border border-border bg-secondary/30 p-3 text-xs font-bold">
+                              {note.nota} <span className="text-muted-foreground">· {note.usuario}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   )}
                 </Card>
               )}
