@@ -153,31 +153,19 @@ describe('Recepciones presentation and cost review', () => {
     expect(within(prices).queryByRole('spinbutton', { name: /sugerido|venta actual/i })).not.toBeInTheDocument()
   })
 
-  it('hides bulk controls until an item is selected', async () => {
+  it('keeps each capture card focused on direct fields with icon-only accessible deletion', async () => {
     renderPage(createAdapter())
     await openReception()
 
-    expect(screen.queryByLabelText(/presentación masiva/i)).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('checkbox', { name: /seleccionar Cuaderno caja/i }))
-    expect(screen.getByRole('region', { name: /acciones masivas/i })).toBeVisible()
-    expect(screen.getByLabelText(/presentación masiva/i)).toBeVisible()
-  })
+    expect(screen.queryAllByRole('checkbox', { name: /seleccionar todo|seleccionar Cuaderno caja/i })).toHaveLength(0)
+    expect(screen.queryByText(/seleccionados/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /más opciones de Cuaderno caja/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /compras previas/i })).not.toBeInTheDocument()
+    expect(screen.getByTitle('Cuaderno caja')).toHaveClass('line-clamp-2')
 
-  it('keeps uncommon item actions inside an accessible more-options disclosure', async () => {
-    renderPage(createAdapter())
-    await openReception()
-
-    const moreOptions = screen.getByRole('button', { name: /más opciones de Cuaderno caja/i })
-    expect(moreOptions).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByLabelText(/descuento Cuaderno caja/i)).not.toBeInTheDocument()
-
-    fireEvent.click(moreOptions)
-
-    expect(moreOptions).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByLabelText(/descuento Cuaderno caja/i)).toBeVisible()
-    expect(screen.getByLabelText(/nota interna Cuaderno caja/i)).toBeVisible()
-    expect(screen.getByRole('button', { name: /marcar Cuaderno caja como faltante/i })).toBeVisible()
-    expect(screen.getByRole('button', { name: /enviar Cuaderno caja a reclamación/i })).toBeVisible()
+    const deleteButton = screen.getByRole('button', { name: 'Eliminar Cuaderno caja' })
+    expect(deleteButton).toBeVisible()
+    expect(within(deleteButton).queryByText(/eliminar artículo/i)).not.toBeInTheDocument()
   })
 
   it('keeps an earlier failed field save visible after another field saves successfully', async () => {
@@ -250,54 +238,6 @@ describe('Recepciones presentation and cost review', () => {
     expect(screen.queryByRole('spinbutton', { name: /dto/i })).not.toBeInTheDocument()
   })
 
-  it('persists null when a manual discount exception returns to automatic', async () => {
-    const requests = []
-    renderPage(createAdapter({
-      detailsItems: [item({ aplica_descuento_manual: 0 })],
-      requests,
-    }))
-    await openReception()
-
-    fireEvent.click(screen.getByRole('button', { name: /más opciones de Cuaderno caja/i }))
-    fireEvent.change(screen.getByLabelText(/descuento Cuaderno caja/i), { target: { value: 'automatico' } })
-
-    await waitFor(() => {
-      const request = requests.find((entry) => entry.url === '/api/recepciones/actualizar_campo')
-      expect(JSON.parse(request.data)).toEqual({
-        id_item: 11,
-        campo: 'aplica_descuento_manual',
-        valor: null,
-      })
-    })
-  })
-
-  it('applies box and discount configuration to every selected item', async () => {
-    const requests = []
-    const detailsItems = [item(), item({ id: 12, cod_prov: 'P-12', desc: 'Pluma individual', cant: 20, es_paquete: 0, piezas_por_paquete: 1 })]
-    renderPage(createAdapter({ detailsItems, requests }))
-    await openReception()
-
-    fireEvent.click(screen.getByRole('checkbox', { name: /seleccionar todo/i }))
-    fireEvent.change(screen.getByLabelText(/presentación masiva/i), { target: { value: 'caja' } })
-    fireEvent.change(screen.getByLabelText(/piezas por caja masiva/i), { target: { value: '5' } })
-    fireEvent.change(screen.getByLabelText(/descuento masivo/i), { target: { value: 'aplicar' } })
-    fireEvent.click(screen.getByRole('button', { name: /aplicar a 2 artículos/i }))
-
-    await waitFor(() => {
-      const writes = requests.filter((request) => request.url === '/api/recepciones/actualizar_campo')
-      expect(writes).toHaveLength(6)
-      const payloads = writes.map((request) => JSON.parse(request.data))
-      expect(payloads).toEqual(expect.arrayContaining([
-        { id_item: 11, campo: 'es_paquete', valor: 1 },
-        { id_item: 11, campo: 'piezas_por_paquete', valor: 5 },
-        { id_item: 11, campo: 'aplica_descuento_manual', valor: 1 },
-        { id_item: 12, campo: 'es_paquete', valor: 1 },
-        { id_item: 12, campo: 'piezas_por_paquete', valor: 5 },
-        { id_item: 12, campo: 'aplica_descuento_manual', valor: 1 },
-      ]))
-    })
-  })
-
   it('lists only blocking errors before finalization and keeps optional review out of the action list', async () => {
     renderPage(createAdapter({ detailsItems: [item({ clave_final: '', clave_sicar: '', costo: 0, costo_unitario: 0, piezas_por_paquete: 0 })] }))
     await openReception()
@@ -337,11 +277,9 @@ describe('Recepciones presentation and cost review', () => {
     expect(within(review).getAllByText(/Tercer artículo sin revisar/i)).toHaveLength(2)
   })
 
-  it('keeps missing physical count optional but blocks rejected items until restored', async () => {
-    const requests = []
+  it('keeps missing physical count optional while rejected items remain blocking', async () => {
     renderPage(createAdapter({
       detailsItems: [item({ existencia_lapiz: 0, revision_pendiente: 2 })],
-      requests,
     }))
     await openReception()
 
@@ -349,18 +287,7 @@ describe('Recepciones presentation and cost review', () => {
     expect(within(review).queryByText(/conteo físico debe ser mayor que cero/i)).not.toBeInTheDocument()
     expect(within(review).getByText(/artículo rechazado/i)).toBeVisible()
     expect(screen.getByRole('button', { name: /finalizar/i })).toBeDisabled()
-
-    fireEvent.click(screen.getByRole('button', { name: /más opciones de Cuaderno caja/i }))
-    fireEvent.click(screen.getByRole('button', { name: /restaurar Cuaderno caja/i }))
-    await waitFor(() => expect(screen.getByRole('button', { name: /finalizar/i })).toBeEnabled())
-    await waitFor(() => {
-      const payloads = requests
-        .filter((entry) => entry.url === '/api/recepciones/actualizar_campo')
-        .map((entry) => JSON.parse(entry.data))
-      expect(payloads).toEqual(expect.arrayContaining([
-        { id_item: 11, campo: 'revision_pendiente', valor: 0 },
-      ]))
-    })
+    expect(screen.queryByRole('button', { name: /restaurar Cuaderno caja/i })).not.toBeInTheDocument()
   })
 
   it('exports with physical count disabled by default', async () => {
@@ -436,19 +363,4 @@ describe('Recepciones preview and context', () => {
     })
   })
 
-  it('loads quick prior purchases only when the session has the price-history permission', async () => {
-    const requests = []
-    renderPage(createAdapter({ requests }), ['recepciones', 'evolucion-precios'])
-    await openReception()
-    fireEvent.click(screen.getByRole('button', { name: /más opciones de Cuaderno caja/i }))
-    fireEvent.click(screen.getByRole('button', { name: /compras previas de Cuaderno caja/i }))
-
-    expect(await screen.findByText(/ANT-1/)).toBeVisible()
-    expect(screen.getByText(/TONY · \$88\.00/)).toBeVisible()
-    const request = requests.find((entry) => entry.url === '/api/evolucion-precios')
-    expect(request.params).toEqual({ buscar_codigo: 'SICAR-11' })
-
-    fireEvent.click(screen.getByRole('button', { name: /más opciones de Cuaderno caja/i }))
-    expect(screen.queryByText(/ANT-1/)).not.toBeInTheDocument()
-  })
 })

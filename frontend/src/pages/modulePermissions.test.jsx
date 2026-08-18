@@ -156,8 +156,6 @@ describe('Recepciones untrusted text', () => {
     renderPage(<Recepciones />, receptionAdapter(requestedUrls, untrustedDescription))
 
     fireEvent.click(await screen.findByRole('button', { name: /REM-3/i }))
-    expect(screen.queryByRole('button', { name: `Eliminar ${untrustedDescription}` })).not.toBeInTheDocument()
-    fireEvent.click(await screen.findByRole('button', { name: `Más opciones de ${untrustedDescription}` }))
     fireEvent.click(await screen.findByRole('button', { name: `Eliminar ${untrustedDescription}` }))
 
     const confirmationText = await screen.findByText(/se borrará permanentemente/i)
@@ -284,8 +282,6 @@ describe('Recepciones pending saves', () => {
     })
 
     fireEvent.click(await screen.findByRole('button', { name: /REM-3/i }))
-    expect(screen.queryByRole('button', { name: 'Eliminar Cuaderno' })).not.toBeInTheDocument()
-    fireEvent.click(await screen.findByRole('button', { name: 'Más opciones de Cuaderno' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Eliminar Cuaderno' }))
 
     const finalizeButton = screen.getByRole('button', { name: /finalizar/i })

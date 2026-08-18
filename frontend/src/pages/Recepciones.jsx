@@ -8,7 +8,6 @@ import {
   ClipboardCheck,
   FileSearch,
   FileSpreadsheet,
-  History,
   Loader2,
   PackageCheck,
   PackageOpen,
@@ -17,7 +16,6 @@ import {
   Trash2,
   Upload,
   X,
-  XCircle,
 } from 'lucide-react'
 import Swal from 'sweetalert2'
 import api from '@/lib/api'
@@ -248,21 +246,14 @@ export default function Recepciones() {
   const queryClient = useQueryClient()
   const sessionUser = readSession()?.user
   const canValidateCatalog = canAccess(sessionUser, 'catalogo')
-  const canViewPriceHistory = canAccess(sessionUser, 'evolucion-precios')
   const canManageNotes = sessionUser?.rol === 'admin'
   const [selectedRemision, setSelectedRemision] = useState(null)
   const [selectedProvider, setSelectedProvider] = useState('custom')
   const [includePhysical, setIncludePhysical] = useState(false)
-  const [selectedItems, setSelectedItems] = useState([])
-  const [expandedItemOptions, setExpandedItemOptions] = useState([])
   const [invoiceOptionsExpanded, setInvoiceOptionsExpanded] = useState(false)
-  const [bulkPresentation, setBulkPresentation] = useState('pieza')
-  const [bulkPieces, setBulkPieces] = useState(1)
-  const [bulkDiscount, setBulkDiscount] = useState('automatico')
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [uploadFiles, setUploadFiles] = useState([])
   const [uploadPreview, setUploadPreview] = useState(null)
-  const [priceHistoryItem, setPriceHistoryItem] = useState(null)
   const [noteTarget, setNoteTarget] = useState('factura')
   const [noteText, setNoteText] = useState('')
   const [showAllIssues, setShowAllIssues] = useState(false)
@@ -286,13 +277,6 @@ export default function Recepciones() {
     enabled: Boolean(selectedRemision && canManageNotes),
   })
 
-  const priceHistoryKey = priceHistoryItem?.clave_final || priceHistoryItem?.clave_sicar || priceHistoryItem?.cod_prov
-  const { data: priceHistory = [], isLoading: loadingPriceHistory } = useQuery({
-    queryKey: ['reception_price_history', priceHistoryKey],
-    queryFn: async () => (await api.get('/api/evolucion-precios', { params: { buscar_codigo: priceHistoryKey } })).data.data || [],
-    enabled: Boolean(canViewPriceHistory && priceHistoryKey),
-  })
-
   useEffect(() => {
     const provider = String(remisionDetails?.proveedor || '').toUpperCase()
     if (!provider) return
@@ -304,10 +288,7 @@ export default function Recepciones() {
   }, [remisionDetails?.proveedor])
 
   useEffect(() => {
-    setSelectedItems([])
-    setExpandedItemOptions([])
     setInvoiceOptionsExpanded(false)
-    setPriceHistoryItem(null)
     setIncludePhysical(false)
     setNoteTarget('factura')
     setNoteText('')
@@ -483,24 +464,6 @@ export default function Recepciones() {
       })
   }
 
-  const applyBulk = () => {
-    const packageValue = bulkPresentation === 'caja' ? 1 : 0
-    const discountValue = bulkDiscount === 'automatico' ? null : bulkDiscount === 'aplicar' ? 1 : 0
-    selectedItems.forEach((itemId) => {
-      updateField(itemId, 'es_paquete', packageValue)
-      updateField(itemId, 'piezas_por_paquete', packageValue ? Number(bulkPieces) : 1)
-      updateField(itemId, 'aplica_descuento_manual', discountValue)
-    })
-  }
-
-  const selectAll = (checked) => setSelectedItems(checked ? items.map((item) => item.id) : [])
-  const toggleItem = (itemId, checked) => setSelectedItems((current) => (
-    checked ? [...new Set([...current, itemId])] : current.filter((id) => id !== itemId)
-  ))
-  const toggleItemOptions = (itemId) => setExpandedItemOptions((current) => (
-    current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId]
-  ))
-
   return (
     <Dialog
       open={showUploadModal}
@@ -647,50 +610,6 @@ export default function Recepciones() {
                 )}
               </section>
 
-              {!finalised && items.length > 0 && (
-                <label className="flex min-h-11 w-fit items-center gap-2 rounded-lg border border-border bg-card/70 px-3 text-sm font-black">
-                  <input
-                    type="checkbox"
-                    aria-label="Seleccionar todo"
-                    checked={selectedItems.length === items.length}
-                    onChange={(event) => selectAll(event.target.checked)}
-                    className="h-4 w-4 accent-primary"
-                  />
-                  {selectedItems.length} seleccionados
-                </label>
-              )}
-
-              {!finalised && selectedItems.length > 0 && (
-                <Card role="region" aria-label="Acciones masivas" className="border-primary/30 bg-primary/5 p-4 shadow-sm">
-                  <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-                    <div className="grid flex-1 gap-3 sm:grid-cols-3">
-                      <label className="text-xs font-black text-muted-foreground">
-                        Presentación masiva
-                        <select value={bulkPresentation} onChange={(event) => setBulkPresentation(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground">
-                          <option value="pieza">Pieza</option>
-                          <option value="caja">Caja</option>
-                        </select>
-                      </label>
-                      <label className="text-xs font-black text-muted-foreground">
-                        Piezas por caja masiva
-                        <input type="number" min="1" value={bulkPieces} disabled={bulkPresentation !== 'caja'} onChange={(event) => setBulkPieces(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground disabled:opacity-50" />
-                      </label>
-                      <label className="text-xs font-black text-muted-foreground">
-                        Descuento masivo
-                        <select value={bulkDiscount} onChange={(event) => setBulkDiscount(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground">
-                          <option value="automatico">Automático</option>
-                          <option value="aplicar">Aplicar</option>
-                          <option value="no-aplicar">No aplicar</option>
-                        </select>
-                      </label>
-                    </div>
-                    <Button type="button" className="min-h-11 font-black" disabled={editor.hasPending} onClick={applyBulk}>
-                      Aplicar a {selectedItems.length} artículos
-                    </Button>
-                  </div>
-                </Card>
-              )}
-
               <div className="space-y-4">
                 {items.map((item) => {
                   let presentation
@@ -721,25 +640,11 @@ export default function Recepciones() {
                   }, cost.costoFinal)
                   const unit = presentation?.esPaquete ? 'cajas' : 'piezas'
                   const differenceSign = difference?.diferencia > 0 ? '+' : ''
-                  const optionsExpanded = expandedItemOptions.includes(item.id)
-                  const optionsId = `item-options-${item.id}`
-
                   return (
                     <article key={item.id} aria-label={`Captura de ${item.desc}`} className={`overflow-hidden rounded-2xl border shadow-sm ${rejected ? 'border-destructive/40 bg-destructive/5' : missing ? 'border-amber-500/40 bg-amber-500/5' : 'border-border bg-card/90'}`}>
-                      <div className="grid gap-4 p-4 xl:grid-cols-[7rem_minmax(16rem,1.2fr)_10rem_minmax(20rem,.95fr)] xl:items-start">
+                      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(7rem,.8fr)_minmax(14rem,1.4fr)_minmax(10rem,1fr)_minmax(17rem,1.4fr)] xl:items-start">
                         <section role="group" aria-label={`Factura de ${item.desc}`} className="space-y-3 xl:border-r xl:border-border xl:pr-4">
-                          <div className="flex items-center justify-between gap-2">
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Factura</h3>
-                            {!finalised && (
-                              <input
-                                type="checkbox"
-                                aria-label={`Seleccionar ${item.desc}`}
-                                checked={selectedItems.includes(item.id)}
-                                onChange={(event) => toggleItem(item.id, event.target.checked)}
-                                className="h-4 w-4 accent-primary"
-                              />
-                            )}
-                          </div>
+                          <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Factura</h3>
                           <label className="block text-xs font-black text-muted-foreground">
                             Cantidad XML
                             <input
@@ -758,7 +663,7 @@ export default function Recepciones() {
 
                         <section role="group" aria-label={`Producto y SICAR de ${item.desc}`} className="min-w-0 space-y-3 xl:border-r xl:border-border xl:pr-4">
                           <div className="min-w-0">
-                            <h3 className="truncate text-base font-black" title={item.desc}>{item.desc}</h3>
+                            <h3 className="line-clamp-2 text-base font-black" title={item.desc}>{item.desc}</h3>
                             <p className="mt-1 text-xs font-bold text-muted-foreground">Artículo #{item.id} · proveedor {item.cod_prov || 'sin código'}</p>
                           </div>
                           <SicarInput item={item} editor={editor} disabled={finalised} canValidateCatalog={canValidateCatalog} />
@@ -843,113 +748,21 @@ export default function Recepciones() {
                           <p className={`rounded-lg px-3 py-2 text-center text-xs font-black ${comparison.gananciaActual >= 0 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-destructive/10 text-destructive'}`}>
                             Ganancia real {formatMoney(comparison.gananciaActual)} · {displayNumber(comparison.margenActual)}%
                           </p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            aria-expanded={optionsExpanded}
-                            aria-controls={optionsId}
-                            aria-label={`Más opciones de ${item.desc}`}
-                            className="min-h-11 w-full font-black"
-                            onClick={() => toggleItemOptions(item.id)}
-                          >
-                            Más opciones
-                          </Button>
+                          {!finalised && (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              aria-label={`Eliminar ${item.desc}`}
+                              disabled={editor.hasPending}
+                              onClick={() => handleDelete(item.id, item.desc)}
+                              className="min-h-11 min-w-11 text-destructive disabled:opacity-40"
+                            >
+                              <Trash2 aria-hidden="true" className="h-4 w-4" />
+                            </Button>
+                          )}
                         </section>
                       </div>
-
-                      {optionsExpanded && (
-                        <div id={optionsId} className="grid gap-3 border-t border-border bg-background/50 p-4 md:grid-cols-2 xl:grid-cols-4">
-                          <label className="block text-xs font-black text-muted-foreground">
-                            Descuento {item.desc}
-                            <select
-                              value={item.aplica_descuento_manual === null || item.aplica_descuento_manual === undefined ? 'automatico' : Number(item.aplica_descuento_manual) === 1 ? 'aplicar' : 'no-aplicar'}
-                              disabled={finalised}
-                              onChange={(event) => updateField(item.id, 'aplica_descuento_manual', event.target.value === 'automatico' ? null : event.target.value === 'aplicar' ? 1 : 0)}
-                              className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground disabled:opacity-60"
-                            >
-                              <option value="automatico">Automático</option>
-                              <option value="aplicar">Aplicar excepción</option>
-                              <option value="no-aplicar">No aplicar</option>
-                            </select>
-                          </label>
-
-                          {canManageNotes && (
-                            <div className="space-y-2 md:col-span-2">
-                              <label className="block text-xs font-black text-muted-foreground">
-                                Nota interna {item.desc}
-                                <input
-                                  value={String(noteTarget) === String(item.id) ? noteText : ''}
-                                  disabled={finalised}
-                                  onChange={(event) => {
-                                    setNoteTarget(String(item.id))
-                                    setNoteText(event.target.value)
-                                  }}
-                                  placeholder="Observación verificable"
-                                  className="mt-1 min-h-11 w-full rounded-lg border border-input bg-background px-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                                />
-                              </label>
-                              <Button type="button" size="sm" className="min-h-9 font-black" disabled={String(noteTarget) !== String(item.id) || !noteText.trim() || noteMutation.isPending || editor.hasPending} onClick={() => noteMutation.mutate()}>
-                                Guardar nota del artículo
-                              </Button>
-                            </div>
-                          )}
-
-                          <div className="flex flex-wrap items-end gap-2">
-                            {!finalised && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                aria-label={missing ? `Quitar marca de faltante de ${item.desc}` : `Marcar ${item.desc} como faltante`}
-                                className="min-h-11 border-amber-500/50 text-amber-700 dark:text-amber-300"
-                                onClick={() => {
-                                  updateField(item.id, 'clave_final', missing ? '' : 'FALTANTE')
-                                  if (!missing) updateField(item.id, 'existencia_lapiz', 0)
-                                }}
-                              >
-                                {missing ? 'Quitar marca de faltante' : 'Marcar faltante'}
-                              </Button>
-                            )}
-                            {!finalised && !rejected ? (
-                              <Button type="button" variant="outline" aria-label={`Enviar ${item.desc} a reclamación`} className="min-h-11 gap-2 border-destructive/40 text-destructive" onClick={() => updateField(item.id, 'revision_pendiente', 2)}>
-                                <XCircle aria-hidden="true" className="h-4 w-4" /> Enviar a reclamación
-                              </Button>
-                            ) : rejected && !finalised ? (
-                              <Button type="button" variant="outline" aria-label={`Restaurar ${item.desc}`} className="min-h-11 gap-2 border-amber-500/50 text-amber-700 dark:text-amber-300" onClick={() => updateField(item.id, 'revision_pendiente', 0)}>
-                                <Save aria-hidden="true" className="h-4 w-4" /> Restaurar artículo
-                              </Button>
-                            ) : null}
-                            {canViewPriceHistory && (
-                              <Button type="button" variant="ghost" className="min-h-11 gap-2 text-xs font-black" onClick={() => setPriceHistoryItem((current) => current?.id === item.id ? null : item)}>
-                                <History aria-hidden="true" className="h-4 w-4" /> Compras previas de {item.desc}
-                              </Button>
-                            )}
-                            {!finalised && (
-                              <Button type="button" variant="ghost" aria-label={`Eliminar ${item.desc}`} disabled={editor.hasPending} onClick={() => handleDelete(item.id, item.desc)} className="min-h-11 gap-2 text-destructive disabled:opacity-40">
-                                <Trash2 aria-hidden="true" className="h-4 w-4" /> Eliminar artículo
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {optionsExpanded && priceHistoryItem?.id === item.id && (
-                        <div className="border-t border-border bg-background/60 p-4">
-                          <h4 className="flex items-center gap-2 text-sm font-black"><History aria-hidden="true" className="h-4 w-4" /> Compras previas</h4>
-                          {loadingPriceHistory ? <LoadingState compact label="Cargando compras previas…" /> : priceHistory.length === 0 ? (
-                            <p className="mt-2 text-xs font-bold text-muted-foreground">No hay compras finalizadas previas.</p>
-                          ) : (
-                            <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                              {priceHistory.slice(0, 6).map((purchase) => (
-                                <li key={purchase.id} className="rounded-lg border border-border bg-card p-3 text-xs font-bold">
-                                  <p className="font-mono font-black">{purchase.numero_remision}</p>
-                                  <p className="mt-1 text-muted-foreground">{purchase.proveedor} · {formatMoney(purchase.costo_unitario)}</p>
-                                  <p className="mt-1 text-muted-foreground">{formatDate(purchase.fecha_carga)}</p>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      )}
                     </article>
                   )
                 })}
