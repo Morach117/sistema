@@ -175,11 +175,11 @@ export default function ClientesConfiguracion() {
                     <p className="mt-1 text-sm text-muted-foreground">Aún no encontramos una Central. Verifica que ambas instalaciones deben tener el sistema iniciado y estar en la misma red local.</p>
                   )}
                 </section>
-                <label className={labelClass}>2. Pega el código temporal<textarea className={`${fieldClass} min-h-24 resize-y font-mono text-xs`} value={linkCode} onChange={(event) => { setLinkCode(event.target.value); setFoundCentral(false) }} required /></label>
+                <label className={labelClass}>2. Pega el código temporal — Código de vínculo<textarea className={`${fieldClass} min-h-24 resize-y font-mono text-xs`} value={linkCode} onChange={(event) => { setLinkCode(event.target.value); setFoundCentral(false) }} required /></label>
                 <Button type="button" variant="outline" onClick={() => discover.mutate()} disabled={!linkCode.trim() || discover.isPending}><RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${discover.isPending ? 'animate-spin' : ''}`} />Buscar central y autorizar</Button>
                 {foundCentral && (
                   <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                    <p className="flex items-center gap-2 font-black"><CheckCircle2 aria-hidden="true" className="h-5 w-5" />Código temporal validado</p>
+                    <p className="flex items-center gap-2 font-black"><CheckCircle2 aria-hidden="true" className="h-5 w-5" />Central encontrada en la red local y código temporal validado</p>
                     {!linked && <Button type="button" className="mt-3 w-full" onClick={() => pair.mutate()} disabled={pair.isPending}>Vincular sucursal</Button>}
                   </div>
                 )}
