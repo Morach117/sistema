@@ -28,6 +28,10 @@ export default function ClientesConfiguracion() {
     queryKey: ['clientes-sync-estado'],
     queryFn: async () => (await api.get('/api/clientes-sync/estado')).data.data,
     retry: false,
+    refetchInterval: (query) => {
+      const currentStatus = query.state.data
+      return currentStatus?.sucursal?.rol === 'sucursal' && !currentStatus?.centralVinculada ? 5000 : false
+    },
   })
   const discover = useMutation({
     mutationFn: async () => (await api.post('/api/clientes-sync/descubrir', { codigo_vinculo: linkCode.trim() })).data.data,
@@ -63,6 +67,7 @@ export default function ClientesConfiguracion() {
   const canShowConfiguration = !statusQuery.error || missingIdentity
   const role = status?.sucursal?.rol || ''
   const linked = Boolean(status?.centralVinculada)
+  const detectedCentrals = status?.centralesDetectadas ?? []
 
   const currentVisibleName = visibleName || status?.sucursal?.nombre || ''
 
@@ -160,11 +165,21 @@ export default function ClientesConfiguracion() {
               </div>
             ) : (
               <div className="grid gap-3">
-                <label className={labelClass}>Código de vínculo<textarea className={`${fieldClass} min-h-24 resize-y font-mono text-xs`} value={linkCode} onChange={(event) => { setLinkCode(event.target.value); setFoundCentral(false) }} required /></label>
-                <Button type="button" variant="outline" onClick={() => discover.mutate()} disabled={!linkCode.trim() || discover.isPending}><RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${discover.isPending ? 'animate-spin' : ''}`} />Buscar central</Button>
+                <section aria-labelledby="central-detectada-title" className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+                  <h3 id="central-detectada-title" className="font-black">1. Central encontrada</h3>
+                  {detectedCentrals.length > 0 ? (
+                    <ul className="mt-2 grid gap-2" aria-label="Centrales detectadas en la red local">
+                      {detectedCentrals.map((central) => <li key={central.fingerprint} className="rounded-lg bg-background/70 px-3 py-2 text-sm font-bold">{central.name}</li>)}
+                    </ul>
+                  ) : (
+                    <p className="mt-1 text-sm text-muted-foreground">Aún no encontramos una Central. Verifica que ambas instalaciones deben tener el sistema iniciado y estar en la misma red local.</p>
+                  )}
+                </section>
+                <label className={labelClass}>2. Pega el código temporal<textarea className={`${fieldClass} min-h-24 resize-y font-mono text-xs`} value={linkCode} onChange={(event) => { setLinkCode(event.target.value); setFoundCentral(false) }} required /></label>
+                <Button type="button" variant="outline" onClick={() => discover.mutate()} disabled={!linkCode.trim() || discover.isPending}><RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${discover.isPending ? 'animate-spin' : ''}`} />Buscar central y autorizar</Button>
                 {foundCentral && (
                   <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                    <p className="flex items-center gap-2 font-black"><CheckCircle2 aria-hidden="true" className="h-5 w-5" />Central encontrada en la red local</p>
+                    <p className="flex items-center gap-2 font-black"><CheckCircle2 aria-hidden="true" className="h-5 w-5" />Código temporal validado</p>
                     {!linked && <Button type="button" className="mt-3 w-full" onClick={() => pair.mutate()} disabled={pair.isPending}>Vincular sucursal</Button>}
                   </div>
                 )}

@@ -62,6 +62,40 @@ afterEach(() => {
 })
 
 describe('ClientesConfiguracion first use', () => {
+  it('shows a detected Central before a temporary code without enabling pairing', async () => {
+    renderPage(statusAdapter({
+      configuracionRequerida: false,
+      sucursal: { nombre: 'Sucursal Centro', rol: 'sucursal' },
+      centralVinculada: false,
+      pendientes: 0,
+      conflictos: 0,
+      centralesDetectadas: [{
+        name: 'Central Matriz',
+        fingerprint: 'central-matriz-fingerprint',
+        seenAt: '2026-08-18T12:00:00.000Z',
+      }],
+    }))
+
+    expect(await screen.findByText('Central Matriz')).toBeVisible()
+    expect(screen.getByText(/1\. central encontrada/i)).toBeVisible()
+    expect(screen.getByText(/2\. pega el código temporal/i)).toBeVisible()
+    expect(screen.getByRole('button', { name: /buscar central/i })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /vincular sucursal/i })).not.toBeInTheDocument()
+  })
+
+  it('explains that both installations must be running when no Central is detected', async () => {
+    renderPage(statusAdapter({
+      configuracionRequerida: false,
+      sucursal: { nombre: 'Sucursal Centro', rol: 'sucursal' },
+      centralVinculada: false,
+      pendientes: 0,
+      conflictos: 0,
+      centralesDetectadas: [],
+    }))
+
+    expect(await screen.findByText(/ambas instalaciones deben tener el sistema iniciado/i)).toBeVisible()
+  })
+
   it('shows a first-use Central or Sucursal choice when setup is required', async () => {
     renderPage(statusAdapter({ configuracionRequerida: true, sucursal: null }))
 
