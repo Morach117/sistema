@@ -80,13 +80,26 @@ export function calculateCost(item, { proveedor, porcentaje = 5 } = {}) {
   return { costoBase: cost, costoConIva: costWithVat, costoFinal: finalCost, descuento: discount }
 }
 
+export function priceComparison(item, finalCost) {
+  const compra = round(finalCost, 2)
+  const ventaActual = numeric(item?.precio_venta ?? item?.precioVenta)
+  return {
+    compra,
+    sugerido20: round(compra * 1.2, 2),
+    sugerido30: round(compra * 1.3, 2),
+    ventaActual,
+    gananciaActual: round(ventaActual - compra, 2),
+    margenActual: compra > 0 ? round(((ventaActual - compra) / compra) * 100, 1) : 0,
+  }
+}
+
 export function validateReceptionItems(items) {
   const issues = []
   for (const item of Array.isArray(items) ? items : []) {
     const itemId = item?.id ?? null
     const description = item?.desc || item?.descripcion_original || `Artículo ${itemId || ''}`.trim()
     if (!String(item?.clave_final || item?.clave_sicar || '').trim()) {
-      issues.push({ itemId, description, code: 'missing-sicar', message: `${description}: falta clave SICAR.`, severity: 'error' })
+      issues.push({ itemId, description, code: 'missing-sicar', message: `${description}: falta clave SICAR.`, severity: 'review' })
     }
     if (numeric(item?.costo_unitario ?? item?.costo) <= 0) {
       issues.push({ itemId, description, code: 'zero-cost', message: `${description}: el costo debe ser mayor que cero.`, severity: 'error' })
@@ -96,7 +109,7 @@ export function validateReceptionItems(items) {
     ).trim().toUpperCase()
     const skipsPhysicalCount = receptionKey === 'FALTANTE' || receptionKey === 'DEVOLUCION'
     if (!skipsPhysicalCount && numeric(item?.existencia_lapiz) <= 0) {
-      issues.push({ itemId, description, code: 'missing-physical-count', message: `${description}: el conteo físico debe ser mayor que cero.`, severity: 'error' })
+      issues.push({ itemId, description, code: 'missing-physical-count', message: `${description}: el conteo físico debe ser mayor que cero.`, severity: 'review' })
     }
     if (Number(item?.revision_pendiente) === 2) {
       issues.push({ itemId, description, code: 'rejected-item', message: `${description}: artículo rechazado; restáuralo o corrige la decisión.`, severity: 'error' })
