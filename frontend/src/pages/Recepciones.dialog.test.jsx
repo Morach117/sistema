@@ -217,6 +217,27 @@ describe('Recepciones dialogs', () => {
     expect(await screen.findByText(/SICAR no coincide/i)).toBeVisible()
   })
 
+  it('does not confirm a catalog code when its product description belongs to another article', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/recepciones') return Promise.resolve({ data: { data: [{ id: 7, numero_remision: 'REM-7', proveedor: 'PAOLA', estado: 'PENDIENTE', items: 1 }] } })
+      if (url === '/api/recepciones/7') return Promise.resolve({
+        data: { proveedor: 'PAOLA', estado: 'PENDIENTE', datos: { 'REM-7': [{
+          id: 11, cod_prov: 'PROV-11', desc: 'ABACO PLAST CH BOLSA JOCAR', cant: 1, costo_unitario: 10,
+          clave_final: '', clave_sicar: '', existencia_lapiz: 1, es_paquete: 0, piezas_por_paquete: 1, revision_pendiente: 0,
+        }] } },
+      })
+      if (url === '/api/catalogo/exact') return Promise.resolve({ data: { data: { clave_sicar: '7502269634659', descripcion: 'LÁPIZ ROJO 12 PIEZAS' } } })
+      return Promise.resolve({ data: { data: [] } })
+    })
+    api.post.mockResolvedValue({ data: { ok: true } })
+
+    renderReceptionPage()
+    fireEvent.click(await screen.findByRole('button', { name: /REM-7/i }))
+    fireEvent.change(await screen.findByLabelText(/SICAR de artículo ABACO/i), { target: { value: '7502269634659' } })
+
+    expect(await screen.findByText(/SICAR no coincide/i)).toBeVisible()
+  })
+
   it('keeps SICAR pending and explains catalog unavailability when lookup fails', async () => {
     api.get.mockImplementation((url) => {
       if (url === '/api/recepciones') {

@@ -21,6 +21,7 @@ export default function ClientesConfiguracion() {
   const [linkCode, setLinkCode] = useState('')
   const [nodeRole, setNodeRole] = useState('sucursal')
   const [nodeName, setNodeName] = useState('')
+  const [visibleName, setVisibleName] = useState('')
   const [foundCentral, setFoundCentral] = useState(false)
   const [generatedCode, setGeneratedCode] = useState('')
   const statusQuery = useQuery({
@@ -47,17 +48,23 @@ export default function ClientesConfiguracion() {
     },
   })
   const configure = useMutation({
-    mutationFn: async () => (await api.put('/api/clientes-sync/configuracion', {
-      rol_nodo: nodeRole,
-      nombre: nodeName.trim(),
+    mutationFn: async ({ rol_nodo = nodeRole, nombre = nodeName } = {}) => (await api.put('/api/clientes-sync/configuracion', {
+      rol_nodo,
+      nombre: String(nombre || '').trim(),
     })).data.data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clientes-sync-estado'] }),
   })
 
   const status = statusQuery.data
-  const needsSetup = !status || status.configuracionRequerida
+  const loadingStatus = statusQuery.isLoading && !status
+  const missingIdentity = Number(statusQuery.error?.response?.status) === 409
+    && /identidad LAN configurada/i.test(errorMessage(statusQuery.error, ''))
+  const needsSetup = Boolean(status?.configuracionRequerida || missingIdentity)
+  const canShowConfiguration = !statusQuery.error || missingIdentity
   const role = status?.sucursal?.rol || ''
   const linked = Boolean(status?.centralVinculada)
+
+  const currentVisibleName = visibleName || status?.sucursal?.nombre || ''
 
   return (
     <div className="mx-auto grid w-full max-w-5xl gap-6">
@@ -74,7 +81,13 @@ export default function ClientesConfiguracion() {
         </div>
       )}
 
-      {needsSetup && (
+      {loadingStatus && (
+        <Card>
+          <CardContent className="flex min-h-32 items-center gap-3 p-6 text-sm font-bold text-muted-foreground"><RefreshCw aria-hidden="true" className="h-5 w-5 animate-spin" />Leyendo la configuración de esta instalación…</CardContent>
+        </Card>
+      )}
+
+      {!loadingStatus && canShowConfiguration && needsSetup && (
         <Card>
           <CardHeader><CardTitle>Inicializar esta instalación</CardTitle><CardDescription>Define el rol una sola vez. Después solo podrás cambiar el nombre visible.</CardDescription></CardHeader>
           <CardContent className="grid gap-4">
@@ -101,7 +114,7 @@ export default function ClientesConfiguracion() {
         </Card>
       )}
 
-      {!needsSetup && <div className="grid gap-6 lg:grid-cols-2">
+      {!loadingStatus && canShowConfiguration && !needsSetup && <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Server aria-hidden="true" className="h-5 w-5 text-primary" />Esta instalación</CardTitle>
@@ -116,7 +129,10 @@ export default function ClientesConfiguracion() {
                 <option value="sucursal">Sucursal</option>
               </select>
             </label>
-            <label className={labelClass}>Nombre visible<input className={fieldClass} defaultValue={status?.sucursal?.nombre || ''} onBlur={(event) => { if (event.target.value.trim() && event.target.value.trim() !== status?.sucursal?.nombre) configure.mutate({ nombre: event.target.value.trim(), rol_nodo: role }) }} /></label>
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+              <label className={labelClass}>Nombre visible<input className={fieldClass} value={currentVisibleName} onChange={(event) => setVisibleName(event.target.value)} /></label>
+              <Button type="button" variant="outline" disabled={!currentVisibleName.trim() || currentVisibleName.trim() === status?.sucursal?.nombre || configure.isPending} onClick={() => configure.mutate({ nombre: currentVisibleName, rol_nodo: role })}>Guardar nombre</Button>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl border border-border bg-muted/40 p-3"><p className="text-xs font-bold text-muted-foreground">Cola pendiente</p><p className="mt-1 text-2xl font-black">{status?.pendientes ?? '—'}</p></div>
               <div className="rounded-xl border border-border bg-muted/40 p-3"><p className="text-xs font-bold text-muted-foreground">Conflictos</p><p className="mt-1 text-2xl font-black">{status?.conflictos ?? '—'}</p></div>

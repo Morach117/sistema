@@ -201,7 +201,7 @@ function validateReceptionItems(items) {
     const itemId = item?.id ?? null;
     const clave = String(item?.clave_final || item?.clave_sicar || '').trim();
     if (!clave) {
-      issues.push({ itemId, code: 'missing-sicar', severity: 'error' });
+      issues.push({ itemId, code: 'missing-sicar', severity: 'warning' });
     }
     if (numeric(item?.costo_unitario) <= 0) {
       issues.push({ itemId, code: 'zero-cost', severity: 'error' });

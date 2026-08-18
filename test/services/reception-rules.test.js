@@ -170,7 +170,7 @@ test('validateReceptionItems and buildReceptionSummary surface blocking issues a
   ];
 
   assert.deepEqual(validateReceptionItems(items), [
-    { itemId: 2, code: 'missing-sicar', severity: 'error' },
+    { itemId: 2, code: 'missing-sicar', severity: 'warning' },
     { itemId: 2, code: 'zero-cost', severity: 'error' },
     { itemId: 2, code: 'review-pending', severity: 'warning' },
     { itemId: 2, code: 'invalid-package-config', severity: 'error' }
@@ -181,6 +181,6 @@ test('validateReceptionItems and buildReceptionSummary surface blocking issues a
     piezas: 4,
     costoTotal: 55.1,
     articulosRevision: 1,
-    errores: 3
+    errores: 2
   });
 });

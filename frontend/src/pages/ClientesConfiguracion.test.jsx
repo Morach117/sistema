@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -37,6 +37,16 @@ function statusAdapter(status) {
   })
 }
 
+function configuredAdapter(requests) {
+  return async (config) => {
+    requests.push(config)
+    return {
+      data: { success: true, data: { configuracionRequerida: false, sucursal: { nombre: 'Sucursal Centro', rol: 'central' }, centralVinculada: true, pendientes: 0, conflictos: 0 } },
+      status: 200, statusText: 'OK', headers: {}, config, request: {},
+    }
+  }
+}
+
 function statusErrorAdapter(status) {
   return async () => {
     const error = new Error('Servicio local no disponible')
@@ -65,5 +75,22 @@ describe('ClientesConfiguracion first use', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/servicio local/i)
     expect(screen.getByRole('button', { name: /reintentar/i })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: /^esta instalación$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /buscar central/i })).not.toBeInTheDocument()
+  })
+
+  it('saves a renamed configured installation with its fixed current role', async () => {
+    const requests = []
+    renderPage(configuredAdapter(requests))
+
+    await screen.findByText(/valores detectados en el servidor local/i)
+    const name = screen.getByLabelText(/nombre visible/i)
+    fireEvent.change(name, { target: { value: 'Central principal' } })
+    fireEvent.click(screen.getByRole('button', { name: /guardar nombre/i }))
+
+    await waitFor(() => {
+      const update = requests.find((request) => request.url === '/api/clientes-sync/configuracion' && request.method === 'put')
+      expect(JSON.parse(update.data)).toEqual({ rol_nodo: 'central', nombre: 'Central principal' })
+    })
   })
 })

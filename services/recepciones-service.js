@@ -422,11 +422,6 @@ function validateFinalizationItems(items) {
     const itemId = item?.id ?? null;
     const clave = resolveReceptionKey(item);
     const rejected = Number(item?.revision_pendiente) === 2;
-    const skippedPhysical = clave === 'FALTANTE' || clave === 'DEVOLUCION';
-
-    if (!skippedPhysical && numeric(item?.existencia_lapiz) <= 0) {
-      issues.push({ itemId, code: 'missing-physical-count', severity: 'error' });
-    }
     if (rejected) {
       issues.push({ itemId, code: 'rejected-item', severity: 'error' });
     }

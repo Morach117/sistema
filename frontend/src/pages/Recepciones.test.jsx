@@ -77,7 +77,8 @@ function createAdapter({ detailsItems = [item()], requests = [], preview, upload
     if (config.url === '/api/recepciones/upload') {
       return responseFor(config, uploadResponse || { success: true, mensaje: 'Archivos procesados' })
     }
-    if (config.url === '/api/recepciones/actualizar_campo' && failFieldSave) {
+    const fieldPayload = config.url === '/api/recepciones/actualizar_campo' ? JSON.parse(config.data) : null
+    if (config.url === '/api/recepciones/actualizar_campo' && (typeof failFieldSave === 'function' ? failFieldSave(fieldPayload) : failFieldSave)) {
       const error = new Error('No se pudo guardar')
       error.response = { data: { error: 'No se pudo guardar' } }
       throw error
@@ -179,6 +180,22 @@ describe('Recepciones presentation and cost review', () => {
     expect(screen.getByRole('button', { name: /enviar Cuaderno caja a reclamación/i })).toBeVisible()
   })
 
+  it('keeps an earlier failed field save visible after another field saves successfully', async () => {
+    renderPage(createAdapter({
+      failFieldSave: ({ campo }) => campo === 'costo_unitario',
+    }))
+    await openReception()
+
+    const cost = screen.getByLabelText('COSTO FINAL Cuaderno caja')
+    const physical = screen.getByLabelText('FÍSICO Cuaderno caja')
+    fireEvent.change(cost, { target: { value: '99' } })
+    fireEvent.blur(cost)
+    fireEvent.change(physical, { target: { value: '9' } })
+    fireEvent.blur(physical)
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/no se pudieron guardar los cambios/i))
+  })
+
   it('keeps invoice notes available behind their own accessible disclosure', async () => {
     renderPage(createAdapter())
     await openReception()
@@ -218,7 +235,7 @@ describe('Recepciones presentation and cost review', () => {
 
     expect(screen.getByText('100 piezas ÷ 10 = 10 cajas')).toBeVisible()
     expect(screen.getByText('Factura 10 cajas · Físico 8 · Diferencia -2 cajas')).toBeVisible()
-    expect(screen.getByText('Descuento automático: proveedor')).toBeVisible()
+    expect(screen.getByText('Descuento automático 5%: según proveedor')).toBeVisible()
     expect(screen.getByText('Costo neto $95.00')).toBeVisible()
     expect(screen.getByText('Factura 5 piezas · Físico 7 · Diferencia +2 piezas')).toBeVisible()
     expect(screen.getByText('Excepción manual: sin descuento')).toBeVisible()
@@ -281,12 +298,12 @@ describe('Recepciones presentation and cost review', () => {
     })
   })
 
-  it('lists blocking errors before finalization', async () => {
+  it('lists only blocking errors before finalization and keeps optional review out of the action list', async () => {
     renderPage(createAdapter({ detailsItems: [item({ clave_final: '', clave_sicar: '', costo: 0, costo_unitario: 0, piezas_por_paquete: 0 })] }))
     await openReception()
 
     const review = screen.getByRole('region', { name: /revisión antes de finalizar/i })
-    expect(within(review).getByText(/falta clave SICAR/i)).toBeVisible()
+    expect(within(review).queryByText(/falta clave SICAR/i)).not.toBeInTheDocument()
     expect(within(review).getByText(/costo debe ser mayor que cero/i)).toBeVisible()
     expect(within(review).getByText(/configuración de caja no es válida/i)).toBeVisible()
     expect(screen.getByRole('button', { name: /finalizar/i })).toBeDisabled()
@@ -308,18 +325,19 @@ describe('Recepciones presentation and cost review', () => {
       detailsItems: [
         item({ id: 11, clave_final: '', clave_sicar: '', costo: 0, costo_unitario: 0, piezas_por_paquete: 0 }),
         item({ id: 12, desc: 'Segundo artículo sin revisar', clave_final: '', clave_sicar: '', costo: 0, costo_unitario: 0, piezas_por_paquete: 0 }),
+        item({ id: 13, desc: 'Tercer artículo sin revisar', clave_final: '', clave_sicar: '', costo: 0, costo_unitario: 0, piezas_por_paquete: 0 }),
       ],
     }))
     await openReception()
 
     const review = screen.getByRole('region', { name: /revisión antes de finalizar/i })
-    expect(within(review).getByRole('button', { name: /ver los \d+ errores/i })).toBeVisible()
-    expect(within(review).queryByText(/Segundo artículo sin revisar/i)).not.toBeInTheDocument()
-    fireEvent.click(within(review).getByRole('button', { name: /ver los \d+ errores/i }))
-    expect(within(review).getAllByText(/Segundo artículo sin revisar/i)).toHaveLength(3)
+    expect(within(review).getByRole('button', { name: /ver los \d+ problemas/i })).toBeVisible()
+    expect(within(review).queryByText(/Tercer artículo sin revisar/i)).not.toBeInTheDocument()
+    fireEvent.click(within(review).getByRole('button', { name: /ver los \d+ problemas/i }))
+    expect(within(review).getAllByText(/Tercer artículo sin revisar/i)).toHaveLength(2)
   })
 
-  it('blocks missing physical counts and rejected items, with a reversible rejection', async () => {
+  it('keeps missing physical count optional but blocks rejected items until restored', async () => {
     const requests = []
     renderPage(createAdapter({
       detailsItems: [item({ existencia_lapiz: 0, revision_pendiente: 2 })],
@@ -328,15 +346,12 @@ describe('Recepciones presentation and cost review', () => {
     await openReception()
 
     const review = screen.getByRole('region', { name: /revisión antes de finalizar/i })
-    expect(within(review).getByText(/conteo físico debe ser mayor que cero/i)).toBeVisible()
+    expect(within(review).queryByText(/conteo físico debe ser mayor que cero/i)).not.toBeInTheDocument()
     expect(within(review).getByText(/artículo rechazado/i)).toBeVisible()
     expect(screen.getByRole('button', { name: /finalizar/i })).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: /más opciones de Cuaderno caja/i }))
     fireEvent.click(screen.getByRole('button', { name: /restaurar Cuaderno caja/i }))
-    fireEvent.change(screen.getByLabelText('FÍSICO Cuaderno caja'), { target: { value: '8' } })
-    fireEvent.blur(screen.getByLabelText('FÍSICO Cuaderno caja'))
-
     await waitFor(() => expect(screen.getByRole('button', { name: /finalizar/i })).toBeEnabled())
     await waitFor(() => {
       const payloads = requests
@@ -344,7 +359,6 @@ describe('Recepciones presentation and cost review', () => {
         .map((entry) => JSON.parse(entry.data))
       expect(payloads).toEqual(expect.arrayContaining([
         { id_item: 11, campo: 'revision_pendiente', valor: 0 },
-        { id_item: 11, campo: 'existencia_lapiz', valor: '8' },
       ]))
     })
   })

@@ -18,8 +18,6 @@ export function useReceptionEditor(remisionId, {
   const pendingSavesRef = useRef(new Map())
   const requestChainsRef = useRef(new Map())
   const saveErrorsRef = useRef(new Map())
-  const saveGenerationRef = useRef(0)
-  const latestFieldSaveRef = useRef({ generation: 0, status: 'idle' })
   const mutationRef = useRef(null)
 
   const mutation = useMutation({
@@ -42,8 +40,7 @@ export function useReceptionEditor(remisionId, {
 
   useEffect(() => {
     setDraftFields({})
-    saveGenerationRef.current += 1
-    latestFieldSaveRef.current = { generation: saveGenerationRef.current, status: 'idle' }
+    saveErrorsRef.current.clear()
     setSaveState('idle')
   }, [remisionId])
 
@@ -62,18 +59,15 @@ export function useReceptionEditor(remisionId, {
     )
   }, [])
 
-  const settleFieldSaveState = useCallback((generation, status) => {
-    if (generation === saveGenerationRef.current) {
-      latestFieldSaveRef.current = { generation, status }
-    }
-
+  const settleFieldSaveState = useCallback((status) => {
     const hasPendingFieldSave = pendingSavesRef.current.size > 0
       || [...requestChainsRef.current.keys()].some((key) => !key.startsWith('operation:'))
-    const latest = latestFieldSaveRef.current
-    if (!hasPendingFieldSave && latest.generation === saveGenerationRef.current && latest.status !== 'saving') {
-      setSaveState(latest.status)
+    const hasFailedFieldSave = [...saveErrorsRef.current.values()]
+      .some((entry) => entry.remisionId === remisionId)
+    if (!hasPendingFieldSave) {
+      setSaveState(hasFailedFieldSave ? 'error' : status)
     }
-  }, [])
+  }, [remisionId])
 
   const trackRequest = useCallback((key, operation, operationRemisionId) => {
     const previousRequest = requestChainsRef.current.get(key) || Promise.resolve()
@@ -115,8 +109,8 @@ export function useReceptionEditor(remisionId, {
       variables.remisionId,
     )
     request.then(
-      () => settleFieldSaveState(variables.saveGeneration, 'saved'),
-      () => settleFieldSaveState(variables.saveGeneration, 'error'),
+      () => settleFieldSaveState('saved'),
+      () => settleFieldSaveState('error'),
     )
     return request
   }, [settleFieldSaveState, trackRequest])
@@ -126,9 +120,6 @@ export function useReceptionEditor(remisionId, {
     const value = explicitValue === undefined ? draftFields[key] : explicitValue
     if (value === undefined) return
 
-    const saveGeneration = saveGenerationRef.current + 1
-    saveGenerationRef.current = saveGeneration
-    latestFieldSaveRef.current = { generation: saveGeneration, status: 'saving' }
     setSaveState('saving')
     clearTimeout(timersRef.current.get(key))
     pendingSavesRef.current.set(key, {
@@ -136,7 +127,6 @@ export function useReceptionEditor(remisionId, {
       campo: field,
       valor: value,
       remisionId,
-      saveGeneration,
     })
     setHasPending(true)
     timersRef.current.set(key, setTimeout(() => startPendingSave(key), SAVE_DELAY_MS))

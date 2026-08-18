@@ -76,6 +76,19 @@ const formatDate = (value) => {
   return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('es-MX')
 }
 
+const normalizedProductName = (value) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toUpperCase()
+  .replace(/[^A-Z0-9]+/g, ' ')
+  .trim()
+
+function catalogDescriptionMatches(receiptDescription, catalogDescription) {
+  const normalizedReceiptDescription = normalizedProductName(receiptDescription)
+  const catalogName = normalizedProductName(catalogDescription)
+  return Boolean(normalizedReceiptDescription && catalogName && normalizedReceiptDescription === catalogName)
+}
+
 function downloadResponse(response, fallbackName) {
   const disposition = response.headers?.['content-disposition'] || ''
   const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
@@ -119,10 +132,11 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
       .then((response) => {
         if (!alive) return
         const result = response.data?.data
-        const matches = result && [result.clave_sicar, result.codigo_barras]
+        const codeMatches = result && [result.clave_sicar, result.codigo_barras]
           .some((code) => String(code || '').toUpperCase() === normalizedSicar.toUpperCase())
+        const matches = codeMatches && catalogDescriptionMatches(item.desc || item.descripcion_original, result.descripcion)
         setSicarStatus(matches ? 'confirmed' : 'mismatch')
-        setDescription(matches ? result.descripcion : 'El código no coincide con el catálogo')
+        setDescription(matches ? result.descripcion : result?.descripcion ? `El código corresponde a: ${result.descripcion}` : 'El código no coincide con el catálogo')
       })
       .catch(() => {
         if (!alive) return
@@ -131,7 +145,7 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
       })
       .finally(() => { if (alive) setValidating(false) })
     return () => { alive = false }
-  }, [canValidateCatalog, debouncedSicarInput, normalizedSicar])
+  }, [canValidateCatalog, debouncedSicarInput, item.desc, item.descripcion_original, normalizedSicar])
 
   return (
     <div className="space-y-1">
@@ -176,7 +190,7 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
           </button>
         )}
       </div>
-      <p aria-live="polite" className={`text-[10px] font-bold ${sicarStatus === 'confirmed' ? 'text-emerald-600 dark:text-emerald-400' : sicarStatus === 'mismatch' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground'}`}>
+      <p aria-live="polite" className={`text-[10px] font-bold ${sicarStatus === 'confirmed' ? 'text-emerald-600 dark:text-emerald-400' : sicarStatus === 'mismatch' ? 'text-destructive' : 'text-muted-foreground'}`}>
         {sicarStatus === 'confirmed'
           ? `SICAR confirmado${description ? ` · ${description}` : ''}`
           : sicarStatus === 'mismatch'
@@ -321,6 +335,7 @@ export default function Recepciones() {
   const automaticDiscountLabel = automaticDiscountAnnouncement(selectedProvider)
   const issues = useMemo(() => validateReceptionItems(items), [items])
   const blockingIssues = issues.filter((issue) => issue.severity === 'error')
+  const reviewIssues = issues.filter((issue) => issue.severity !== 'error')
   const validationBlocksFinalize = blockingIssues.length > 0
   const summary = useMemo(() => buildReceptionSummary(items, {
     proveedor: remisionDetails?.proveedor,
@@ -614,20 +629,20 @@ export default function Recepciones() {
                   {blockingIssues.length ? <AlertCircle aria-hidden="true" className="h-5 w-5 text-destructive" /> : <CheckCircle2 aria-hidden="true" className="h-5 w-5 text-emerald-500" />}
                     <div>
                       <h2 className="font-black">Revisión antes de finalizar</h2>
-                      <p className="text-xs font-bold text-muted-foreground">{issues.length ? `${issues.length} puntos por resolver` : 'Listo para finalizar'}</p>
+                      <p className="text-xs font-bold text-muted-foreground">{blockingIssues.length ? `${blockingIssues.length} problemas bloqueantes` : reviewIssues.length ? `${reviewIssues.length} detalles opcionales` : 'Listo para finalizar'}</p>
                     </div>
                   </div>
-                  {issues.length > 3 && (
+                  {blockingIssues.length > 3 && (
                     <Button type="button" variant="outline" size="sm" className="min-h-9" onClick={() => setShowAllIssues((current) => !current)}>
-                      {showAllIssues ? 'Ocultar detalles' : `Ver los ${issues.length} errores`}
+                      {showAllIssues ? 'Ocultar detalles' : `Ver los ${blockingIssues.length} problemas`}
                     </Button>
                   )}
                 </div>
-                {issues.length === 0 ? (
-                  <p className="mt-2 text-sm font-bold text-muted-foreground">Sin errores bloqueantes.</p>
+                {blockingIssues.length === 0 ? (
+                  <p className="mt-2 text-sm font-bold text-muted-foreground">Sin errores bloqueantes. Los detalles opcionales no impiden finalizar.</p>
                 ) : (
                   <ul className="mt-3 space-y-1.5 text-sm font-bold">
-                    {(showAllIssues ? issues : issues.slice(0, 3)).map((issue) => <li key={`${issue.itemId}-${issue.code}`}>{issue.message}</li>)}
+                    {(showAllIssues ? blockingIssues : blockingIssues.slice(0, 3)).map((issue) => <li key={`${issue.itemId}-${issue.code}`}>{issue.message}</li>)}
                   </ul>
                 )}
               </section>
@@ -692,7 +707,14 @@ export default function Recepciones() {
                   const missing = String(item.clave_final || item.clave_sicar || '').trim().toUpperCase() === 'FALTANTE'
                   const discountLabel = cost.descuento.origen === 'manual'
                     ? `Excepción manual: ${cost.descuento.aplica ? 'aplicar descuento' : 'sin descuento'}`
-                    : `Descuento automático: ${cost.descuento.origen}`
+                    : cost.descuento.aplica
+                      ? `Descuento automático ${displayNumber(cost.descuento.porcentaje)}%: ${cost.descuento.origen === 'xml' ? 'según XML' : 'según proveedor'}`
+                      : `Sin descuento automático: ${cost.descuento.origen === 'xml' ? 'XML sin descuento' : 'proveedor sin descuento'}`
+                  const ivaLabel = Number(item.costo_incluye_iva) === 1
+                    ? `IVA incluido ${displayNumber((Number(item.iva_tasa) || 0.16) * 100)}%`
+                    : Number(item.aplica_iva) === 1
+                      ? `IVA ${displayNumber((Number(item.iva_tasa) || 0.16) * 100)}% agregado`
+                      : 'Sin IVA'
                   const comparison = priceComparison({
                     ...item,
                     precioVenta: item.precio_venta_sistema ?? item.precioVenta,
@@ -781,7 +803,7 @@ export default function Recepciones() {
                           </div>
                           <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
                             <label className="block text-xs font-black text-muted-foreground">
-                              Costo final
+                              Costo capturado
                               <input
                                 aria-label={`COSTO FINAL ${item.desc}`}
                                 type="number"
@@ -795,7 +817,8 @@ export default function Recepciones() {
                               />
                             </label>
                             <div className="rounded-lg border border-border bg-background/60 p-2">
-                              <p className="text-[10px] font-bold text-muted-foreground">{discountLabel}</p>
+                              <p className="text-[10px] font-bold text-muted-foreground">{ivaLabel}</p>
+                              <p className="mt-1 text-[10px] font-bold text-muted-foreground">{discountLabel}</p>
                               <p className="mt-1 text-sm font-black text-primary">Costo neto {formatMoney(cost.costoFinal)}</p>
                             </div>
                           </div>

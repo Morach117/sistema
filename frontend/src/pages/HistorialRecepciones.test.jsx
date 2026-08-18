@@ -22,12 +22,12 @@ const historyRow = {
   items: 1,
 }
 
-function historyDetail({ editable }) {
+function historyDetail({ editable, provider = 'TONY' }) {
   return {
     success: true,
     remision: historyRow,
     estado: 'PENDIENTE',
-    proveedor: 'TONY',
+    proveedor: provider,
     datos: {
       'REM-77': [{
         id: 501,
@@ -42,7 +42,7 @@ function historyDetail({ editable }) {
         piezas_por_paquete: 10,
         aplica_descuento: 1,
         aplica_descuento_manual: null,
-        revision_pendiente: 0,
+        revision_pendiente: 2,
       }],
     },
     notas: [{ id: 8, item_id: null, nota: 'Factura revisada', usuario: 'Ana', fecha: '2026-08-15 11:00:00' }],
@@ -51,11 +51,11 @@ function historyDetail({ editable }) {
   }
 }
 
-function historyAdapter(requests, { editable = false } = {}) {
+function historyAdapter(requests, { editable = false, provider = 'TONY' } = {}) {
   return async (config) => {
     requests.push(config)
     if (config.url === '/api/historial-recepciones/77' && config.method === 'get') {
-      return responseFor(config, historyDetail({ editable }))
+      return responseFor(config, historyDetail({ editable, provider }))
     }
     if (config.url === '/api/historial-recepciones' && config.method === 'get') {
       return responseFor(config, {
@@ -71,13 +71,13 @@ function historyAdapter(requests, { editable = false } = {}) {
   }
 }
 
-function renderHistory({ role = 'empleado', editable = false } = {}) {
+function renderHistory({ role = 'empleado', editable = false, provider = 'TONY' } = {}) {
   const requests = []
   const user = role === 'admin'
     ? { id: 1, usuario: 'admin', nombre: 'Administrador', rol: 'admin', permisos: [] }
     : { id: 7, usuario: 'empleado', nombre: 'Empleado', rol: 'empleado', permisos: ['historial-recepciones'] }
   saveSession({ token: 'signed-token', user })
-  api.defaults.adapter = historyAdapter(requests, { editable })
+  api.defaults.adapter = historyAdapter(requests, { editable, provider })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   render(
     <QueryClientProvider client={queryClient}>
@@ -127,10 +127,21 @@ it('keeps a limited history session read only while exposing detail, notes and a
   expect(within(detail).getByText('Factura revisada')).toBeVisible()
   expect(within(detail).getByText(/^cantidad:/i)).toBeVisible()
   expect(within(detail).getByText(/10 → 20/)).toBeVisible()
+  expect(within(detail).getByText(/Físico: 2/i)).toBeVisible()
+  expect(within(detail).getByText(/Caja: 10 piezas/i)).toBeVisible()
+  expect(within(detail).getByText(/Descuento: automático desde XML/i)).toBeVisible()
+  expect(within(detail).getByText(/En reclamación/i)).toBeVisible()
   expect(within(detail).getByLabelText(/cantidad de Marcador azul/i)).toBeDisabled()
   expect(within(detail).queryByRole('button', { name: /exportar excel/i })).not.toBeInTheDocument()
   expect(within(detail).queryByRole('button', { name: /guardar nota/i })).not.toBeInTheDocument()
   expect(within(detail).queryByRole('button', { name: /eliminar/i })).not.toBeInTheDocument()
+})
+
+it('identifies Paola automatic discounts as a provider rule in the receipt detail', async () => {
+  renderHistory({ provider: 'PAOLA' })
+  fireEvent.click(await screen.findByRole('button', { name: /abrir REM-77/i }))
+
+  expect(await screen.findByText(/descuento: automático según proveedor/i)).toBeVisible()
 })
 
 it('opens a receipt detail in a dialog and retains the filtered results after closing it', async () => {

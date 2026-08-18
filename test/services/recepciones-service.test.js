@@ -266,7 +266,7 @@ test('audits provider assignment with the previous and next provider inside the 
   assert.deepEqual(events.slice(-2), ['commit', 'release']);
 });
 
-test('finalizeReception blocks missing SICAR, physical count, cost, rejected items, and invalid boxes', async () => {
+test('finalizeReception blocks cost, rejected items, and invalid boxes while SICAR and physical count stay optional', async () => {
   const events = [];
   const connection = {
     async beginTransaction() { events.push('begin'); },
@@ -305,8 +305,6 @@ test('finalizeReception blocks missing SICAR, physical count, cost, rejected ite
     }),
     (error) => error.statusCode === 422
       && Array.isArray(error.details)
-      && error.details.some((issue) => issue.code === 'missing-sicar')
-      && error.details.some((issue) => issue.code === 'missing-physical-count')
       && error.details.some((issue) => issue.code === 'zero-cost')
       && error.details.some((issue) => issue.code === 'rejected-item')
       && error.details.some((issue) => issue.code === 'invalid-package-config')
@@ -317,6 +315,43 @@ test('finalizeReception blocks missing SICAR, physical count, cost, rejected ite
     false
   );
   assert.deepEqual(events.slice(-2), ['rollback', 'release']);
+});
+
+test('finalizeReception accepts an otherwise valid line without SICAR or physical count', async () => {
+  const events = [];
+  const connection = {
+    async beginTransaction() { events.push('begin'); },
+    async execute(sql, params) {
+      const normalized = sql.replace(/\s+/g, ' ').trim();
+      events.push(['execute', normalized, params]);
+      if (/SELECT id, estado FROM historial_remisiones WHERE numero_remision = \? FOR UPDATE/i.test(normalized)) {
+        return [[{ id: 19, estado: 'PENDIENTE' }], []];
+      }
+      if (/SELECT hi\.id, hi\.codigo_proveedor/i.test(normalized)) {
+        return [[{
+          id: 89, codigo_proveedor: 'SKU-SIN-CAPTURA', clave_final: '', clave_sicar: '',
+          cantidad: 5, costo_unitario: 12.5, existencia_lapiz: 0,
+          revision_pendiente: 0, es_paquete: 0, piezas_por_paquete: 1
+        }], []];
+      }
+      if (/INSERT INTO recepcion_bitacora/i.test(normalized) || /UPDATE historial_remisiones SET estado = 'FINALIZADO'/i.test(normalized)) {
+        return [{ affectedRows: 1 }, []];
+      }
+      assert.fail(`unexpected SQL: ${normalized}`);
+    },
+    async commit() { events.push('commit'); },
+    async rollback() { events.push('rollback'); },
+    release() { events.push('release'); }
+  };
+
+  await finalizeReception({
+    pool: { async getConnection() { return connection; } },
+    numeroRemision: 'R-19',
+    actorId: 19
+  });
+
+  assert.ok(events.some((event) => Array.isArray(event) && /UPDATE historial_remisiones SET estado = 'FINALIZADO'/i.test(event[1])));
+  assert.deepEqual(events.slice(-2), ['commit', 'release']);
 });
 
 test('finalizeReception learns only valid lines and records audit before state transition', async () => {

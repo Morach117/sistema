@@ -78,6 +78,23 @@ function SummaryValue({ label, value }) {
   )
 }
 
+function receptionDecision(item) {
+  if (Number(item?.revision_pendiente) === 2) return 'En reclamación'
+  if (String(item?.clave_final || item?.clave_sicar || '').trim().toUpperCase() === 'FALTANTE') return 'Faltante'
+  return 'Recibido'
+}
+
+function discountDecision(item, provider) {
+  if (item?.aplica_descuento_manual !== null && item?.aplica_descuento_manual !== undefined) {
+    return Number(item.aplica_descuento_manual) === 1 ? 'Excepción manual aplicada' : 'Sin descuento por excepción'
+  }
+  if (Number(item?.aplica_descuento) !== 1) return 'Sin descuento automático'
+  const normalizedProvider = String(provider || item?.proveedor || '').trim().toUpperCase()
+  return normalizedProvider === 'PAOLA' || normalizedProvider.includes('OPERADORA')
+    ? 'Automático según proveedor'
+    : 'Automático desde XML'
+}
+
 function HistoryDetail({ detail, detailId, onClose }) {
   const queryClient = useQueryClient()
   const editable = Boolean(detail?.permisos?.puedeEditar)
@@ -228,6 +245,8 @@ function HistoryDetail({ detail, detailId, onClose }) {
                 <p className="mt-2 text-xs font-bold text-muted-foreground">
                   {Number(item.es_paquete) === 1 ? `${displayNumber(item.cantidad)} piezas ÷ ${displayNumber(item.piezas_por_paquete)} por caja` : `${displayNumber(item.cantidad)} piezas`}
                 </p>
+                <p className="mt-1 text-xs font-bold text-muted-foreground">Físico: {displayNumber(item.existencia_lapiz)} · {Number(item.es_paquete) === 1 ? `Caja: ${displayNumber(item.piezas_por_paquete)} piezas` : 'Pieza individual'}</p>
+                <p className="mt-1 text-xs font-bold text-muted-foreground">Descuento: {discountDecision(item, detail?.proveedor)} · Decisión: {receptionDecision(item)}</p>
               </div>
               <label className="text-xs font-black text-muted-foreground">
                 Cantidad de {item.desc}
