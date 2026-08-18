@@ -109,6 +109,68 @@ describe('Recepciones dialogs', () => {
     expect(catalogRequest[1].params).toEqual({ code: '7502269634659' })
   })
 
+  it('reconfirms a valid SICAR after only its outer whitespace changes', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/recepciones') {
+        return Promise.resolve({ data: { data: [{ id: 7, numero_remision: 'REM-7', proveedor: 'PAOLA', estado: 'PENDIENTE', items: 1 }] } })
+      }
+      if (url === '/api/recepciones/7') {
+        return Promise.resolve({
+          data: {
+            proveedor: 'PAOLA',
+            estado: 'PENDIENTE',
+            datos: {
+              'REM-7': [{
+                id: 11,
+                cod_prov: 'PROV-11',
+                desc: 'ABACO PLAST CH BOLSA JOCAR',
+                cant: 1,
+                costo_unitario: 10,
+                clave_final: '7502269634659',
+                clave_sicar: '7502269634659',
+                existencia_lapiz: 1,
+                es_paquete: 0,
+                piezas_por_paquete: 1,
+                revision_pendiente: 0,
+              }],
+            },
+          },
+        })
+      }
+      if (url === '/api/catalogo/exact') {
+        return Promise.resolve({
+          data: {
+            data: { clave_sicar: '7502269634659', descripcion: 'ABACO PLAST CH BOLSA JOCAR' },
+          },
+        })
+      }
+      return Promise.resolve({ data: { data: [] } })
+    })
+    api.post.mockResolvedValue({ data: { ok: true } })
+
+    renderReceptionPage()
+    fireEvent.click(await screen.findByRole('button', { name: /REM-7/i }))
+    await screen.findByText(/SICAR confirmado/i)
+
+    const input = screen.getByLabelText(/SICAR de artículo ABACO/i)
+    fireEvent.change(input, { target: { value: '  7502269634659  ' } })
+
+    expect(screen.getByText(/SICAR pendiente/i)).toBeVisible()
+    expect(await screen.findByText(/SICAR confirmado/i)).toBeVisible()
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      '/api/recepciones/actualizar_campo',
+      { id_item: 11, campo: 'clave_final', valor: '  7502269634659  ' },
+    ))
+    const catalogRequests = api.get.mock.calls.filter(([url]) => url === '/api/catalogo/exact')
+    expect(catalogRequests.at(-1)[1].params).toEqual({ code: '7502269634659' })
+
+    fireEvent.change(input, { target: { value: '7502269634659' } })
+    fireEvent.change(input, { target: { value: '  7502269634659  ' } })
+
+    expect(screen.getByText(/SICAR pendiente/i)).toBeVisible()
+    expect(await screen.findByText(/SICAR confirmado/i)).toBeVisible()
+  })
+
   it('returns a previously confirmed SICAR to pending and then mismatch when its catalog code changes', async () => {
     api.get.mockImplementation((url, config) => {
       if (url === '/api/recepciones') {

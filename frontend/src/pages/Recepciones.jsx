@@ -90,7 +90,9 @@ function downloadResponse(response, fallbackName) {
 
 function SicarInput({ item, editor, disabled, canValidateCatalog }) {
   const value = editor.getDraftField(item.id, 'clave_final', item.clave_final || item.clave_sicar || '')
-  const [debouncedValue] = useDebounce(value, 600)
+  const sicarInput = useMemo(() => ({ value }), [value])
+  const [debouncedSicarInput] = useDebounce(sicarInput, 600)
+  const debouncedValue = debouncedSicarInput.value
   const normalizedSicar = String(debouncedValue || '').trim()
   const [description, setDescription] = useState('')
   const [validating, setValidating] = useState(false)
@@ -128,7 +130,7 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
       })
       .finally(() => { if (alive) setValidating(false) })
     return () => { alive = false }
-  }, [canValidateCatalog, normalizedSicar])
+  }, [canValidateCatalog, debouncedSicarInput, normalizedSicar])
 
   return (
     <div className="space-y-1">
