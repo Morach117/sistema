@@ -55,7 +55,7 @@ describe('Recepciones dialogs', () => {
     await waitFor(() => expect(trigger).toHaveFocus())
   })
 
-  it('shows live-save feedback and confirms an exact SICAR catalog code without remounting the reception', async () => {
+  it('normalizes pasted SICAR whitespace before saving and confirming without remounting the reception', async () => {
     api.get.mockImplementation((url) => {
       if (url === '/api/recepciones') {
         return Promise.resolve({ data: { data: [{ id: 7, numero_remision: 'REM-7', proveedor: 'PAOLA', estado: 'PENDIENTE', items: 1 }] } })
@@ -99,7 +99,7 @@ describe('Recepciones dialogs', () => {
     expect(await screen.findByRole('heading', { name: /Orden #REM-7/i })).toBeVisible()
 
     const input = screen.getByLabelText(/SICAR de artículo ABACO/i)
-    fireEvent.change(input, { target: { value: '7502269634659' } })
+    fireEvent.change(input, { target: { value: '  7502269634659\n' } })
 
     expect(screen.getByRole('status')).toHaveTextContent(/guardando/i)
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/guardado/i))

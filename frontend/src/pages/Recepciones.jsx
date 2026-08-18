@@ -91,12 +91,13 @@ function downloadResponse(response, fallbackName) {
 function SicarInput({ item, editor, disabled, canValidateCatalog }) {
   const value = editor.getDraftField(item.id, 'clave_final', item.clave_final || item.clave_sicar || '')
   const [debouncedValue] = useDebounce(value, 600)
+  const normalizedSicar = String(debouncedValue || '').trim()
   const [description, setDescription] = useState('')
   const [validating, setValidating] = useState(false)
   const [sicarStatus, setSicarStatus] = useState('pending')
 
   useEffect(() => {
-    if (!debouncedValue || debouncedValue === 'FALTANTE' || debouncedValue === 'DEVOLUCION') {
+    if (!normalizedSicar || normalizedSicar === 'FALTANTE' || normalizedSicar === 'DEVOLUCION') {
       setDescription('')
       setSicarStatus('pending')
       setValidating(false)
@@ -111,12 +112,12 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
 
     let alive = true
     setValidating(true)
-    api.get('/api/catalogo/exact', { params: { code: debouncedValue } })
+    api.get('/api/catalogo/exact', { params: { code: normalizedSicar } })
       .then((response) => {
         if (!alive) return
         const result = response.data?.data
         const matches = result && [result.clave_sicar, result.codigo_barras]
-          .some((code) => String(code || '').toUpperCase() === debouncedValue.toUpperCase())
+          .some((code) => String(code || '').toUpperCase() === normalizedSicar.toUpperCase())
         setSicarStatus(matches ? 'confirmed' : 'mismatch')
         setDescription(matches ? result.descripcion : 'El código no coincide con el catálogo')
       })
@@ -127,7 +128,7 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
       })
       .finally(() => { if (alive) setValidating(false) })
     return () => { alive = false }
-  }, [canValidateCatalog, debouncedValue])
+  }, [canValidateCatalog, normalizedSicar])
 
   return (
     <div className="space-y-1">
