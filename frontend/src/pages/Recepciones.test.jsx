@@ -129,7 +129,7 @@ afterEach(() => {
 })
 
 describe('Recepciones presentation and cost review', () => {
-  it('shows the four direct-capture zones with read-only price references and real gain', async () => {
+  it('shows the four direct-capture zones with read-only price references and automatic-only gain', async () => {
     renderPage(createAdapter({
       detailsItems: [item({
         costo: 19.49,
@@ -149,7 +149,10 @@ describe('Recepciones presentation and cost review', () => {
     expect(within(prices).getByText(/sugerido 20%/i)).toBeVisible()
     expect(within(prices).getByText(/sugerido 30%/i)).toBeVisible()
     expect(within(prices).getByText(/precio venta actual/i)).toBeVisible()
-    expect(within(prices).getByText(/ganancia real \$4\.51 · 23\.1%/i)).toBeVisible()
+    expect(within(prices).getByText(/descuento automático 5%: según proveedor/i)).toBeVisible()
+    expect(within(prices).getByText(/costo neto \$18\.52/i)).toBeVisible()
+    expect(within(prices).getByText(/ganancia real \$5\.48 · 29\.6%/i)).toBeVisible()
+    expect(within(prices).queryByText(/excepción manual/i)).not.toBeInTheDocument()
     expect(within(prices).queryByRole('spinbutton', { name: /sugerido|venta actual/i })).not.toBeInTheDocument()
   })
 
@@ -162,6 +165,10 @@ describe('Recepciones presentation and cost review', () => {
     expect(screen.queryByRole('button', { name: /más opciones de Cuaderno caja/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /compras previas/i })).not.toBeInTheDocument()
     expect(screen.getByTitle('Cuaderno caja')).toHaveClass('line-clamp-2')
+
+    const captureGrid = screen.getByRole('article', { name: /captura de Cuaderno caja/i }).firstElementChild
+    expect(captureGrid).toHaveClass('xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]')
+    expect(captureGrid).toHaveClass('2xl:grid-cols-[minmax(7rem,.8fr)_minmax(14rem,1.4fr)_minmax(10rem,1fr)_minmax(17rem,1.4fr)]')
 
     const deleteButton = screen.getByRole('button', { name: 'Eliminar Cuaderno caja' })
     expect(deleteButton).toBeVisible()
@@ -198,7 +205,7 @@ describe('Recepciones presentation and cost review', () => {
     expect(screen.getByLabelText(/^Nota$/i)).toBeVisible()
   })
 
-  it('shows exact box math, invoice/physical difference, automatic discount and a manual exception', async () => {
+  it('shows exact box math, invoice/physical difference, and automatic discounts despite legacy overrides', async () => {
     const detailsItems = [
       item(),
       item({
@@ -223,17 +230,17 @@ describe('Recepciones presentation and cost review', () => {
 
     expect(screen.getByText('100 piezas ÷ 10 = 10 cajas')).toBeVisible()
     expect(screen.getByText('Factura 10 cajas · Físico 8 · Diferencia -2 cajas')).toBeVisible()
-    expect(screen.getByText('Descuento automático 5%: según proveedor')).toBeVisible()
+    expect(screen.getAllByText('Descuento automático 5%: según proveedor')).toHaveLength(2)
     expect(screen.getByText('Costo neto $95.00')).toBeVisible()
     expect(screen.getByText('Factura 5 piezas · Físico 7 · Diferencia +2 piezas')).toBeVisible()
-    expect(screen.getByText('Excepción manual: sin descuento')).toBeVisible()
-    expect(screen.getByText('Costo neto $50.00')).toBeVisible()
+    expect(screen.getByText('Costo neto $47.50')).toBeVisible()
+    expect(screen.queryByText(/excepción manual/i)).not.toBeInTheDocument()
 
     const summary = screen.getByRole('region', { name: /resumen de recepción/i })
     expect(within(summary).getByText('2')).toBeVisible()
     expect(within(summary).getByText('10')).toBeVisible()
     expect(within(summary).getByText('5')).toBeVisible()
-    expect(within(summary).getByText('$145.00')).toBeVisible()
+    expect(within(summary).getByText('$142.50')).toBeVisible()
     expect(screen.getByText(/paola aplica 5% a todos los artículos/i)).toBeVisible()
     expect(screen.queryByRole('spinbutton', { name: /dto/i })).not.toBeInTheDocument()
   })

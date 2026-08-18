@@ -309,7 +309,8 @@ export default function Recepciones() {
     existencia_lapiz: editor.getDraftField(item.id, 'existencia_lapiz', item.existencia_lapiz ?? 0),
     es_paquete: editor.getDraftField(item.id, 'es_paquete', item.es_paquete ?? 0),
     piezas_por_paquete: editor.getDraftField(item.id, 'piezas_por_paquete', item.piezas_por_paquete ?? 1),
-    aplica_descuento_manual: editor.getDraftField(item.id, 'aplica_descuento_manual', item.aplica_descuento_manual),
+    // Legacy manual overrides are intentionally ignored: this capture uses only provider/XML discount rules.
+    aplica_descuento_manual: null,
     revision_pendiente: editor.getDraftField(item.id, 'revision_pendiente', item.revision_pendiente ?? 0),
   })), [editor, persistedItems, remisionDetails?.proveedor])
   const finalised = remisionDetails?.estado === 'FINALIZADO'
@@ -624,9 +625,7 @@ export default function Recepciones() {
                   const cost = calculateCost(item, { proveedor: remisionDetails.proveedor, porcentaje: DISCOUNT_PERCENT })
                   const rejected = Number(item.revision_pendiente) === 2
                   const missing = String(item.clave_final || item.clave_sicar || '').trim().toUpperCase() === 'FALTANTE'
-                  const discountLabel = cost.descuento.origen === 'manual'
-                    ? `Excepción manual: ${cost.descuento.aplica ? 'aplicar descuento' : 'sin descuento'}`
-                    : cost.descuento.aplica
+                  const discountLabel = cost.descuento.aplica
                       ? `Descuento automático ${displayNumber(cost.descuento.porcentaje)}%: ${cost.descuento.origen === 'xml' ? 'según XML' : 'según proveedor'}`
                       : `Sin descuento automático: ${cost.descuento.origen === 'xml' ? 'XML sin descuento' : 'proveedor sin descuento'}`
                   const ivaLabel = Number(item.costo_incluye_iva) === 1
@@ -642,7 +641,7 @@ export default function Recepciones() {
                   const differenceSign = difference?.diferencia > 0 ? '+' : ''
                   return (
                     <article key={item.id} aria-label={`Captura de ${item.desc}`} className={`overflow-hidden rounded-2xl border shadow-sm ${rejected ? 'border-destructive/40 bg-destructive/5' : missing ? 'border-amber-500/40 bg-amber-500/5' : 'border-border bg-card/90'}`}>
-                      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(7rem,.8fr)_minmax(14rem,1.4fr)_minmax(10rem,1fr)_minmax(17rem,1.4fr)] xl:items-start">
+                      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] xl:items-start 2xl:grid-cols-[minmax(7rem,.8fr)_minmax(14rem,1.4fr)_minmax(10rem,1fr)_minmax(17rem,1.4fr)]">
                         <section role="group" aria-label={`Factura de ${item.desc}`} className="space-y-3 xl:border-r xl:border-border xl:pr-4">
                           <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Factura</h3>
                           <label className="block text-xs font-black text-muted-foreground">
