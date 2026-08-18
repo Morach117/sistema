@@ -84,7 +84,14 @@ describe('Recepciones dialogs', () => {
         })
       }
       if (url === '/api/catalogo/list') {
-        return Promise.resolve({ data: { data: [{ clave_sicar: '7502269634659', descripcion: 'ABACO PLAST CH BOLSA JOCAR' }] } })
+        return Promise.resolve({
+          data: {
+            data: [
+              { clave_sicar: '750226963465', descripcion: 'Resultado parcial' },
+              { clave_sicar: '7502269634659', descripcion: 'ABACO PLAST CH BOLSA JOCAR' },
+            ],
+          },
+        })
       }
       return Promise.resolve({ data: { data: [] } })
     })
@@ -101,6 +108,8 @@ describe('Recepciones dialogs', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/guardado/i))
     expect(screen.getByRole('heading', { name: /Orden #REM-7/i })).toBeVisible()
     expect(await screen.findByText(/SICAR confirmado/i)).toHaveTextContent(/ABACO PLAST CH BOLSA JOCAR/i)
+    const catalogRequest = api.get.mock.calls.find(([url]) => url === '/api/catalogo/list')
+    expect(catalogRequest[1].params.limit).toBeGreaterThan(1)
   })
 
   it('returns a previously confirmed SICAR to pending and then mismatch when its catalog code changes', async () => {
@@ -147,5 +156,46 @@ describe('Recepciones dialogs', () => {
 
     expect(screen.getByText(/SICAR pendiente/i)).toBeVisible()
     expect(await screen.findByText(/SICAR no coincide/i)).toBeVisible()
+  })
+
+  it('keeps SICAR pending and explains catalog unavailability when lookup fails', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/recepciones') {
+        return Promise.resolve({ data: { data: [{ id: 7, numero_remision: 'REM-7', proveedor: 'PAOLA', estado: 'PENDIENTE', items: 1 }] } })
+      }
+      if (url === '/api/recepciones/7') {
+        return Promise.resolve({
+          data: {
+            proveedor: 'PAOLA',
+            estado: 'PENDIENTE',
+            datos: {
+              'REM-7': [{
+                id: 11,
+                cod_prov: 'PROV-11',
+                desc: 'ABACO PLAST CH BOLSA JOCAR',
+                cant: 1,
+                costo_unitario: 10,
+                clave_final: '',
+                clave_sicar: '',
+                existencia_lapiz: 1,
+                es_paquete: 0,
+                piezas_por_paquete: 1,
+                revision_pendiente: 0,
+              }],
+            },
+          },
+        })
+      }
+      if (url === '/api/catalogo/list') return Promise.reject(new Error('Catálogo no disponible'))
+      return Promise.resolve({ data: { data: [] } })
+    })
+    api.post.mockResolvedValue({ data: { ok: true } })
+
+    renderReceptionPage()
+    fireEvent.click(await screen.findByRole('button', { name: /REM-7/i }))
+    fireEvent.change(await screen.findByLabelText(/SICAR de artículo ABACO/i), { target: { value: '7502269634659' } })
+
+    expect(await screen.findByText(/SICAR pendiente.*catálogo no está disponible/i)).toBeVisible()
+    expect(screen.queryByText(/SICAR no coincide/i)).not.toBeInTheDocument()
   })
 })
