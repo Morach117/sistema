@@ -1,7 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { clearSession, saveSession } from '@/auth/session'
 import api from '@/lib/api'
 import Recepciones from './Recepciones'
 
@@ -14,8 +16,22 @@ vi.mock('@/lib/api', () => ({
 
 afterEach(() => {
   cleanup()
+  clearSession()
   vi.clearAllMocks()
 })
+
+function renderReceptionPage() {
+  saveSession({
+    token: 'signed-token',
+    user: { id: 1, usuario: 'admin', nombre: 'Administrador', rol: 'admin', permisos: ['recepciones', 'catalogo'] },
+  })
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter><Recepciones /></MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
 
 describe('Recepciones dialogs', () => {
   it('uses its controlled upload trigger and restores focus after Escape', async () => {
@@ -37,5 +53,99 @@ describe('Recepciones dialogs', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
 
     await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
+  it('shows live-save feedback and confirms an exact SICAR catalog code without remounting the reception', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/recepciones') {
+        return Promise.resolve({ data: { data: [{ id: 7, numero_remision: 'REM-7', proveedor: 'PAOLA', estado: 'PENDIENTE', items: 1 }] } })
+      }
+      if (url === '/api/recepciones/7') {
+        return Promise.resolve({
+          data: {
+            proveedor: 'PAOLA',
+            estado: 'PENDIENTE',
+            datos: {
+              'REM-7': [{
+                id: 11,
+                cod_prov: 'PROV-11',
+                desc: 'ABACO PLAST CH BOLSA JOCAR',
+                cant: 1,
+                costo_unitario: 10,
+                clave_final: '',
+                clave_sicar: '',
+                existencia_lapiz: 1,
+                es_paquete: 0,
+                piezas_por_paquete: 1,
+                revision_pendiente: 0,
+              }],
+            },
+          },
+        })
+      }
+      if (url === '/api/catalogo/list') {
+        return Promise.resolve({ data: { data: [{ clave_sicar: '7502269634659', descripcion: 'ABACO PLAST CH BOLSA JOCAR' }] } })
+      }
+      return Promise.resolve({ data: { data: [] } })
+    })
+    api.post.mockResolvedValue({ data: { ok: true } })
+
+    renderReceptionPage()
+    fireEvent.click(await screen.findByRole('button', { name: /REM-7/i }))
+    expect(await screen.findByRole('heading', { name: /Orden #REM-7/i })).toBeVisible()
+
+    const input = screen.getByLabelText(/SICAR de artículo ABACO/i)
+    fireEvent.change(input, { target: { value: '7502269634659' } })
+
+    expect(screen.getByRole('status')).toHaveTextContent(/guardando/i)
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/guardado/i))
+    expect(screen.getByRole('heading', { name: /Orden #REM-7/i })).toBeVisible()
+    expect(await screen.findByText(/SICAR confirmado/i)).toHaveTextContent(/ABACO PLAST CH BOLSA JOCAR/i)
+  })
+
+  it('returns a previously confirmed SICAR to pending and then mismatch when its catalog code changes', async () => {
+    api.get.mockImplementation((url, config) => {
+      if (url === '/api/recepciones') {
+        return Promise.resolve({ data: { data: [{ id: 7, numero_remision: 'REM-7', proveedor: 'PAOLA', estado: 'PENDIENTE', items: 1 }] } })
+      }
+      if (url === '/api/recepciones/7') {
+        return Promise.resolve({
+          data: {
+            proveedor: 'PAOLA',
+            estado: 'PENDIENTE',
+            datos: {
+              'REM-7': [{
+                id: 11,
+                cod_prov: 'PROV-11',
+                desc: 'ABACO PLAST CH BOLSA JOCAR',
+                cant: 1,
+                costo_unitario: 10,
+                clave_final: '7502269634659',
+                clave_sicar: '7502269634659',
+                existencia_lapiz: 1,
+                es_paquete: 0,
+                piezas_por_paquete: 1,
+                revision_pendiente: 0,
+              }],
+            },
+          },
+        })
+      }
+      if (url === '/api/catalogo/list') {
+        const matches = config?.params?.search === '7502269634659'
+        return Promise.resolve({ data: { data: [{ clave_sicar: matches ? '7502269634659' : 'OTRO-CODIGO', descripcion: 'ABACO PLAST CH BOLSA JOCAR' }] } })
+      }
+      return Promise.resolve({ data: { data: [] } })
+    })
+    api.post.mockResolvedValue({ data: { ok: true } })
+
+    renderReceptionPage()
+    fireEvent.click(await screen.findByRole('button', { name: /REM-7/i }))
+    await screen.findByText(/SICAR confirmado/i)
+
+    fireEvent.change(screen.getByLabelText(/SICAR de artículo ABACO/i), { target: { value: 'NO-COINCIDE' } })
+
+    expect(screen.getByText(/SICAR pendiente/i)).toBeVisible()
+    expect(await screen.findByText(/SICAR no coincide/i)).toBeVisible()
   })
 })

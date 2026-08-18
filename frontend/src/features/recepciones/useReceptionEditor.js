@@ -13,10 +13,13 @@ export function useReceptionEditor(remisionId, {
   const queryClient = useQueryClient()
   const [draftFields, setDraftFields] = useState({})
   const [hasPending, setHasPending] = useState(false)
+  const [saveState, setSaveState] = useState('idle')
   const timersRef = useRef(new Map())
   const pendingSavesRef = useRef(new Map())
   const requestChainsRef = useRef(new Map())
   const saveErrorsRef = useRef(new Map())
+  const saveGenerationRef = useRef(0)
+  const latestFieldSaveRef = useRef({ generation: 0, status: 'idle' })
   const mutationRef = useRef(null)
 
   const mutation = useMutation({
@@ -39,6 +42,9 @@ export function useReceptionEditor(remisionId, {
 
   useEffect(() => {
     setDraftFields({})
+    saveGenerationRef.current += 1
+    latestFieldSaveRef.current = { generation: saveGenerationRef.current, status: 'idle' }
+    setSaveState('idle')
   }, [remisionId])
 
   const setDraftField = useCallback((itemId, field, value) => {
@@ -54,6 +60,19 @@ export function useReceptionEditor(remisionId, {
     setHasPending(
       pendingSavesRef.current.size > 0 || requestChainsRef.current.size > 0,
     )
+  }, [])
+
+  const settleFieldSaveState = useCallback((generation, status) => {
+    if (generation === saveGenerationRef.current) {
+      latestFieldSaveRef.current = { generation, status }
+    }
+
+    const hasPendingFieldSave = pendingSavesRef.current.size > 0
+      || [...requestChainsRef.current.keys()].some((key) => !key.startsWith('operation:'))
+    const latest = latestFieldSaveRef.current
+    if (!hasPendingFieldSave && latest.generation === saveGenerationRef.current && latest.status !== 'saving') {
+      setSaveState(latest.status)
+    }
   }, [])
 
   const trackRequest = useCallback((key, operation, operationRemisionId) => {
@@ -90,24 +109,34 @@ export function useReceptionEditor(remisionId, {
     clearTimeout(timersRef.current.get(key))
     timersRef.current.delete(key)
     pendingSavesRef.current.delete(key)
-    return trackRequest(
+    const request = trackRequest(
       key,
       () => mutationRef.current.mutateAsync(variables),
       variables.remisionId,
     )
-  }, [trackRequest])
+    request.then(
+      () => settleFieldSaveState(variables.saveGeneration, 'saved'),
+      () => settleFieldSaveState(variables.saveGeneration, 'error'),
+    )
+    return request
+  }, [settleFieldSaveState, trackRequest])
 
   const saveField = useCallback((itemId, field, explicitValue) => {
     const key = fieldKey(itemId, field)
     const value = explicitValue === undefined ? draftFields[key] : explicitValue
     if (value === undefined) return
 
+    const saveGeneration = saveGenerationRef.current + 1
+    saveGenerationRef.current = saveGeneration
+    latestFieldSaveRef.current = { generation: saveGeneration, status: 'saving' }
+    setSaveState('saving')
     clearTimeout(timersRef.current.get(key))
     pendingSavesRef.current.set(key, {
       id_item: itemId,
       campo: field,
       valor: value,
       remisionId,
+      saveGeneration,
     })
     setHasPending(true)
     timersRef.current.set(key, setTimeout(() => startPendingSave(key), SAVE_DELAY_MS))
@@ -139,6 +168,7 @@ export function useReceptionEditor(remisionId, {
     isSaving: hasPending,
     mutation,
     runTrackedOperation,
+    saveState,
     saveField,
     setDraftField,
   }

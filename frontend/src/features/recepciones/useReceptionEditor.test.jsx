@@ -85,6 +85,26 @@ describe('useReceptionEditor', () => {
     )
   })
 
+  it('reports saving and saved after the latest confirmed field save settles', async () => {
+    const request = deferred()
+    api.post.mockImplementationOnce(() => request.promise)
+    const { result } = renderHook(() => useReceptionEditor(19), { wrapper: createWrapper() })
+
+    act(() => result.current.saveField(7, 'clave_final', 'A-2'))
+
+    expect(result.current.saveState).toBe('saving')
+
+    await act(async () => vi.advanceTimersByTimeAsync(250))
+    expect(result.current.saveState).toBe('saving')
+
+    await act(async () => {
+      request.resolve({ data: { ok: true } })
+      await request.promise
+    })
+
+    expect(result.current.saveState).toBe('saved')
+  })
+
   it('persists an explicit null when clearing a manual discount override', async () => {
     const { result } = renderHook(() => useReceptionEditor(19), { wrapper: createWrapper() })
 
@@ -197,6 +217,7 @@ describe('useReceptionEditor', () => {
       await rejectedFlush
     })
     expect(result.current.hasPending).toBe(false)
+    expect(result.current.saveState).toBe('error')
   })
 
   it('does not carry a failed field from one reception into actions on another reception', async () => {

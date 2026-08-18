@@ -93,14 +93,19 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
   const [debouncedValue] = useDebounce(value, 600)
   const [description, setDescription] = useState('')
   const [validating, setValidating] = useState(false)
+  const [sicarStatus, setSicarStatus] = useState('pending')
 
   useEffect(() => {
     if (!debouncedValue || debouncedValue === 'FALTANTE' || debouncedValue === 'DEVOLUCION') {
       setDescription('')
+      setSicarStatus('pending')
+      setValidating(false)
       return undefined
     }
     if (!canValidateCatalog) {
       setDescription('Validación de catálogo no disponible con tus permisos')
+      setSicarStatus('pending')
+      setValidating(false)
       return undefined
     }
 
@@ -112,9 +117,14 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
         const result = response.data?.data?.[0]
         const matches = result && [result.clave_sicar, result.codigo_barras]
           .some((candidate) => String(candidate || '').toUpperCase() === debouncedValue.toUpperCase())
-        setDescription(matches ? result.descripcion : 'No encontrado en catálogo')
+        setSicarStatus(matches ? 'confirmed' : 'mismatch')
+        setDescription(matches ? result.descripcion : 'El código no coincide con el catálogo')
       })
-      .catch(() => { if (alive) setDescription('Error al validar en catálogo') })
+      .catch(() => {
+        if (!alive) return
+        setSicarStatus('mismatch')
+        setDescription('No se pudo validar el código en catálogo')
+      })
       .finally(() => { if (alive) setValidating(false) })
     return () => { alive = false }
   }, [canValidateCatalog, debouncedValue])
@@ -125,14 +135,19 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
         <span className="border-r border-border bg-secondary px-2 py-2 font-mono text-[10px] font-bold text-muted-foreground">
           {item.cod_prov || 'SIN-CÓDIGO'}
         </span>
-        <label htmlFor={`sicar-${item.id}`} className="sr-only">SICAR</label>
+        <label htmlFor={`sicar-${item.id}`} className="sr-only">SICAR de artículo {item.desc}</label>
         <input
           id={`sicar-${item.id}`}
           type="text"
           value={value}
           disabled={disabled}
           placeholder="Clave SICAR"
-          onChange={(event) => editor.setDraftField(item.id, 'clave_final', event.target.value)}
+          onChange={(event) => {
+            setSicarStatus('pending')
+            setDescription('')
+            editor.setDraftField(item.id, 'clave_final', event.target.value)
+            editor.saveField(item.id, 'clave_final', event.target.value)
+          }}
           onBlur={(event) => editor.saveField(item.id, 'clave_final', event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -157,7 +172,13 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
           </button>
         )}
       </div>
-      {description && <p className="text-[10px] font-bold text-muted-foreground">{description}</p>}
+      <p aria-live="polite" className={`text-[10px] font-bold ${sicarStatus === 'confirmed' ? 'text-emerald-600 dark:text-emerald-400' : sicarStatus === 'mismatch' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground'}`}>
+        {sicarStatus === 'confirmed'
+          ? `SICAR confirmado${description ? ` · ${description}` : ''}`
+          : sicarStatus === 'mismatch'
+            ? `SICAR no coincide${description ? ` · ${description}` : ''}`
+            : `SICAR pendiente${description ? ` · ${description}` : ''}`}
+      </p>
     </div>
   )
 }
@@ -559,9 +580,10 @@ export default function Recepciones() {
                     )}
                   </div>
                 </div>
-                {editor.hasPending && (
-                  <p role="status" className="mt-3 flex items-center gap-2 text-xs font-bold text-muted-foreground">
-                    <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> Guardando cambios…
+                {editor.saveState !== 'idle' && (
+                  <p role="status" aria-live="polite" className={`mt-3 flex items-center gap-2 text-xs font-bold ${editor.saveState === 'error' ? 'text-destructive' : editor.saveState === 'saved' ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+                    {editor.saveState === 'saving' ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : editor.saveState === 'saved' ? <CheckCircle2 aria-hidden="true" className="h-4 w-4" /> : <AlertCircle aria-hidden="true" className="h-4 w-4" />}
+                    {editor.saveState === 'saving' ? 'Guardando cambios…' : editor.saveState === 'saved' ? 'Cambios guardados' : 'No se pudieron guardar los cambios'}
                   </p>
                 )}
               </Card>
