@@ -7,6 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 
 const fieldClass = 'min-h-11 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-70'
 const labelClass = 'grid gap-1.5 text-sm font-bold'
+const setupChoices = [
+  { value: 'central', title: 'Esta será la Central', copy: 'Aquí se resguardan y comparten los clientes.' },
+  { value: 'sucursal', title: 'Esta será una Sucursal', copy: 'Se vincula con un código temporal de la Central.' },
+]
 
 function errorMessage(error, fallback) {
   return error?.response?.data?.error || error?.message || fallback
@@ -63,15 +67,35 @@ export default function ClientesConfiguracion() {
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Identidad y vínculo LAN de esta instalación. Las direcciones de red se descubren automáticamente y nunca definen la identidad.</p>
       </header>
 
-      {statusQuery.error && <p role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-800 dark:text-amber-200">{statusQuery.error?.response?.status === 404 ? 'El servicio local se está actualizando. Espera unos segundos y vuelve a abrir esta pantalla.' : errorMessage(statusQuery.error, 'No se pudo leer la configuración local.')}</p>}
+      {statusQuery.error && (
+        <div role="alert" className="flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-800 dark:text-amber-200 sm:flex-row sm:items-center sm:justify-between">
+          <p>{statusQuery.error?.response?.status === 404 ? 'El servicio local se está actualizando. Espera unos segundos y vuelve a intentarlo.' : errorMessage(statusQuery.error, 'No se pudo leer la configuración local.')}</p>
+          <Button type="button" variant="outline" onClick={() => statusQuery.refetch()} disabled={statusQuery.isFetching}>Reintentar</Button>
+        </div>
+      )}
 
       {needsSetup && (
         <Card>
           <CardHeader><CardTitle>Inicializar esta instalación</CardTitle><CardDescription>Define el rol una sola vez. Después solo podrás cambiar el nombre visible.</CardDescription></CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-            <label className={labelClass}>Rol<select className={fieldClass} value={nodeRole} onChange={(event) => setNodeRole(event.target.value)}><option value="central">Central</option><option value="sucursal">Sucursal</option></select></label>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {setupChoices.map((choice) => (
+                <button
+                  key={choice.value}
+                  type="button"
+                  aria-pressed={nodeRole === choice.value}
+                  onClick={() => setNodeRole(choice.value)}
+                  className={`rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${nodeRole === choice.value ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted/60'}`}
+                >
+                  <span className="block font-black">{choice.title}</span>
+                  <span className="mt-1 block text-sm font-medium text-muted-foreground">{choice.copy}</span>
+                </button>
+              ))}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
             <label className={labelClass}>Nombre visible<input className={fieldClass} value={nodeName} onChange={(event) => setNodeName(event.target.value)} placeholder="Ej. Sucursal Centro" /></label>
             <Button type="button" disabled={!nodeName.trim() || configure.isPending} onClick={() => configure.mutate()}>Guardar instalación</Button>
+            </div>
           </CardContent>
           {configure.error && <p role="alert" className="px-6 pb-5 text-sm font-bold text-destructive">{errorMessage(configure.error, 'No se pudo inicializar.')}</p>}
         </Card>

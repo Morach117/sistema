@@ -334,10 +334,8 @@ describe('Configuración LAN de clientes', () => {
     renderPage(<ClientesConfiguracion />, createAdapter({ statusError: true, requests }))
 
     await screen.findByRole('alert')
-    const role = screen.getByLabelText(/^rol$/i)
     const name = screen.getByLabelText(/^nombre visible$/i)
-    expect(role).toBeEnabled()
-    fireEvent.change(role, { target: { value: 'central' } })
+    fireEvent.click(screen.getByRole('button', { name: /esta será la central/i }))
     fireEvent.change(name, { target: { value: 'Matriz' } })
     fireEvent.click(screen.getByRole('button', { name: /guardar instalación/i }))
 
