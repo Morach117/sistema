@@ -135,7 +135,7 @@ describe('cross-module permission boundaries', () => {
     renderPage(<Recepciones />, receptionAdapter(requestedUrls))
 
     fireEvent.click(await screen.findByRole('button', { name: /REM-3/i }))
-    const sicarInput = await screen.findByLabelText('SICAR')
+    const sicarInput = await screen.findByLabelText('SICAR de artículo Cuaderno')
     fireEvent.change(sicarInput, { target: { value: 'SICAR-PRUEBA' } })
 
     await act(async () => {
@@ -156,7 +156,9 @@ describe('Recepciones untrusted text', () => {
     renderPage(<Recepciones />, receptionAdapter(requestedUrls, untrustedDescription))
 
     fireEvent.click(await screen.findByRole('button', { name: /REM-3/i }))
-    fireEvent.click(await screen.findByRole('button', { name: /^Eliminar /i }))
+    expect(screen.queryByRole('button', { name: `Eliminar ${untrustedDescription}` })).not.toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: `Más opciones de ${untrustedDescription}` }))
+    fireEvent.click(await screen.findByRole('button', { name: `Eliminar ${untrustedDescription}` }))
 
     const confirmationText = await screen.findByText(/se borrará permanentemente/i)
     const content = confirmationText.closest('.swal2-html-container')
@@ -181,7 +183,7 @@ describe('Recepciones pending saves', () => {
     })
 
     fireEvent.click(await screen.findByRole('button', { name: /REM-3/i }))
-    const quantity = await screen.findByLabelText('FACTURA')
+    const quantity = await screen.findByLabelText('FACTURA Cuaderno')
     fireEvent.change(quantity, { target: { value: '4' } })
     fireEvent.blur(quantity)
 
@@ -220,7 +222,7 @@ describe('Recepciones pending saves', () => {
     })
 
     fireEvent.click(await screen.findByRole('button', { name: /REM-3/i }))
-    const quantity = await screen.findByLabelText('FACTURA')
+    const quantity = await screen.findByLabelText('FACTURA Cuaderno')
     fireEvent.change(quantity, { target: { value: '8' } })
     fireEvent.blur(quantity)
 
@@ -282,7 +284,9 @@ describe('Recepciones pending saves', () => {
     })
 
     fireEvent.click(await screen.findByRole('button', { name: /REM-3/i }))
-    fireEvent.click(await screen.findByRole('button', { name: /^Eliminar /i }))
+    expect(screen.queryByRole('button', { name: 'Eliminar Cuaderno' })).not.toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Más opciones de Cuaderno' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Eliminar Cuaderno' }))
 
     const finalizeButton = screen.getByRole('button', { name: /finalizar/i })
     await waitFor(() => expect(requestedUrls).toContain('/api/recepciones/item/9'))
