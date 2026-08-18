@@ -34,7 +34,7 @@ function syncStatus(overrides = {}) {
   }
 }
 
-function createAdapter({ status = syncStatus(), statusError = false, requests = [], extraClients = [], purchaseError = false } = {}) {
+function createAdapter({ status = syncStatus(), statusError = false, clientsError = false, requests = [], extraClients = [], purchaseError = false } = {}) {
   let currentStatus = status
   let unavailableStatus = statusError
   let clients = [{
@@ -73,6 +73,11 @@ function createAdapter({ status = syncStatus(), statusError = false, requests = 
       return responseFor(config, { success: true, data: { sucursal: currentStatus.sucursal } })
     }
     if (config.url === '/api/clientes' && method === 'get') {
+      if (clientsError) {
+        const error = new Error('Directorio local no disponible')
+        error.response = { status: 503, data: { error: error.message } }
+        throw error
+      }
       const term = String(config.params?.buscar || '').toLowerCase()
       const data = clients.filter((client) => !term || [client.nombre, client.telefono, client.correo]
         .some((value) => String(value || '').toLowerCase().includes(term)))
@@ -250,6 +255,20 @@ describe('Clientes CRUD and local branch attribution', () => {
 })
 
 describe('Clientes purchases and synchronization state', () => {
+  it('keeps the directory visible when sync status fails', async () => {
+    renderPage(<Clientes />, createAdapter({ statusError: true }))
+
+    expect(await screen.findByRole('button', { name: 'Ana López' })).toBeVisible()
+    expect(screen.getByText(/siguen guardándose localmente/i)).toBeVisible()
+  })
+
+  it('renders a retryable directory error rather than a blank page', async () => {
+    renderPage(<Clientes />, createAdapter({ clientsError: true }))
+
+    expect(await screen.findByRole('alert')).toBeVisible()
+    expect(screen.getByRole('button', { name: /reintentar clientes/i })).toBeVisible()
+  })
+
   it('reports a purchase history failure instead of claiming the history is empty', async () => {
     renderPage(<Clientes />, createAdapter({ purchaseError: true }))
 

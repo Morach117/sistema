@@ -65,6 +65,15 @@ function StatusBanner({ status, isLoading, error }) {
   )
 }
 
+function DirectoryError({ error, onRetry, retrying }) {
+  return (
+    <div role="alert" className="mx-6 mb-6 flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-bold text-destructive sm:flex-row sm:items-center sm:justify-between">
+      <p>{errorMessage(error, 'No se pudo cargar el directorio local.')}</p>
+      <Button type="button" variant="outline" onClick={onRetry} disabled={retrying}>Reintentar clientes</Button>
+    </div>
+  )
+}
+
 function ClienteForm({ client, branchName, onCancel, onSubmit, pending, error }) {
   const editing = Boolean(client)
   const [values, setValues] = useState({ nombre: '', telefono: '', correo: '', notas: '' })
@@ -213,7 +222,11 @@ export default function Clientes() {
   const [selectedId, setSelectedId] = useState(null)
   const [formClient, setFormClient] = useState(undefined)
   const statusQuery = useQuery({ queryKey: ['clientes-sync-estado'], queryFn: async () => (await api.get('/api/clientes-sync/estado')).data.data, refetchInterval: 30_000 })
-  const clientsQuery = useQuery({ queryKey: ['clientes', search], queryFn: async () => (await api.get('/api/clientes', { params: { pagina: 1, limite: 50, buscar: search, activo: 'todos' } })).data.data || [] })
+  const clientsQuery = useQuery({
+    queryKey: ['clientes', search],
+    queryFn: async () => (await api.get('/api/clientes', { params: { pagina: 1, limite: 50, buscar: search, activo: 'todos' } })).data.data || [],
+    placeholderData: (previousData) => previousData,
+  })
   const saveClient = useMutation({
     mutationFn: async (payload) => formClient ? (await api.put(`/api/clientes/${formClient.id}`, payload)).data.data : (await api.post('/api/clientes', payload)).data.data,
     onSuccess: (saved) => {
@@ -243,7 +256,8 @@ export default function Clientes() {
         <Card className="min-w-0 overflow-hidden">
           <CardHeader><CardTitle className="flex items-center gap-2"><UsersRound aria-hidden="true" className="h-5 w-5 text-primary" />Directorio</CardTitle><label className="relative mt-2 block"><span className="sr-only">Buscar clientes</span><Search aria-hidden="true" className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" /><input className={`${fieldClass} pl-10`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nombre, teléfono o correo" /></label></CardHeader>
           <CardContent className="p-0">
-            {clientsQuery.isLoading ? <p className="px-6 pb-6 text-sm text-muted-foreground">Cargando clientes…</p> : clientsQuery.error ? <p role="alert" className="px-6 pb-6 text-sm font-bold text-destructive">{errorMessage(clientsQuery.error, 'No se pudo cargar la lista.')}</p> : clientsQuery.data.length ? (
+            {clientsQuery.isError && <DirectoryError error={clientsQuery.error} onRetry={() => clientsQuery.refetch()} retrying={clientsQuery.isFetching} />}
+            {clientsQuery.isLoading ? <p role="status" className="px-6 pb-6 text-sm text-muted-foreground">Cargando clientes…</p> : clientsQuery.data?.length ? (
               <ul className="divide-y divide-border border-t border-border">
                 {clientsQuery.data.map((client) => (
                   <li key={client.id}>
@@ -255,7 +269,7 @@ export default function Clientes() {
                   </li>
                 ))}
               </ul>
-            ) : <p className="px-6 pb-6 text-sm text-muted-foreground">No se encontraron clientes.</p>}
+            ) : !clientsQuery.isError && <p className="px-6 pb-6 text-sm text-muted-foreground">No se encontraron clientes.</p>}
           </CardContent>
         </Card>
 
