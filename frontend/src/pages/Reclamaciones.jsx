@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
 import { canAccess } from '@/auth/permissions'
 import { readSession } from '@/auth/session'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { AlertOctagon, CheckCircle2, ShieldCheck, Check, Save } from 'lucide-react'
 import Swal from 'sweetalert2'
@@ -71,9 +71,9 @@ export default function Reclamaciones() {
       <div className="w-80 flex-shrink-0 flex flex-col gap-4">
         <div>
           <h2 className="font-black text-2xl tracking-tight text-slate-100 flex items-center gap-2">
-            <AlertOctagon className="text-red-500 w-6 h-6" /> Incidencias
+            <AlertOctagon className="text-red-500 w-6 h-6" /> Rectificación y re-conteo
           </h2>
-          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1 block">Productos rechazados</span>
+          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1 block">Artículos por rectificar</span>
         </div>
         
         <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">

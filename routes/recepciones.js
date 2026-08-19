@@ -4,6 +4,7 @@ const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
 const { authorize } = require('../middleware/authorize');
 const { releaseConnection, rollbackTransaction, sendInternalError } = require('../middleware/errors');
+const { logAudit } = require('../utils/audit');
 const multer = require('multer');
 const path = require('path');
 const {
@@ -88,6 +89,48 @@ async function auditReceptionFieldChanges(connection, { remisionId, itemId = nul
 }
 router.use(authMiddleware);
 router.use(authorize({ module: 'recepciones', action: 'read' }));
+
+// This lookup belongs to the reception workflow.  It intentionally does not
+// require the separate Catalog module permission just to visually validate a
+// SICAR code while receiving a supplier invoice.
+router.get('/catalogo-exacto', async (req, res) => {
+    const code = String(req.query.code || '').trim();
+    if (!code) return res.status(400).json({ success: false, error: 'Código requerido.' });
+
+    try {
+        const [rows] = await pool.execute(
+            'SELECT clave_sicar, codigo_barras, descripcion FROM cat_productos WHERE clave_sicar = ? OR codigo_barras = ? LIMIT 1',
+            [code, code]
+        );
+        return res.json({ data: rows[0] || null });
+    } catch (error) {
+        return sendInternalError(error, req, res);
+    }
+});
+
+router.post('/enviar-a-rectificar', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
+    const itemId = Number.parseInt(req.body?.id_item, 10);
+    if (!Number.isSafeInteger(itemId) || itemId <= 0) {
+        return res.status(400).json({ success: false, error: 'Artículo inválido.' });
+    }
+
+    try {
+        const [result] = await pool.execute(
+            `UPDATE historial_items hi
+             INNER JOIN historial_remisiones hr ON hr.id = hi.remision_id
+             SET hi.revision_pendiente = 2
+             WHERE hi.id = ? AND hr.estado <> 'FINALIZADO'`,
+            [itemId]
+        );
+        if (!result?.affectedRows) {
+            return res.status(404).json({ success: false, error: 'El artículo no existe o la recepción ya fue finalizada.' });
+        }
+        await logAudit(req.user.id, 'ENVIAR_A_RECTIFICAR', `Artículo de recepción enviado a rectificación: ${itemId}`, req.requestId);
+        return res.json({ success: true });
+    } catch (error) {
+        return sendInternalError(error, req, res);
+    }
+});
 
 // Generate the inventory export after normal API authentication/authorization.
 router.post('/generar_excel', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
@@ -303,7 +346,7 @@ router.post('/actualizar_campo', authorize({ module: 'recepciones', action: 'wri
     const allowedFields = [
         'existencia_lapiz', 'clave_final', 'es_paquete', 'piezas_por_paquete',
         'costo_unitario', 'aplica_descuento', 'aplica_descuento_manual',
-        'cantidad', 'revision_pendiente', 'cantidad_real'
+        'cantidad', 'cantidad_real'
     ];
     if (!allowedFields.includes(campo)) return res.status(400).json({ success: false, error: 'Campo no permitido' });
 

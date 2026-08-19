@@ -12,6 +12,15 @@ Hacer que la captura de Recepciones sea legible en una pantalla de 1366×768 y q
 - Mantener en el renglón los datos necesarios para capturar: cantidad XML, producto/SICAR, físico/caja, costo, descuento automático, precios sugeridos 20% y 30%, precio actual y ganancia.
 - Usar cuatro columnas equilibradas en escritorio, con mínimos de ancho y ajuste de texto. Si la ventana es menor que 1366 px, la tarjeta se apila sin recortar contenido. Los nombres largos se muestran en dos líneas con título completo al pasar el cursor, nunca en una sola línea truncada como única forma de leerlos.
 - El descuento se mantiene automático según XML o regla de proveedor. Al no aplicar, se muestra una frase breve y no se requiere captura manual.
+- Retirar las seis tarjetas de resumen numérico (artículos, cajas, piezas, costo, revisión y errores) para dejar espacio a la captura a 1366×768. La revisión compacta sigue mostrando los problemas que realmente bloquean la finalización.
+- El botón **Mandar a rectificar** de cada artículo pendiente envía la línea a Incidencias. Es una acción deliberada y auditada: la línea se marca pendiente, bloquea la finalización hasta que se rectifique y conserva sus datos de factura, SICAR, caja y precios.
+- La pantalla de Incidencias se denomina **Rectificación y re-conteo**, no “Productos rechazados”. Una persona con permiso de reclamaciones puede registrar el nuevo conteo; administración puede aceptarlo y devolver la línea a Recepciones.
+- La comprobación visual de SICAR se consulta mediante una ruta de Recepciones, por lo que una persona autorizada para recibir no necesita tener permiso del módulo Catálogo. Si el catálogo no responde, se conserva el código y se muestra “Validación pendiente”, sin afirmar que el código sea incorrecto.
+
+## Aprendizaje entre facturas
+
+- Al finalizar una recepción válida, el sistema guarda la relación entre código de proveedor, SICAR, presentación de caja y piezas por caja.
+- En una factura posterior con el mismo código de proveedor, la relación se aplica automáticamente al abrirla. Una línea enviada a rectificación no se aprende hasta que se corrija y se finalice la recepción.
 
 ## Alcance de LAN
 

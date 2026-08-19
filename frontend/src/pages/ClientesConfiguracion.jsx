@@ -24,6 +24,7 @@ export default function ClientesConfiguracion() {
   const [visibleName, setVisibleName] = useState('')
   const [selectedCentralFingerprint, setSelectedCentralFingerprint] = useState('')
   const [foundCentral, setFoundCentral] = useState(false)
+  const [validatedLink, setValidatedLink] = useState(null)
   const [generatedCode, setGeneratedCode] = useState('')
   const statusQuery = useQuery({
     queryKey: ['clientes-sync-estado'],
@@ -35,21 +36,24 @@ export default function ClientesConfiguracion() {
     },
   })
   const discover = useMutation({
-    mutationFn: async () => (await api.post('/api/clientes-sync/descubrir', {
-      codigo_vinculo: linkCode.trim(),
-      central_fingerprint: selectedCentralFingerprint,
+    mutationFn: async ({ code, fingerprint }) => (await api.post('/api/clientes-sync/descubrir', {
+      codigo_vinculo: code,
+      central_fingerprint: fingerprint,
     })).data.data,
-    onSuccess: () => setFoundCentral(true),
+    onSuccess: (_data, snapshot) => {
+      setValidatedLink(snapshot)
+      setFoundCentral(true)
+    },
   })
   const generateCode = useMutation({
     mutationFn: async () => (await api.post('/api/clientes-sync/codigo-vinculo')).data.data,
     onSuccess: (data) => setGeneratedCode(data.code),
   })
   const pair = useMutation({
-    mutationFn: async () => (await api.post('/api/clientes-sync/emparejar', {
-      codigo_vinculo: linkCode.trim(),
+    mutationFn: async ({ code, fingerprint }) => (await api.post('/api/clientes-sync/emparejar', {
+      codigo_vinculo: code,
       nombre_sucursal: statusQuery.data?.sucursal?.nombre,
-      central_fingerprint: selectedCentralFingerprint,
+      central_fingerprint: fingerprint,
     })).data.data,
     onSuccess: () => {
       setFoundCentral(false)
@@ -74,6 +78,19 @@ export default function ClientesConfiguracion() {
   const linked = Boolean(status?.centralVinculada)
   const detectedCentrals = status?.centralesDetectadas ?? []
   const selectedCentral = detectedCentrals.find((central) => central.fingerprint === selectedCentralFingerprint)
+  const validatedCentral = detectedCentrals.find((central) => central.fingerprint === validatedLink?.fingerprint)
+  const linkBusy = discover.isPending || pair.isPending
+
+  function resetLinkValidation() {
+    setFoundCentral(false)
+    setValidatedLink(null)
+  }
+
+  function validateSelectedCentral() {
+    const snapshot = { code: linkCode.trim(), fingerprint: selectedCentralFingerprint }
+    resetLinkValidation()
+    discover.mutate(snapshot)
+  }
 
   const currentVisibleName = visibleName || status?.sucursal?.nombre || ''
 
@@ -183,10 +200,10 @@ export default function ClientesConfiguracion() {
                               name="central-detectada"
                               value={central.fingerprint}
                               checked={selectedCentralFingerprint === central.fingerprint}
-                              disabled={discover.isPending}
+                              disabled={linkBusy}
                               onChange={() => {
                                 setSelectedCentralFingerprint(central.fingerprint)
-                                setFoundCentral(false)
+                                resetLinkValidation()
                               }}
                               className="h-4 w-4 shrink-0 accent-primary"
                             />
@@ -207,12 +224,12 @@ export default function ClientesConfiguracion() {
                     </div>
                   )}
                 </section>
-                <label className={labelClass}>2. Pega el código temporal — Código de vínculo<textarea className={`${fieldClass} min-h-24 resize-y font-mono text-xs`} value={linkCode} disabled={discover.isPending} onChange={(event) => { setLinkCode(event.target.value); setFoundCentral(false) }} required /></label>
-                <Button type="button" variant="outline" onClick={() => discover.mutate()} disabled={!selectedCentral || !linkCode.trim() || discover.isPending}><RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${discover.isPending ? 'animate-spin' : ''}`} />Validar código con la Central seleccionada</Button>
+                <label className={labelClass}>2. Pega el código temporal — Código de vínculo<textarea className={`${fieldClass} min-h-24 resize-y font-mono text-xs`} value={linkCode} disabled={linkBusy} onChange={(event) => { setLinkCode(event.target.value); resetLinkValidation() }} required /></label>
+                <Button type="button" variant="outline" onClick={validateSelectedCentral} disabled={!selectedCentral || !linkCode.trim() || linkBusy}><RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${discover.isPending ? 'animate-spin' : ''}`} />Validar código con la Central seleccionada</Button>
                 {foundCentral && (
                   <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                    <p className="flex items-center gap-2 font-black"><CheckCircle2 aria-hidden="true" className="h-5 w-5" />Código temporal e identidad firmada validados para {selectedCentral?.name}</p>
-                    {!linked && <Button type="button" className="mt-3 w-full" onClick={() => pair.mutate()} disabled={pair.isPending}>Autorizar y vincular sucursal</Button>}
+                    <p className="flex items-center gap-2 font-black"><CheckCircle2 aria-hidden="true" className="h-5 w-5" />Código temporal e identidad firmada validados para {validatedCentral?.name || 'la Central seleccionada'}</p>
+                    {!linked && <Button type="button" className="mt-3 w-full" onClick={() => pair.mutate(validatedLink)} disabled={!validatedLink || pair.isPending}>Autorizar y vincular sucursal</Button>}
                   </div>
                 )}
                 {discover.error && <p role="alert" className="text-sm font-bold text-destructive">{errorMessage(discover.error, 'No se encontró una central válida en la LAN.')}</p>}

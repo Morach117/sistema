@@ -189,13 +189,25 @@ test('updates a pending receipt item under the same row lock transaction', async
   assert.deepEqual(events.slice(-2), ['commit', 'release']);
 });
 
+test('does not allow the generic item service to release a rectification hold', async () => {
+  await assert.rejects(
+    () => updateReceptionItem({
+      pool: { getConnection: async () => assert.fail('blocked fields must not open a transaction') },
+      itemId: 8,
+      field: 'revision_pendiente',
+      value: 0,
+      actorId: 1
+    }),
+    (error) => error.statusCode === 422 && /Campo no permitido/.test(error.message)
+  );
+});
+
 for (const scenario of [
   { field: 'clave_final', previousValue: '', nextValue: 'ABC123' },
   { field: 'cantidad', previousValue: 12, nextValue: 14 },
   { field: 'es_paquete', previousValue: 0, nextValue: 1 },
   { field: 'piezas_por_paquete', previousValue: 1, nextValue: 6 },
-  { field: 'aplica_descuento_manual', previousValue: 0, nextValue: 1 },
-  { field: 'revision_pendiente', previousValue: 0, nextValue: 2 }
+  { field: 'aplica_descuento_manual', previousValue: 0, nextValue: 1 }
 ]) {
   test(`audits ${scenario.field} item mutations with old and new values in the same transaction`, async () => {
     const events = [];

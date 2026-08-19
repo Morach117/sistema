@@ -83,6 +83,15 @@ function receptionAdapter(requestedUrls, itemDescription = 'Cuaderno') {
         estado: 'REVISION',
       })
     }
+    if (config.url === '/api/recepciones/catalogo-exacto') {
+      return responseFor(config, {
+        data: {
+          clave_sicar: 'SICAR-PRUEBA',
+          codigo_barras: 'SICAR-PRUEBA',
+          descripcion: itemDescription,
+        },
+      })
+    }
     return responseFor(config, { data: [] })
   }
 }
@@ -143,7 +152,8 @@ describe('cross-module permission boundaries', () => {
     })
 
     expect(requestedUrls.some((url) => url.startsWith('/api/catalogo/'))).toBe(false)
-    expect(screen.getByText(/validación de catálogo no disponible con tus permisos/i)).toBeVisible()
+    expect(requestedUrls).toContain('/api/recepciones/catalogo-exacto')
+    expect(screen.getByText(/SICAR confirmado/i)).toBeVisible()
     expect(sicarInput).toHaveValue('SICAR-PRUEBA')
   })
 })

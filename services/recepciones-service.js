@@ -246,7 +246,7 @@ class ReceptionStateError extends Error {
 const UPDATABLE_ITEM_FIELDS = new Set([
   'existencia_lapiz', 'clave_final', 'es_paquete', 'piezas_por_paquete',
   'costo_unitario', 'aplica_descuento', 'aplica_descuento_manual',
-  'cantidad', 'revision_pendiente'
+  'cantidad'
 ]);
 
 function auditValue(value) {

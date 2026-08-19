@@ -3,23 +3,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDebounce } from 'use-debounce'
 import {
   AlertCircle,
-  Boxes,
   CheckCircle2,
   ClipboardCheck,
   FileSearch,
   FileSpreadsheet,
   Loader2,
-  PackageCheck,
   PackageOpen,
   Save,
-  ShoppingCart,
   Trash2,
   Upload,
   X,
 } from 'lucide-react'
 import Swal from 'sweetalert2'
 import api from '@/lib/api'
-import { canAccess } from '@/auth/permissions'
 import { readSession } from '@/auth/session'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -35,7 +31,6 @@ import {
 import EmptyState from '@/components/ui/EmptyState'
 import LoadingState from '@/components/ui/LoadingState'
 import {
-  buildReceptionSummary,
   calculateCost,
   calculatePresentation,
   displayNumber,
@@ -100,7 +95,7 @@ function downloadResponse(response, fallbackName) {
   URL.revokeObjectURL(blobUrl)
 }
 
-function SicarInput({ item, editor, disabled, canValidateCatalog }) {
+function SicarInput({ item, editor, disabled }) {
   const value = editor.getDraftField(item.id, 'clave_final', item.clave_final || item.clave_sicar || '')
   const sicarInput = useMemo(() => ({ value }), [value])
   const [debouncedSicarInput] = useDebounce(sicarInput, 600)
@@ -117,16 +112,9 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
       setValidating(false)
       return undefined
     }
-    if (!canValidateCatalog) {
-      setDescription('Validación de catálogo no disponible con tus permisos')
-      setSicarStatus('pending')
-      setValidating(false)
-      return undefined
-    }
-
     let alive = true
     setValidating(true)
-    api.get('/api/catalogo/exact', { params: { code: normalizedSicar } })
+    api.get('/api/recepciones/catalogo-exacto', { params: { code: normalizedSicar } })
       .then((response) => {
         if (!alive) return
         const result = response.data?.data
@@ -138,12 +126,12 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
       })
       .catch(() => {
         if (!alive) return
-        setSicarStatus('pending')
-        setDescription('El catálogo no está disponible para validar este código')
+        setSicarStatus('unavailable')
+        setDescription('Código guardado; vuelve a verificar cuando el catálogo esté disponible')
       })
       .finally(() => { if (alive) setValidating(false) })
     return () => { alive = false }
-  }, [canValidateCatalog, debouncedSicarInput, item.desc, item.descripcion_original, normalizedSicar])
+  }, [debouncedSicarInput, item.desc, item.descripcion_original, normalizedSicar])
 
   return (
     <div className="space-y-1">
@@ -193,25 +181,11 @@ function SicarInput({ item, editor, disabled, canValidateCatalog }) {
           ? `SICAR confirmado${description ? ` · ${description}` : ''}`
           : sicarStatus === 'mismatch'
             ? `SICAR no coincide${description ? ` · ${description}` : ''}`
-            : `SICAR pendiente${description ? ` · ${description}` : ''}`}
+            : sicarStatus === 'unavailable'
+              ? `Validación SICAR pendiente${description ? ` · ${description}` : ''}`
+              : `SICAR pendiente${description ? ` · ${description}` : ''}`}
       </p>
     </div>
-  )
-}
-
-function SummaryCard({ label, value, icon: Icon, tone = 'text-primary' }) {
-  return (
-    <Card className="border-border bg-card/80 p-3 shadow-sm">
-      <div className="flex items-center gap-3">
-        <span className={`flex h-9 w-9 items-center justify-center rounded-lg bg-secondary ${tone}`}>
-          <Icon aria-hidden="true" className="h-4 w-4" />
-        </span>
-        <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">{label}</p>
-          <p className="truncate text-lg font-black">{value}</p>
-        </div>
-      </div>
-    </Card>
   )
 }
 
@@ -283,7 +257,6 @@ function PreviewSummary({ entry }) {
 export default function Recepciones() {
   const queryClient = useQueryClient()
   const sessionUser = readSession()?.user
-  const canValidateCatalog = canAccess(sessionUser, 'catalogo')
   const canManageNotes = sessionUser?.rol === 'admin'
   const [selectedRemision, setSelectedRemision] = useState(null)
   const [selectedProvider, setSelectedProvider] = useState('custom')
@@ -357,15 +330,18 @@ export default function Recepciones() {
   const blockingIssues = issues.filter((issue) => issue.severity === 'error')
   const reviewIssues = issues.filter((issue) => issue.severity !== 'error')
   const validationBlocksFinalize = blockingIssues.length > 0
-  const summary = useMemo(() => buildReceptionSummary(items, {
-    proveedor: remisionDetails?.proveedor,
-    porcentaje: DISCOUNT_PERCENT,
-  }), [items, remisionDetails?.proveedor])
-
   const deleteMutation = useMutation({
     mutationFn: (id) => api.delete(`/api/recepciones/item/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['recepciones_detail', selectedRemision] }),
     onError: (error) => Swal.fire('Error', error.response?.data?.error || 'Fallo al eliminar', 'error'),
+  })
+  const rectificationMutation = useMutation({
+    mutationFn: (id) => api.post('/api/recepciones/enviar-a-rectificar', { id_item: id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recepciones_detail', selectedRemision] })
+      queryClient.invalidateQueries({ queryKey: ['recepciones_list'] })
+    },
+    onError: (error) => Swal.fire('Error', error.response?.data?.error || 'No se pudo mandar el artículo a contar', 'error'),
   })
   const finalizeMutation = useMutation({
     mutationFn: (numeroRemision) => api.post('/api/recepciones/finalizar', { remision_id: numeroRemision }),
@@ -456,6 +432,19 @@ export default function Recepciones() {
     })
     if (!result.isConfirmed) return
     editor.runTrackedOperation(`delete:${id}`, () => deleteMutation.mutateAsync(id)).catch(() => undefined)
+  }
+
+  const handleSendToCount = async (id, description) => {
+    const result = await Swal.fire({
+      title: '¿Mandar a contar?',
+      text: `${description}\n\nAparecerá en Rectificación y re-conteo hasta que se acepte su corrección.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, mandar a contar',
+      cancelButtonText: 'Cancelar',
+    })
+    if (!result.isConfirmed) return
+    editor.runTrackedOperation(`rectify:${id}`, () => rectificationMutation.mutateAsync(id)).catch(() => undefined)
   }
 
   const handleFinalize = async () => {
@@ -616,15 +605,6 @@ export default function Recepciones() {
                 )}
               </Card>
 
-              <section aria-label="Resumen de recepción" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-                <SummaryCard label="Artículos" value={summary.productos} icon={ShoppingCart} />
-                <SummaryCard label="Cajas" value={displayNumber(summary.cajas)} icon={Boxes} />
-                <SummaryCard label="Piezas" value={displayNumber(summary.piezas)} icon={PackageCheck} />
-                <SummaryCard label="Costo" value={formatMoney(summary.costoTotal)} icon={FileSpreadsheet} />
-                <SummaryCard label="Revisión" value={summary.articulosRevision} icon={ClipboardCheck} tone="text-amber-500" />
-                <SummaryCard label="Errores" value={summary.errores} icon={AlertCircle} tone={summary.errores ? 'text-destructive' : 'text-emerald-500'} />
-              </section>
-
               <section aria-label="Revisión antes de finalizar" className={`rounded-xl border p-4 ${blockingIssues.length ? 'border-destructive/40 bg-destructive/10' : 'border-emerald-500/30 bg-emerald-500/10'}`}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -703,7 +683,7 @@ export default function Recepciones() {
                             <h3 className="line-clamp-2 text-base font-black" title={item.desc}>{item.desc}</h3>
                             <p className="mt-1 text-xs font-bold text-muted-foreground">Artículo #{item.id} · proveedor {item.cod_prov || 'sin código'}</p>
                           </div>
-                          <SicarInput item={item} editor={editor} disabled={finalised} canValidateCatalog={canValidateCatalog} />
+                          <SicarInput item={item} editor={editor} disabled={finalised} />
                         </section>
 
                         <section role="group" aria-label={`Físico y caja de ${item.desc}`} className="min-w-0 space-y-3 rounded-xl border border-border bg-background/40 p-3">
@@ -740,7 +720,7 @@ export default function Recepciones() {
                         <section role="group" aria-label={`Decisión y precios de ${item.desc}`} className="min-w-0 space-y-3 rounded-xl border border-border bg-background/40 p-3">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Decisión / Precios</h3>
-                            {rejected && <span className="rounded-full bg-destructive px-2 py-1 text-[9px] font-black uppercase text-destructive-foreground">En reclamación</span>}
+                            {rejected && <span className="rounded-full bg-destructive px-2 py-1 text-[9px] font-black uppercase text-destructive-foreground">En rectificación</span>}
                             {missing && !rejected && <span className="rounded-full bg-amber-500/15 px-2 py-1 text-[9px] font-black uppercase text-amber-700 dark:text-amber-300">Faltante</span>}
                           </div>
                           <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
@@ -785,6 +765,18 @@ export default function Recepciones() {
                           <p className={`rounded-lg px-3 py-2 text-center text-xs font-black ${comparison.gananciaActual >= 0 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-destructive/10 text-destructive'}`}>
                             Ganancia real {formatMoney(comparison.gananciaActual)} · {displayNumber(comparison.margenActual)}%
                           </p>
+                          {!finalised && !rejected && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              aria-label={`Mandar a contar ${item.desc}`}
+                              disabled={editor.hasPending || rectificationMutation.isPending}
+                              onClick={() => handleSendToCount(item.id, item.desc)}
+                              className="min-h-11 w-full gap-2 whitespace-normal border-amber-500/50 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300"
+                            >
+                              <ClipboardCheck aria-hidden="true" className="h-4 w-4 shrink-0" /> Mandar a contar
+                            </Button>
+                          )}
                           {!finalised && (
                             <Button
                               type="button"

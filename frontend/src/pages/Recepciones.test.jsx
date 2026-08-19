@@ -176,6 +176,22 @@ describe('Recepciones presentation and cost review', () => {
     expect(within(deleteButton).queryByText(/eliminar artículo/i)).not.toBeInTheDocument()
   })
 
+  it('removes the six summary cards and sends an article to the rectification queue', async () => {
+    const requests = []
+    renderPage(createAdapter({ requests }))
+    await openReception()
+
+    expect(screen.queryByRole('region', { name: /resumen de recepción/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /mandar a contar Cuaderno caja/i }))
+
+    await waitFor(() => {
+      const request = requests.find((entry) => entry.url === '/api/recepciones/enviar-a-rectificar')
+      expect(request).toBeTruthy()
+      expect(JSON.parse(request.data)).toEqual({ id_item: 11 })
+    })
+  })
+
   it('uses a readable four-zone matrix in the 690px capture area left at a 1366px viewport', async () => {
     let resizeCallback
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1366 })
@@ -260,11 +276,7 @@ describe('Recepciones presentation and cost review', () => {
     expect(screen.getByText('Costo neto $47.50')).toBeVisible()
     expect(screen.queryByText(/excepción manual/i)).not.toBeInTheDocument()
 
-    const summary = screen.getByRole('region', { name: /resumen de recepción/i })
-    expect(within(summary).getByText('2')).toBeVisible()
-    expect(within(summary).getByText('10')).toBeVisible()
-    expect(within(summary).getByText('5')).toBeVisible()
-    expect(within(summary).getByText('$142.50')).toBeVisible()
+    expect(screen.queryByRole('region', { name: /resumen de recepción/i })).not.toBeInTheDocument()
     expect(screen.getByText(/paola aplica 5% a todos los artículos/i)).toBeVisible()
     expect(screen.queryByRole('spinbutton', { name: /dto/i })).not.toBeInTheDocument()
   })

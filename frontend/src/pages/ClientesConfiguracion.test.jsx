@@ -190,6 +190,40 @@ describe('ClientesConfiguracion first use', () => {
     releaseDiscovery(statusAdapter(status)({ url: '/api/clientes-sync/descubrir', method: 'post' }))
   })
 
+  it('keeps the validated Central and code immutable while pairing is pending', async () => {
+    let releasePair
+    const pendingPair = new Promise((resolve) => { releasePair = resolve })
+    const status = {
+      configuracionRequerida: false,
+      sucursal: { nombre: 'Sucursal Centro', rol: 'sucursal' },
+      centralVinculada: false,
+      pendientes: 0,
+      conflictos: 0,
+      centralesDetectadas: [{
+        name: 'Central Matriz',
+        fingerprint: 'central-matriz-fingerprint',
+        seenAt: '2026-08-18T12:00:00.000Z',
+      }],
+    }
+    renderPage(async (config) => {
+      if (config.url === '/api/clientes-sync/emparejar') return pendingPair
+      return statusAdapter(status)(config)
+    })
+
+    const central = await screen.findByRole('radio', { name: /Central Matriz.*pendiente de autorización/i })
+    const code = screen.getByRole('textbox', { name: /código de vínculo/i })
+    fireEvent.click(central)
+    fireEvent.change(code, { target: { value: 'signed-link-code' } })
+    fireEvent.click(screen.getByRole('button', { name: /validar código/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /vincular sucursal/i }))
+
+    await waitFor(() => {
+      expect(central).toBeDisabled()
+      expect(code).toBeDisabled()
+    })
+    releasePair(statusAdapter(status)({ url: '/api/clientes-sync/emparejar', method: 'post' }))
+  })
+
   it('shows a first-use Central or Sucursal choice when setup is required', async () => {
     renderPage(statusAdapter({ configuracionRequerida: true, sucursal: null }))
 

@@ -83,7 +83,7 @@ describe('Recepciones dialogs', () => {
           },
         })
       }
-      if (url === '/api/catalogo/exact') {
+      if (url === '/api/recepciones/catalogo-exacto') {
         return Promise.resolve({
           data: {
             data: { clave_sicar: '7502269634659', descripcion: 'ABACO PLAST CH BOLSA JOCAR' },
@@ -105,7 +105,7 @@ describe('Recepciones dialogs', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/guardado/i))
     expect(screen.getByRole('heading', { name: /Orden #REM-7/i })).toBeVisible()
     expect(await screen.findByText(/SICAR confirmado/i)).toHaveTextContent(/ABACO PLAST CH BOLSA JOCAR/i)
-    const catalogRequest = api.get.mock.calls.find(([url]) => url === '/api/catalogo/exact')
+    const catalogRequest = api.get.mock.calls.find(([url]) => url === '/api/recepciones/catalogo-exacto')
     expect(catalogRequest[1].params).toEqual({ code: '7502269634659' })
   })
 
@@ -137,7 +137,7 @@ describe('Recepciones dialogs', () => {
           },
         })
       }
-      if (url === '/api/catalogo/exact') {
+      if (url === '/api/recepciones/catalogo-exacto') {
         return Promise.resolve({
           data: {
             data: { clave_sicar: '7502269634659', descripcion: 'ABACO PLAST CH BOLSA JOCAR' },
@@ -161,7 +161,7 @@ describe('Recepciones dialogs', () => {
       '/api/recepciones/actualizar_campo',
       { id_item: 11, campo: 'clave_final', valor: '  7502269634659  ' },
     ))
-    const catalogRequests = api.get.mock.calls.filter(([url]) => url === '/api/catalogo/exact')
+    const catalogRequests = api.get.mock.calls.filter(([url]) => url === '/api/recepciones/catalogo-exacto')
     expect(catalogRequests.at(-1)[1].params).toEqual({ code: '7502269634659' })
 
     fireEvent.change(input, { target: { value: '7502269634659' } })
@@ -199,7 +199,7 @@ describe('Recepciones dialogs', () => {
           },
         })
       }
-      if (url === '/api/catalogo/exact') {
+      if (url === '/api/recepciones/catalogo-exacto') {
         const matches = config?.params?.code === '7502269634659'
         return Promise.resolve({ data: { data: { clave_sicar: matches ? '7502269634659' : 'OTRO-CODIGO', descripcion: 'ABACO PLAST CH BOLSA JOCAR' } } })
       }
@@ -226,7 +226,7 @@ describe('Recepciones dialogs', () => {
           clave_final: '', clave_sicar: '', existencia_lapiz: 1, es_paquete: 0, piezas_por_paquete: 1, revision_pendiente: 0,
         }] } },
       })
-      if (url === '/api/catalogo/exact') return Promise.resolve({ data: { data: { clave_sicar: '7502269634659', descripcion: 'LÁPIZ ROJO 12 PIEZAS' } } })
+      if (url === '/api/recepciones/catalogo-exacto') return Promise.resolve({ data: { data: { clave_sicar: '7502269634659', descripcion: 'LÁPIZ ROJO 12 PIEZAS' } } })
       return Promise.resolve({ data: { data: [] } })
     })
     api.post.mockResolvedValue({ data: { ok: true } })
@@ -238,7 +238,7 @@ describe('Recepciones dialogs', () => {
     expect(await screen.findByText(/SICAR no coincide/i)).toBeVisible()
   })
 
-  it('keeps SICAR pending and explains catalog unavailability when lookup fails', async () => {
+  it('keeps the SICAR code and shows validation pending when the reception lookup is temporarily unavailable', async () => {
     api.get.mockImplementation((url) => {
       if (url === '/api/recepciones') {
         return Promise.resolve({ data: { data: [{ id: 7, numero_remision: 'REM-7', proveedor: 'PAOLA', estado: 'PENDIENTE', items: 1 }] } })
@@ -266,7 +266,7 @@ describe('Recepciones dialogs', () => {
           },
         })
       }
-      if (url === '/api/catalogo/exact') return Promise.reject(new Error('Catálogo no disponible'))
+      if (url === '/api/recepciones/catalogo-exacto') return Promise.reject(new Error('Catálogo no disponible'))
       return Promise.resolve({ data: { data: [] } })
     })
     api.post.mockResolvedValue({ data: { ok: true } })
@@ -275,7 +275,8 @@ describe('Recepciones dialogs', () => {
     fireEvent.click(await screen.findByRole('button', { name: /REM-7/i }))
     fireEvent.change(await screen.findByLabelText(/SICAR de artículo ABACO/i), { target: { value: '7502269634659' } })
 
-    expect(await screen.findByText(/SICAR pendiente.*catálogo no está disponible/i)).toBeVisible()
+    expect(await screen.findByText(/Validación SICAR pendiente/i)).toBeVisible()
+    expect(screen.getByLabelText(/SICAR de artículo ABACO/i)).toHaveValue('7502269634659')
     expect(screen.queryByText(/SICAR no coincide/i)).not.toBeInTheDocument()
   })
 })
