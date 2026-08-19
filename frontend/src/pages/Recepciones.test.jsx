@@ -20,6 +20,10 @@ function user(permisos = ['recepciones']) {
   return { id: 1, usuario: 'admin', nombre: 'Administrador', rol: 'admin', permisos }
 }
 
+function employee(permisos = ['recepciones']) {
+  return { id: 2, usuario: 'capturista', nombre: 'Capturista', rol: 'empleado', permisos }
+}
+
 function item(overrides = {}) {
   return {
     id: 11,
@@ -44,7 +48,7 @@ function item(overrides = {}) {
   }
 }
 
-function createAdapter({ detailsItems = [item()], requests = [], preview, uploadResponse, failFieldSave = false } = {}) {
+function createAdapter({ detailsItems = [item()], requests = [], preview, uploadResponse, failFieldSave = false, catalogResult } = {}) {
   return async (config) => {
     requests.push(config)
     if (config.url === '/api/recepciones' && config.method === 'get') {
@@ -79,6 +83,9 @@ function createAdapter({ detailsItems = [item()], requests = [], preview, upload
     if (config.url === '/api/recepciones/upload') {
       return responseFor(config, uploadResponse || { success: true, mensaje: 'Archivos procesados' })
     }
+    if (config.url === '/api/recepciones/catalogo-exacto') {
+      return responseFor(config, { data: catalogResult || null })
+    }
     const fieldPayload = config.url === '/api/recepciones/actualizar_campo' ? JSON.parse(config.data) : null
     if (config.url === '/api/recepciones/actualizar_campo' && (typeof failFieldSave === 'function' ? failFieldSave(fieldPayload) : failFieldSave)) {
       const error = new Error('No se pudo guardar')
@@ -98,8 +105,8 @@ function createAdapter({ detailsItems = [item()], requests = [], preview, upload
   }
 }
 
-function renderPage(adapter, permissions = ['recepciones']) {
-  saveSession({ token: 'signed-token', user: user(permissions) })
+function renderPage(adapter, permissions = ['recepciones'], sessionUser = user(permissions)) {
+  saveSession({ token: 'signed-token', user: sessionUser })
   api.defaults.adapter = adapter
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -134,6 +141,39 @@ afterEach(() => {
 })
 
 describe('Recepciones presentation and cost review', () => {
+  it('keeps employee capture limited to product, quantity, physical count, and box configuration', async () => {
+    const requests = []
+    renderPage(createAdapter({ requests }), ['recepciones'], employee())
+    await openReception()
+
+    expect(screen.getByLabelText('FACTURA Cuaderno caja')).toBeVisible()
+    expect(screen.getByLabelText('FÍSICO Cuaderno caja')).toBeVisible()
+    expect(screen.getByLabelText('Piezas por caja Cuaderno caja')).toBeVisible()
+    expect(screen.queryByRole('group', { name: /decisión y precios/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/precio compra|ganancia real|sugerido 20/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /mandar a contar|finalizar|excel|eliminar|subir XML/i })).not.toBeInTheDocument()
+
+    const quantity = screen.getByLabelText('FACTURA Cuaderno caja')
+    fireEvent.change(quantity, { target: { value: '92' } })
+    fireEvent.blur(quantity)
+    await waitFor(() => {
+      const save = requests.find((entry) => entry.url === '/api/recepciones/actualizar_campo')
+      expect(JSON.parse(save.data)).toEqual({ id_item: 11, campo: 'cantidad', valor: '92' })
+    })
+  })
+
+  it('states which catalog product belongs to a SICAR code without calling it a mismatch', async () => {
+    renderPage(createAdapter({ detailsItems: [item({ clave_final: '106', clave_sicar: '106' })], catalogResult: {
+      clave_sicar: '106',
+      codigo_barras: '106',
+      descripcion: 'Folder Flashfile T/C Colores',
+    } }))
+    await openReception()
+
+    await waitFor(() => expect(screen.getByText('El código 106 pertenece a: Folder Flashfile T/C Colores')).toBeVisible())
+    expect(screen.queryByText(/SICAR no coincide/i)).not.toBeInTheDocument()
+  })
+
   it('shows the four direct-capture zones with read-only price references and automatic-only gain', async () => {
     renderPage(createAdapter({
       detailsItems: [item({

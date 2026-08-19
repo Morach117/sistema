@@ -120,9 +120,17 @@ function SicarInput({ item, editor, disabled }) {
         const result = response.data?.data
         const codeMatches = result && [result.clave_sicar, result.codigo_barras]
           .some((code) => String(code || '').toUpperCase() === normalizedSicar.toUpperCase())
-        const matches = codeMatches && catalogDescriptionMatches(item.desc || item.descripcion_original, result.descripcion)
-        setSicarStatus(matches ? 'confirmed' : 'mismatch')
-        setDescription(matches ? result.descripcion : result?.descripcion ? `El código corresponde a: ${result.descripcion}` : 'El código no coincide con el catálogo')
+        const matches = codeMatches && catalogDescriptionMatches(item.desc || item.descripcion_original, result?.descripcion)
+        if (matches) {
+          setSicarStatus('confirmed')
+          setDescription(result.descripcion)
+        } else if (result?.descripcion) {
+          setSicarStatus('belongs')
+          setDescription(`El código ${normalizedSicar} pertenece a: ${result.descripcion}`)
+        } else {
+          setSicarStatus('not-found')
+          setDescription('No encontramos este código en el catálogo')
+        }
       })
       .catch(() => {
         if (!alive) return
@@ -176,11 +184,11 @@ function SicarInput({ item, editor, disabled }) {
           </button>
         )}
       </div>
-      <p aria-live="polite" className={`text-[10px] font-bold ${sicarStatus === 'confirmed' ? 'text-emerald-600 dark:text-emerald-400' : sicarStatus === 'mismatch' ? 'text-destructive' : 'text-muted-foreground'}`}>
+      <p aria-live="polite" className={`text-[10px] font-bold ${sicarStatus === 'confirmed' ? 'text-emerald-600 dark:text-emerald-400' : sicarStatus === 'belongs' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground'}`}>
         {sicarStatus === 'confirmed'
           ? `SICAR confirmado${description ? ` · ${description}` : ''}`
-          : sicarStatus === 'mismatch'
-            ? `SICAR no coincide${description ? ` · ${description}` : ''}`
+          : sicarStatus === 'belongs'
+            ? description
             : sicarStatus === 'unavailable'
               ? `Validación SICAR pendiente${description ? ` · ${description}` : ''}`
               : `SICAR pendiente${description ? ` · ${description}` : ''}`}
@@ -189,20 +197,20 @@ function SicarInput({ item, editor, disabled }) {
   )
 }
 
-function captureLayout(width) {
-  if (width >= 960) return { name: 'columns', count: 4 }
+function captureLayout(width, zones = 4) {
+  if (width >= 960) return { name: 'columns', count: zones }
   if (width >= 560) return { name: 'matrix', count: 2 }
   return { name: 'stack', count: 1 }
 }
 
-function CaptureZoneGrid({ description, children }) {
+function CaptureZoneGrid({ description, zones = 4, children }) {
   const gridRef = useRef(null)
-  const [layout, setLayout] = useState(() => captureLayout(0))
+  const [layout, setLayout] = useState(() => captureLayout(0, zones))
 
   useEffect(() => {
     const grid = gridRef.current
     if (!grid) return undefined
-    const updateWidth = (width) => setLayout(captureLayout(width))
+    const updateWidth = (width) => setLayout(captureLayout(width, zones))
     updateWidth(grid.getBoundingClientRect().width)
     if (typeof ResizeObserver !== 'function') return undefined
     const observer = new ResizeObserver((entries) => {
@@ -211,7 +219,7 @@ function CaptureZoneGrid({ description, children }) {
     })
     observer.observe(grid)
     return () => observer.disconnect()
-  }, [])
+  }, [zones])
 
   return (
     <div
@@ -257,7 +265,8 @@ function PreviewSummary({ entry }) {
 export default function Recepciones() {
   const queryClient = useQueryClient()
   const sessionUser = readSession()?.user
-  const canManageNotes = sessionUser?.rol === 'admin'
+  const isReceptionAdmin = sessionUser?.rol === 'admin'
+  const canManageNotes = isReceptionAdmin
   const [selectedRemision, setSelectedRemision] = useState(null)
   const [selectedProvider, setSelectedProvider] = useState('custom')
   const [includePhysical, setIncludePhysical] = useState(false)
@@ -510,11 +519,13 @@ export default function Recepciones() {
               <h2 className="text-xl font-black tracking-tight">Tareas</h2>
               <p className="text-[10px] font-black uppercase tracking-widest text-primary">Recepción activa</p>
             </div>
-            <DialogTrigger asChild>
-              <Button size="sm" className="min-h-11 gap-2 font-black">
-                <Upload aria-hidden="true" className="h-4 w-4" /> Subir XML
-              </Button>
-            </DialogTrigger>
+            {isReceptionAdmin && (
+              <DialogTrigger asChild>
+                <Button size="sm" className="min-h-11 gap-2 font-black">
+                  <Upload aria-hidden="true" className="h-4 w-4" /> Subir XML
+                </Button>
+              </DialogTrigger>
+            )}
           </div>
 
           <div className="custom-scrollbar flex gap-3 overflow-x-auto pb-2 xl:flex-1 xl:flex-col xl:overflow-y-auto">
@@ -559,7 +570,7 @@ export default function Recepciones() {
                     <h1 className="text-2xl font-black tracking-tight">Orden #{remisionCode}</h1>
                     <p className="mt-1 text-xs font-bold text-muted-foreground">Factura y conteo físico se conservan como valores distintos.</p>
                   </div>
-                  <div className="flex flex-wrap items-end gap-3">
+                  {isReceptionAdmin && <div className="flex flex-wrap items-end gap-3">
                     <div>
                       <label htmlFor="reception-provider" className="mb-1 block text-[10px] font-black uppercase tracking-wider text-muted-foreground">PROV</label>
                       <select
@@ -595,7 +606,7 @@ export default function Recepciones() {
                         </Button>
                       </>
                     )}
-                  </div>
+                  </div>}
                 </div>
                 {editor.saveState !== 'idle' && (
                   <p role="status" aria-live="polite" className={`mt-3 flex items-center gap-2 text-xs font-bold ${editor.saveState === 'error' ? 'text-destructive' : editor.saveState === 'saved' ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
@@ -605,7 +616,7 @@ export default function Recepciones() {
                 )}
               </Card>
 
-              <section aria-label="Revisión antes de finalizar" className={`rounded-xl border p-4 ${blockingIssues.length ? 'border-destructive/40 bg-destructive/10' : 'border-emerald-500/30 bg-emerald-500/10'}`}>
+              {isReceptionAdmin && <section aria-label="Revisión antes de finalizar" className={`rounded-xl border p-4 ${blockingIssues.length ? 'border-destructive/40 bg-destructive/10' : 'border-emerald-500/30 bg-emerald-500/10'}`}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                   {blockingIssues.length ? <AlertCircle aria-hidden="true" className="h-5 w-5 text-destructive" /> : <CheckCircle2 aria-hidden="true" className="h-5 w-5 text-emerald-500" />}
@@ -627,7 +638,7 @@ export default function Recepciones() {
                     {(showAllIssues ? blockingIssues : blockingIssues.slice(0, 3)).map((issue) => <li key={`${issue.itemId}-${issue.code}`}>{issue.message}</li>)}
                   </ul>
                 )}
-              </section>
+              </section>}
 
               <div className="space-y-4">
                 {items.map((item) => {
@@ -640,26 +651,30 @@ export default function Recepciones() {
                     presentation = null
                     difference = null
                   }
-                  const cost = calculateCost(item, { proveedor: remisionDetails.proveedor, porcentaje: DISCOUNT_PERCENT })
+                  const cost = isReceptionAdmin ? calculateCost(item, { proveedor: remisionDetails.proveedor, porcentaje: DISCOUNT_PERCENT }) : null
                   const rejected = Number(item.revision_pendiente) === 2
                   const missing = String(item.clave_final || item.clave_sicar || '').trim().toUpperCase() === 'FALTANTE'
-                  const discountLabel = cost.descuento.aplica
+                  const discountLabel = isReceptionAdmin
+                    ? (cost.descuento.aplica
                       ? `Descuento automático ${displayNumber(cost.descuento.porcentaje)}%: ${cost.descuento.origen === 'xml' ? 'según XML' : 'según proveedor'}`
-                      : `Sin descuento automático: ${cost.descuento.origen === 'xml' ? 'XML sin descuento' : 'proveedor sin descuento'}`
-                  const ivaLabel = Number(item.costo_incluye_iva) === 1
-                    ? `IVA incluido ${displayNumber((Number(item.iva_tasa) || 0.16) * 100)}%`
-                    : Number(item.aplica_iva) === 1
-                      ? `IVA ${displayNumber((Number(item.iva_tasa) || 0.16) * 100)}% agregado`
-                      : 'Sin IVA'
-                  const comparison = priceComparison({
+                      : `Sin descuento automático: ${cost.descuento.origen === 'xml' ? 'XML sin descuento' : 'proveedor sin descuento'}`)
+                    : ''
+                  const ivaLabel = isReceptionAdmin
+                    ? (Number(item.costo_incluye_iva) === 1
+                      ? `IVA incluido ${displayNumber((Number(item.iva_tasa) || 0.16) * 100)}%`
+                      : Number(item.aplica_iva) === 1
+                        ? `IVA ${displayNumber((Number(item.iva_tasa) || 0.16) * 100)}% agregado`
+                        : 'Sin IVA')
+                    : ''
+                  const comparison = isReceptionAdmin ? priceComparison({
                     ...item,
                     precioVenta: item.precio_venta_sistema ?? item.precioVenta,
-                  }, cost.costoFinal)
+                  }, cost.costoFinal) : null
                   const unit = presentation?.esPaquete ? 'cajas' : 'piezas'
                   const differenceSign = difference?.diferencia > 0 ? '+' : ''
                   return (
                     <article key={item.id} aria-label={`Captura de ${item.desc}`} className={`overflow-hidden rounded-2xl border shadow-sm ${rejected ? 'border-destructive/40 bg-destructive/5' : missing ? 'border-amber-500/40 bg-amber-500/5' : 'border-border bg-card/90'}`}>
-                      <CaptureZoneGrid description={item.desc}>
+                      <CaptureZoneGrid description={item.desc} zones={isReceptionAdmin ? 4 : 3}>
                         <section role="group" aria-label={`Factura de ${item.desc}`} className="min-w-0 space-y-3 rounded-xl border border-border bg-background/40 p-3">
                           <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Factura</h3>
                           <label className="block text-xs font-black text-muted-foreground">
@@ -717,7 +732,7 @@ export default function Recepciones() {
                           ) : <p className="text-xs font-bold text-destructive">La configuración de caja no es válida.</p>}
                         </section>
 
-                        <section role="group" aria-label={`Decisión y precios de ${item.desc}`} className="min-w-0 space-y-3 rounded-xl border border-border bg-background/40 p-3">
+                        {isReceptionAdmin && <section role="group" aria-label={`Decisión y precios de ${item.desc}`} className="min-w-0 space-y-3 rounded-xl border border-border bg-background/40 p-3">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Decisión / Precios</h3>
                             {rejected && <span className="rounded-full bg-destructive px-2 py-1 text-[9px] font-black uppercase text-destructive-foreground">En rectificación</span>}
@@ -790,7 +805,7 @@ export default function Recepciones() {
                               <Trash2 aria-hidden="true" className="h-4 w-4" />
                             </Button>
                           )}
-                        </section>
+                        </section>}
                       </CaptureZoneGrid>
                     </article>
                   )

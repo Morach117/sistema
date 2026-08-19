@@ -15,6 +15,10 @@ function employee(permisos) {
   return { id: 7, usuario: 'empleado', nombre: 'Empleado', rol: 'empleado', permisos }
 }
 
+function admin(permisos = ['recepciones']) {
+  return { id: 1, usuario: 'admin', nombre: 'Administrador', rol: 'admin', permisos }
+}
+
 function responseFor(config, data = {}) {
   return {
     data,
@@ -162,7 +166,7 @@ describe('Recepciones untrusted text', () => {
   it('renders an item description as inert confirmation text instead of SweetAlert HTML', async () => {
     const requestedUrls = []
     const untrustedDescription = '<img src=x onerror="window.__xss=1">Producto externo'
-    saveSession({ token: 'signed-token', user: employee(['recepciones']) })
+    saveSession({ token: 'signed-token', user: admin() })
     renderPage(<Recepciones />, receptionAdapter(requestedUrls, untrustedDescription))
 
     fireEvent.click(await screen.findByRole('button', { name: /REM-3/i }))
@@ -180,7 +184,7 @@ describe('Recepciones pending saves', () => {
   it('disables finalization and export until the confirmed field write settles', async () => {
     const requestedUrls = []
     const saveRequest = deferred()
-    saveSession({ token: 'signed-token', user: employee(['recepciones']) })
+    saveSession({ token: 'signed-token', user: admin() })
     const adapter = receptionAdapter(requestedUrls)
     renderPage(<Recepciones />, async (config) => {
       if (config.url === '/api/recepciones/actualizar_campo') {
@@ -219,7 +223,7 @@ describe('Recepciones pending saves', () => {
   it('blocks export and explains the unsaved change after a field write fails', async () => {
     const requestedUrls = []
     const alertSpy = vi.spyOn(Swal, 'fire').mockResolvedValue({ isConfirmed: false })
-    saveSession({ token: 'signed-token', user: employee(['recepciones']) })
+    saveSession({ token: 'signed-token', user: admin() })
     const adapter = receptionAdapter(requestedUrls)
     renderPage(<Recepciones />, async (config) => {
       if (config.url === '/api/recepciones/actualizar_campo') {
@@ -250,7 +254,7 @@ describe('Recepciones pending saves', () => {
   it('keeps finalization disabled until a provider change settles', async () => {
     const requestedUrls = []
     const providerRequest = deferred()
-    saveSession({ token: 'signed-token', user: employee(['recepciones']) })
+    saveSession({ token: 'signed-token', user: admin() })
     const adapter = receptionAdapter(requestedUrls)
     renderPage(<Recepciones />, async (config) => {
       if (config.url === '/api/recepciones/asignar_proveedor') {
@@ -281,7 +285,7 @@ describe('Recepciones pending saves', () => {
     vi.spyOn(Swal, 'fire').mockImplementation((options) => Promise.resolve({
       isConfirmed: options?.title === '¿Eliminar ítem?',
     }))
-    saveSession({ token: 'signed-token', user: employee(['recepciones']) })
+    saveSession({ token: 'signed-token', user: admin() })
     const adapter = receptionAdapter(requestedUrls)
     renderPage(<Recepciones />, async (config) => {
       if (config.url === '/api/recepciones/item/9' && config.method === 'delete') {

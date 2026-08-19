@@ -36,13 +36,7 @@ function renderReceptionPage() {
 describe('Recepciones dialogs', () => {
   it('uses its controlled upload trigger and restores focus after Escape', async () => {
     api.get.mockResolvedValue({ data: { data: [] } })
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <Recepciones />
-      </QueryClientProvider>,
-    )
+    renderReceptionPage()
 
     const trigger = await screen.findByRole('button', { name: /subir xml/i })
     expect(trigger).toHaveAttribute('aria-haspopup', 'dialog')
@@ -171,7 +165,7 @@ describe('Recepciones dialogs', () => {
     expect(await screen.findByText(/SICAR confirmado/i)).toBeVisible()
   })
 
-  it('returns a previously confirmed SICAR to pending and then mismatch when its catalog code changes', async () => {
+  it('returns a previously confirmed SICAR to pending and identifies the catalog product when its code changes', async () => {
     api.get.mockImplementation((url, config) => {
       if (url === '/api/recepciones') {
         return Promise.resolve({ data: { data: [{ id: 7, numero_remision: 'REM-7', proveedor: 'PAOLA', estado: 'PENDIENTE', items: 1 }] } })
@@ -214,10 +208,10 @@ describe('Recepciones dialogs', () => {
     fireEvent.change(screen.getByLabelText(/SICAR de artículo ABACO/i), { target: { value: 'NO-COINCIDE' } })
 
     expect(screen.getByText(/SICAR pendiente/i)).toBeVisible()
-    expect(await screen.findByText(/SICAR no coincide/i)).toBeVisible()
+    expect(await screen.findByText('El código NO-COINCIDE pertenece a: ABACO PLAST CH BOLSA JOCAR')).toBeVisible()
   })
 
-  it('does not confirm a catalog code when its product description belongs to another article', async () => {
+  it('identifies the catalog product when its description belongs to another article', async () => {
     api.get.mockImplementation((url) => {
       if (url === '/api/recepciones') return Promise.resolve({ data: { data: [{ id: 7, numero_remision: 'REM-7', proveedor: 'PAOLA', estado: 'PENDIENTE', items: 1 }] } })
       if (url === '/api/recepciones/7') return Promise.resolve({
@@ -235,7 +229,7 @@ describe('Recepciones dialogs', () => {
     fireEvent.click(await screen.findByRole('button', { name: /REM-7/i }))
     fireEvent.change(await screen.findByLabelText(/SICAR de artículo ABACO/i), { target: { value: '7502269634659' } })
 
-    expect(await screen.findByText(/SICAR no coincide/i)).toBeVisible()
+    expect(await screen.findByText('El código 7502269634659 pertenece a: LÁPIZ ROJO 12 PIEZAS')).toBeVisible()
   })
 
   it('keeps the SICAR code and shows validation pending when the reception lookup is temporarily unavailable', async () => {
