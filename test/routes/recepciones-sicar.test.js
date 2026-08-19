@@ -11,8 +11,8 @@ process.env.JWT_SECRET = jwtSecret;
 const database = require('../../config/database');
 const recepcionesRouter = require('../../routes/recepciones');
 
-function authToken() {
-  return jwt.sign({ id: 17, rol: 'empleado', permisos: ['recepciones'] }, jwtSecret);
+function authToken({ rol = 'empleado' } = {}) {
+  return jwt.sign({ id: 17, rol, permisos: ['recepciones'] }, jwtSecret);
 }
 
 function buildApp() {
@@ -72,7 +72,7 @@ test('reception users can send a pending item to rectification and create an aud
   try {
     const response = await request(buildApp())
       .post('/api/recepciones/enviar-a-rectificar')
-      .set('Authorization', `Bearer ${authToken()}`)
+      .set('Authorization', `Bearer ${authToken({ rol: 'admin' })}`)
       .send({ id_item: 44 });
 
     assert.equal(response.status, 200, response.text);

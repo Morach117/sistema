@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
-const { authorize } = require('../middleware/authorize');
+const { authorize, denyAccess } = require('../middleware/authorize');
 const { releaseConnection, rollbackTransaction, sendInternalError } = require('../middleware/errors');
 const { logAudit } = require('../utils/audit');
 const multer = require('multer');
@@ -23,6 +23,12 @@ const {
     updateReceptionItem,
     UploadValidationError
 } = require('../services/recepciones-service');
+const {
+    canEditReceptionField,
+    canManageReception,
+    sanitizeReceptionItemForUser,
+    sanitizeReceptionSummaryForUser
+} = require('../services/reception-access-policy');
 
 const upload = multer({
     dest: path.resolve(__dirname, '..', 'uploads'),
@@ -90,6 +96,11 @@ async function auditReceptionFieldChanges(connection, { remisionId, itemId = nul
 router.use(authMiddleware);
 router.use(authorize({ module: 'recepciones', action: 'read' }));
 
+function requireReceptionAdmin(req, res, next) {
+    if (!canManageReception(req.user)) return denyAccess(res);
+    return next();
+}
+
 // This lookup belongs to the reception workflow.  It intentionally does not
 // require the separate Catalog module permission just to visually validate a
 // SICAR code while receiving a supplier invoice.
@@ -108,7 +119,7 @@ router.get('/catalogo-exacto', async (req, res) => {
     }
 });
 
-router.post('/enviar-a-rectificar', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
+router.post('/enviar-a-rectificar', authorize({ module: 'recepciones', action: 'write' }), requireReceptionAdmin, async (req, res) => {
     const itemId = Number.parseInt(req.body?.id_item, 10);
     if (!Number.isSafeInteger(itemId) || itemId <= 0) {
         return res.status(400).json({ success: false, error: 'Artículo inválido.' });
@@ -133,7 +144,7 @@ router.post('/enviar-a-rectificar', authorize({ module: 'recepciones', action: '
 });
 
 // Generate the inventory export after normal API authentication/authorization.
-router.post('/generar_excel', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
+router.post('/generar_excel', authorize({ module: 'recepciones', action: 'write' }), requireReceptionAdmin, async (req, res) => {
     try {
         const remision_input = req.body?.remision_id;
         if (!remision_input) return res.status(400).send('Error: No se especificó la remisión.');
@@ -211,13 +222,13 @@ router.get('/', async (req, res) => {
                      WHERE estado IN ('PENDIENTE', 'ENVIADO', 'REVISION') 
                      ORDER BY fecha_carga DESC`;
         const [rows] = await pool.execute(sql);
-        res.json({ success: true, data: rows });
+        res.json({ success: true, data: rows.map((row) => sanitizeReceptionSummaryForUser(row, req.user)) });
     } catch (error) {
         return sendInternalError(error, req, res);
     }
 });
 
-router.post('/preview-upload', authorize({ module: 'recepciones', action: 'write' }), receiveUpload, async (req, res) => {
+router.post('/preview-upload', authorize({ module: 'recepciones', action: 'write' }), requireReceptionAdmin, receiveUpload, async (req, res) => {
     try {
         if (!Array.isArray(req.files) || req.files.length === 0) {
             return res.status(400).json({ success: false, error: 'No se subio ningun archivo' });
@@ -305,7 +316,7 @@ router.get('/:id', async (req, res) => {
                 piezas = item.piezas_mem;
             }
 
-            return {
+            return sanitizeReceptionItemForUser({
                 id: item.id,
                 cod_prov: item.codigo_proveedor,
                 desc: item.descripcion_original,
@@ -327,10 +338,12 @@ router.get('/:id', async (req, res) => {
                 costo_unitario: parseFloat(item.costo_unitario) || 0,
                 costo_sistema_actual: item.costo_bd != null ? parseFloat(item.costo_bd) : 0,
                 precio_venta_sistema: item.venta_bd != null ? parseFloat(item.venta_bd) : 0
-            };
+            }, req.user);
         });
 
-        res.json({ success: true, datos, estado: remision[0].estado, proveedor: remision[0].proveedor });
+        const response = { success: true, datos, estado: remision[0].estado };
+        if (canManageReception(req.user)) response.proveedor = remision[0].proveedor;
+        res.json(response);
     } catch (error) {
         return sendInternalError(error, req, res);
     }
@@ -349,6 +362,7 @@ router.post('/actualizar_campo', authorize({ module: 'recepciones', action: 'wri
         'cantidad', 'cantidad_real'
     ];
     if (!allowedFields.includes(campo)) return res.status(400).json({ success: false, error: 'Campo no permitido' });
+    if (!canEditReceptionField(req.user, campo)) return denyAccess(res);
 
     // Map frontend field names to actual DB column names if needed
     let dbField = campo;
@@ -368,7 +382,7 @@ router.post('/actualizar_campo', authorize({ module: 'recepciones', action: 'wri
 // ─────────────────────────────────────────────────
 // ASSIGN provider
 // ─────────────────────────────────────────────────
-router.post('/asignar_proveedor', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
+router.post('/asignar_proveedor', authorize({ module: 'recepciones', action: 'write' }), requireReceptionAdmin, async (req, res) => {
     const { id_remision, proveedor } = req.body;
     if (!id_remision || !proveedor) return res.status(400).json({ success: false, error: 'Faltan parámetros' });
 
@@ -386,7 +400,7 @@ router.post('/asignar_proveedor', authorize({ module: 'recepciones', action: 'wr
 // ─────────────────────────────────────────────────
 // FINALIZE remision
 // ─────────────────────────────────────────────────
-router.post('/finalizar', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
+router.post('/finalizar', authorize({ module: 'recepciones', action: 'write' }), requireReceptionAdmin, async (req, res) => {
     const { remision_id } = req.body;
     try {
         await finalizeReception({ pool, numeroRemision: remision_id, actorId: req.user?.id });
@@ -402,7 +416,7 @@ router.post('/finalizar', authorize({ module: 'recepciones', action: 'write' }),
 // ─────────────────────────────────────────────────
 // DELETE single item
 // ─────────────────────────────────────────────────
-router.delete('/item/:id', authorize({ module: 'recepciones', action: 'write' }), async (req, res) => {
+router.delete('/item/:id', authorize({ module: 'recepciones', action: 'write' }), requireReceptionAdmin, async (req, res) => {
     const { id } = req.params;
     try {
         await deleteReceptionItem({ pool, itemId: id });
@@ -545,7 +559,7 @@ async function saveParsedReception(connection, parsed, actorId) {
     return { id: ultimoId, prov: ultimoProv };
 }
 
-router.post('/upload', authorize({ module: 'recepciones', action: 'write' }), receiveUpload, async (req, res) => {
+router.post('/upload', authorize({ module: 'recepciones', action: 'write' }), requireReceptionAdmin, receiveUpload, async (req, res) => {
     let connection;
     try {
         if (!Array.isArray(req.files) || req.files.length === 0) {
