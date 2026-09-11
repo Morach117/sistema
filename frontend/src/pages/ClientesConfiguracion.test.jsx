@@ -62,7 +62,7 @@ afterEach(() => {
 })
 
 describe('ClientesConfiguracion first use', () => {
-  it('lets the operator select one of multiple detected Centrales without authorizing before a code', async () => {
+  it('lets the operator select a Central and continue to the code step before authorizing', async () => {
     const requests = []
     const status = {
       configuracionRequerida: false,
@@ -97,7 +97,11 @@ describe('ClientesConfiguracion first use', () => {
     expect(matriz).not.toBeChecked()
     expect(norte).toBeChecked()
     expect(screen.getByText(/1\. selecciona una central detectada/i)).toBeVisible()
-    expect(screen.getByText(/2\. pega el código temporal/i)).toBeVisible()
+    expect(screen.queryByText(/2\. ingresa el código temporal/i)).not.toBeInTheDocument()
+    const next = screen.getByRole('button', { name: /siguiente: ingresar código/i })
+    expect(next).toBeEnabled()
+    fireEvent.click(next)
+    expect(screen.getByText(/2\. ingresa el código temporal/i)).toBeVisible()
     expect(screen.getByRole('button', { name: /validar código/i })).toBeDisabled()
     expect(screen.queryByRole('button', { name: /vincular sucursal/i })).not.toBeInTheDocument()
     expect(requests.filter((request) => request.method !== 'get')).toHaveLength(0)
@@ -177,8 +181,9 @@ describe('ClientesConfiguracion first use', () => {
 
     const matriz = await screen.findByRole('radio', { name: /Central Matriz.*disponible en tu red local/i })
     const norte = screen.getByRole('radio', { name: /Central Norte.*disponible en tu red local/i })
-    const code = screen.getByRole('textbox', { name: /código de vínculo/i })
     fireEvent.click(matriz)
+    fireEvent.click(screen.getByRole('button', { name: /siguiente: ingresar código/i }))
+    const code = screen.getByRole('textbox', { name: /código de vínculo/i })
     fireEvent.change(code, { target: { value: 'signed-link-code' } })
     fireEvent.click(screen.getByRole('button', { name: /validar código/i }))
 
@@ -211,8 +216,9 @@ describe('ClientesConfiguracion first use', () => {
     })
 
     const central = await screen.findByRole('radio', { name: /Central Matriz.*disponible en tu red local/i })
-    const code = screen.getByRole('textbox', { name: /código de vínculo/i })
     fireEvent.click(central)
+    fireEvent.click(screen.getByRole('button', { name: /siguiente: ingresar código/i }))
+    const code = screen.getByRole('textbox', { name: /código de vínculo/i })
     fireEvent.change(code, { target: { value: 'signed-link-code' } })
     fireEvent.click(screen.getByRole('button', { name: /validar código/i }))
     fireEvent.click(await screen.findByRole('button', { name: /vincular sucursal/i }))

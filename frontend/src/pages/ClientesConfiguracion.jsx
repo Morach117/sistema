@@ -23,6 +23,7 @@ export default function ClientesConfiguracion() {
   const [nodeName, setNodeName] = useState('')
   const [visibleName, setVisibleName] = useState('')
   const [selectedCentralFingerprint, setSelectedCentralFingerprint] = useState('')
+  const [showLinkCodeStep, setShowLinkCodeStep] = useState(false)
   const [foundCentral, setFoundCentral] = useState(false)
   const [validatedLink, setValidatedLink] = useState(null)
   const [generatedCode, setGeneratedCode] = useState('')
@@ -217,6 +218,7 @@ export default function ClientesConfiguracion() {
                                 disabled={linkBusy}
                                 onChange={() => {
                                   setSelectedCentralFingerprint(central.fingerprint)
+                                  setShowLinkCodeStep(false)
                                   resetLinkValidation()
                                 }}
                                 className="sr-only"
@@ -244,8 +246,24 @@ export default function ClientesConfiguracion() {
                     </div>
                   )}
                 </section>
-                <label className={labelClass}>2. Pega el código temporal — Código de vínculo<textarea className={`${fieldClass} min-h-24 resize-y font-mono text-xs`} value={linkCode} disabled={linkBusy} onChange={(event) => { setLinkCode(event.target.value); resetLinkValidation() }} required /></label>
-                <Button type="button" variant="outline" onClick={validateSelectedCentral} disabled={!selectedCentral || !linkCode.trim() || linkBusy}><RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${discover.isPending ? 'animate-spin' : ''}`} />Validar código con la Central seleccionada</Button>
+                {!showLinkCodeStep ? (
+                  <Button type="button" onClick={() => setShowLinkCodeStep(true)} disabled={!selectedCentral || linkBusy}>
+                    Siguiente: ingresar código
+                    <ChevronRight aria-hidden="true" className="ml-2 h-4 w-4" />
+                  </Button>
+                ) : (
+                  <div className="grid gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-black">2. Ingresa el código temporal</p>
+                        <p className="mt-1 text-sm text-muted-foreground">En la PC Central, genera un código de vínculo y pégalo aquí.</p>
+                      </div>
+                      <Button type="button" size="sm" variant="ghost" disabled={linkBusy} onClick={() => { setShowLinkCodeStep(false); setLinkCode(''); resetLinkValidation() }}>Cambiar Central</Button>
+                    </div>
+                    <label className={labelClass}>Código de vínculo<textarea className={`${fieldClass} min-h-24 resize-y font-mono text-xs`} value={linkCode} disabled={linkBusy} onChange={(event) => { setLinkCode(event.target.value); resetLinkValidation() }} required /></label>
+                    <Button type="button" variant="outline" onClick={validateSelectedCentral} disabled={!selectedCentral || !linkCode.trim() || linkBusy}><RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${discover.isPending ? 'animate-spin' : ''}`} />Validar código con la Central seleccionada</Button>
+                  </div>
+                )}
                 {foundCentral && (
                   <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
                     <p className="flex items-center gap-2 font-black"><CheckCircle2 aria-hidden="true" className="h-5 w-5" />Código temporal e identidad firmada validados para {validatedCentral?.name || 'la Central seleccionada'}</p>
