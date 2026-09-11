@@ -62,7 +62,7 @@ afterEach(() => {
 })
 
 describe('ClientesConfiguracion first use', () => {
-  it('lets the operator select a Central and continue to the code step before authorizing', async () => {
+  it('lets the operator select a Central and connect without copying a code', async () => {
     const requests = []
     const status = {
       configuracionRequerida: false,
@@ -97,35 +97,18 @@ describe('ClientesConfiguracion first use', () => {
     expect(matriz).not.toBeChecked()
     expect(norte).toBeChecked()
     expect(screen.getByText(/1\. selecciona una central detectada/i)).toBeVisible()
-    expect(screen.queryByText(/2\. ingresa el código temporal/i)).not.toBeInTheDocument()
-    const next = screen.getByRole('button', { name: /siguiente: ingresar código/i })
-    expect(next).toBeEnabled()
-    fireEvent.click(next)
-    expect(screen.getByText(/2\. ingresa el código temporal/i)).toBeVisible()
-    expect(screen.getByRole('button', { name: /validar código/i })).toBeDisabled()
-    expect(screen.queryByRole('button', { name: /vincular sucursal/i })).not.toBeInTheDocument()
+    const connect = screen.getByRole('button', { name: /conectar con la central seleccionada/i })
+    expect(connect).toBeEnabled()
     expect(requests.filter((request) => request.method !== 'get')).toHaveLength(0)
     expect(screen.queryByText(/192\.168\.1\.20|matriz-host|must-not-leak/i)).not.toBeInTheDocument()
 
-    fireEvent.change(screen.getByRole('textbox', { name: /código de vínculo/i }), {
-      target: { value: 'signed-link-code' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: /validar código/i }))
-    await waitFor(() => {
-      const discoveryRequest = requests.find((request) => request.url === '/api/clientes-sync/descubrir')
-      expect(JSON.parse(discoveryRequest.data)).toEqual({
-        codigo_vinculo: 'signed-link-code',
-        central_fingerprint: 'central-norte-fingerprint',
-      })
-    })
-
-    fireEvent.click(await screen.findByRole('button', { name: /vincular sucursal/i }))
+    fireEvent.click(connect)
     await waitFor(() => {
       const pairingRequest = requests.find((request) => request.url === '/api/clientes-sync/emparejar')
       expect(JSON.parse(pairingRequest.data)).toEqual({
-        codigo_vinculo: 'signed-link-code',
         nombre_sucursal: 'Sucursal Centro',
         central_fingerprint: 'central-norte-fingerprint',
+        automatico: true,
       })
     })
   })
@@ -155,9 +138,9 @@ describe('ClientesConfiguracion first use', () => {
     expect(requests.some((request) => request.url === '/api/clientes-sync/emparejar')).toBe(false)
   })
 
-  it('keeps the submitted Central and code immutable while signed validation is pending', async () => {
-    let releaseDiscovery
-    const pendingDiscovery = new Promise((resolve) => { releaseDiscovery = resolve })
+  it('keeps the selected Central immutable while automatic pairing is pending', async () => {
+    let releasePair
+    const pendingPair = new Promise((resolve) => { releasePair = resolve })
     const status = {
       configuracionRequerida: false,
       sucursal: { nombre: 'Sucursal Centro', rol: 'sucursal' },
@@ -175,27 +158,23 @@ describe('ClientesConfiguracion first use', () => {
       }],
     }
     renderPage(async (config) => {
-      if (config.url === '/api/clientes-sync/descubrir') return pendingDiscovery
+      if (config.url === '/api/clientes-sync/emparejar') return pendingPair
       return statusAdapter(status)(config)
     })
 
     const matriz = await screen.findByRole('radio', { name: /Central Matriz.*disponible en tu red local/i })
     const norte = screen.getByRole('radio', { name: /Central Norte.*disponible en tu red local/i })
     fireEvent.click(matriz)
-    fireEvent.click(screen.getByRole('button', { name: /siguiente: ingresar código/i }))
-    const code = screen.getByRole('textbox', { name: /código de vínculo/i })
-    fireEvent.change(code, { target: { value: 'signed-link-code' } })
-    fireEvent.click(screen.getByRole('button', { name: /validar código/i }))
+    fireEvent.click(screen.getByRole('button', { name: /conectar con la central seleccionada/i }))
 
     await waitFor(() => {
       expect(matriz).toBeDisabled()
       expect(norte).toBeDisabled()
-      expect(code).toBeDisabled()
     })
-    releaseDiscovery(statusAdapter(status)({ url: '/api/clientes-sync/descubrir', method: 'post' }))
+    releasePair(statusAdapter(status)({ url: '/api/clientes-sync/emparejar', method: 'post' }))
   })
 
-  it('keeps the validated Central and code immutable while pairing is pending', async () => {
+  it('keeps the selected Central immutable while pairing is pending', async () => {
     let releasePair
     const pendingPair = new Promise((resolve) => { releasePair = resolve })
     const status = {
@@ -217,15 +196,10 @@ describe('ClientesConfiguracion first use', () => {
 
     const central = await screen.findByRole('radio', { name: /Central Matriz.*disponible en tu red local/i })
     fireEvent.click(central)
-    fireEvent.click(screen.getByRole('button', { name: /siguiente: ingresar código/i }))
-    const code = screen.getByRole('textbox', { name: /código de vínculo/i })
-    fireEvent.change(code, { target: { value: 'signed-link-code' } })
-    fireEvent.click(screen.getByRole('button', { name: /validar código/i }))
-    fireEvent.click(await screen.findByRole('button', { name: /vincular sucursal/i }))
+    fireEvent.click(screen.getByRole('button', { name: /conectar con la central seleccionada/i }))
 
     await waitFor(() => {
       expect(central).toBeDisabled()
-      expect(code).toBeDisabled()
     })
     releasePair(statusAdapter(status)({ url: '/api/clientes-sync/emparejar', method: 'post' }))
   })

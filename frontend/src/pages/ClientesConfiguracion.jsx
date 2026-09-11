@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, ChevronRight, KeyRound, Network, RefreshCw, Search, Server, ShieldCheck, Wifi, WifiOff } from 'lucide-react'
+import { ChevronRight, Network, RefreshCw, Search, Server, ShieldCheck, Wifi, WifiOff } from 'lucide-react'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -18,15 +18,10 @@ function errorMessage(error, fallback) {
 
 export default function ClientesConfiguracion() {
   const queryClient = useQueryClient()
-  const [linkCode, setLinkCode] = useState('')
   const [nodeRole, setNodeRole] = useState('sucursal')
   const [nodeName, setNodeName] = useState('')
   const [visibleName, setVisibleName] = useState('')
   const [selectedCentralFingerprint, setSelectedCentralFingerprint] = useState('')
-  const [showLinkCodeStep, setShowLinkCodeStep] = useState(false)
-  const [foundCentral, setFoundCentral] = useState(false)
-  const [validatedLink, setValidatedLink] = useState(null)
-  const [generatedCode, setGeneratedCode] = useState('')
   const statusQuery = useQuery({
     queryKey: ['clientes-sync-estado'],
     queryFn: async () => (await api.get('/api/clientes-sync/estado')).data.data,
@@ -36,28 +31,13 @@ export default function ClientesConfiguracion() {
       return currentStatus?.sucursal?.rol === 'sucursal' && !currentStatus?.centralVinculada ? 5000 : false
     },
   })
-  const discover = useMutation({
-    mutationFn: async ({ code, fingerprint }) => (await api.post('/api/clientes-sync/descubrir', {
-      codigo_vinculo: code,
-      central_fingerprint: fingerprint,
-    })).data.data,
-    onSuccess: (_data, snapshot) => {
-      setValidatedLink(snapshot)
-      setFoundCentral(true)
-    },
-  })
-  const generateCode = useMutation({
-    mutationFn: async () => (await api.post('/api/clientes-sync/codigo-vinculo')).data.data,
-    onSuccess: (data) => setGeneratedCode(data.code),
-  })
   const pair = useMutation({
-    mutationFn: async ({ code, fingerprint }) => (await api.post('/api/clientes-sync/emparejar', {
-      codigo_vinculo: code,
+    mutationFn: async ({ fingerprint }) => (await api.post('/api/clientes-sync/emparejar', {
       nombre_sucursal: statusQuery.data?.sucursal?.nombre,
       central_fingerprint: fingerprint,
+      automatico: true,
     })).data.data,
     onSuccess: () => {
-      setFoundCentral(false)
       queryClient.invalidateQueries({ queryKey: ['clientes-sync-estado'] })
     },
   })
@@ -79,19 +59,7 @@ export default function ClientesConfiguracion() {
   const linked = Boolean(status?.centralVinculada)
   const detectedCentrals = status?.centralesDetectadas ?? []
   const selectedCentral = detectedCentrals.find((central) => central.fingerprint === selectedCentralFingerprint)
-  const validatedCentral = detectedCentrals.find((central) => central.fingerprint === validatedLink?.fingerprint)
-  const linkBusy = discover.isPending || pair.isPending
-
-  function resetLinkValidation() {
-    setFoundCentral(false)
-    setValidatedLink(null)
-  }
-
-  function validateSelectedCentral() {
-    const snapshot = { code: linkCode.trim(), fingerprint: selectedCentralFingerprint }
-    resetLinkValidation()
-    discover.mutate(snapshot)
-  }
+  const linkBusy = pair.isPending
 
   const currentVisibleName = visibleName || status?.sucursal?.nombre || ''
 
@@ -182,10 +150,7 @@ export default function ClientesConfiguracion() {
 
             {role === 'central' ? (
               <div className="grid gap-3">
-                <p className="text-sm text-muted-foreground">Genera un código temporal para autorizar una sucursal de la misma LAN.</p>
-                <Button type="button" onClick={() => generateCode.mutate()} disabled={generateCode.isPending}><KeyRound aria-hidden="true" className="mr-2 h-4 w-4" />Generar código de vínculo</Button>
-                {generatedCode && <output aria-label="Código de vínculo generado" className="rounded-xl border border-primary/30 bg-primary/5 p-4 font-mono text-sm font-black break-all">{generatedCode}</output>}
-                {generateCode.error && <p role="alert" className="text-sm font-bold text-destructive">{errorMessage(generateCode.error, 'No se pudo generar el código.')}</p>}
+                <p className="text-sm text-muted-foreground">Las sucursales de esta red pueden seleccionarte y vincularse directamente. La conexión quedará guardada en cada equipo.</p>
               </div>
             ) : (
               <div className="grid gap-3">
@@ -218,8 +183,6 @@ export default function ClientesConfiguracion() {
                                 disabled={linkBusy}
                                 onChange={() => {
                                   setSelectedCentralFingerprint(central.fingerprint)
-                                  setShowLinkCodeStep(false)
-                                  resetLinkValidation()
                                 }}
                                 className="sr-only"
                               />
@@ -246,31 +209,10 @@ export default function ClientesConfiguracion() {
                     </div>
                   )}
                 </section>
-                {!showLinkCodeStep ? (
-                  <Button type="button" onClick={() => setShowLinkCodeStep(true)} disabled={!selectedCentral || linkBusy}>
-                    Siguiente: ingresar código
-                    <ChevronRight aria-hidden="true" className="ml-2 h-4 w-4" />
-                  </Button>
-                ) : (
-                  <div className="grid gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-black">2. Ingresa el código temporal</p>
-                        <p className="mt-1 text-sm text-muted-foreground">En la PC Central, genera un código de vínculo y pégalo aquí.</p>
-                      </div>
-                      <Button type="button" size="sm" variant="ghost" disabled={linkBusy} onClick={() => { setShowLinkCodeStep(false); setLinkCode(''); resetLinkValidation() }}>Cambiar Central</Button>
-                    </div>
-                    <label className={labelClass}>Código de vínculo<textarea className={`${fieldClass} min-h-24 resize-y font-mono text-xs`} value={linkCode} disabled={linkBusy} onChange={(event) => { setLinkCode(event.target.value); resetLinkValidation() }} required /></label>
-                    <Button type="button" variant="outline" onClick={validateSelectedCentral} disabled={!selectedCentral || !linkCode.trim() || linkBusy}><RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${discover.isPending ? 'animate-spin' : ''}`} />Validar código con la Central seleccionada</Button>
-                  </div>
-                )}
-                {foundCentral && (
-                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                    <p className="flex items-center gap-2 font-black"><CheckCircle2 aria-hidden="true" className="h-5 w-5" />Código temporal e identidad firmada validados para {validatedCentral?.name || 'la Central seleccionada'}</p>
-                    {!linked && <Button type="button" className="mt-3 w-full" onClick={() => pair.mutate(validatedLink)} disabled={!validatedLink || pair.isPending}>Autorizar y vincular sucursal</Button>}
-                  </div>
-                )}
-                {discover.error && <p role="alert" className="text-sm font-bold text-destructive">{errorMessage(discover.error, 'No se encontró una central válida en la LAN.')}</p>}
+                <Button type="button" onClick={() => pair.mutate({ fingerprint: selectedCentralFingerprint })} disabled={!selectedCentral || linkBusy}>
+                  {pair.isPending ? <RefreshCw aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : <ChevronRight aria-hidden="true" className="mr-2 h-4 w-4" />}
+                  Conectar con la Central seleccionada
+                </Button>
                 {pair.error && <p role="alert" className="text-sm font-bold text-destructive">{errorMessage(pair.error, 'No se pudo vincular la sucursal.')}</p>}
               </div>
             )}

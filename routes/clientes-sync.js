@@ -124,6 +124,7 @@ function createClientesSyncRouter({
         linkCode: req.body?.codigo_vinculo,
         branchName: req.body?.nombre_sucursal,
         expectedCentralFingerprint: req.body?.central_fingerprint,
+        ...(req.body?.automatico === true ? { automatic: true } : {}),
         requestId: req.requestId,
       });
       res.json({ success: true, data: result });

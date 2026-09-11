@@ -260,7 +260,7 @@ function branchConfig({ central, branch, credential }) {
   };
 }
 
-function linkRequest({ central, branch }) {
+function linkRequest({ central, branch, automatic = false }) {
   const code = createLinkCode({
     privateKey: central.privateKey,
     centralFingerprint: central.fingerprint,
@@ -277,7 +277,7 @@ function linkRequest({ central, branch }) {
       branchId: BRANCH_ID,
       branchName: 'Sucursal Norte',
       branchPublicKey: branch.publicKey,
-      linkCode: code,
+      ...(automatic ? { automatic: true } : { linkCode: code }),
     },
   });
 }
@@ -468,6 +468,81 @@ test('an unpaired branch discovers by link code, signs activation, and pins only
   assert.equal(JSON.stringify(store.state.configuration).includes(endpoint.address), false);
 });
 
+test('an unpaired branch can connect to its selected LAN central without copying a code', async () => {
+  const central = generateCentralIdentity();
+  const branch = generateBranchIdentity();
+  const store = createMemoryStore({
+    configuration: {
+      sucursal_id: BRANCH_ID,
+      rol_nodo: 'sucursal',
+      central_fingerprint: null,
+      central_public_key: null,
+      sucursal_public_key: branch.publicKey,
+      sucursal_private_key: branch.privateKey,
+      sucursal_credential: null,
+    },
+  });
+  const endpoint = {
+    address: '192.168.90.10',
+    port: 4312,
+    centralFingerprint: central.fingerprint,
+    centralPublicKey: central.publicKey,
+  };
+  const sync = createClientSyncService({
+    store,
+    now: () => NOW,
+    createUuid: () => '06b02906-e22e-43bf-ab7d-b85211f4ec66',
+    discoveryService: {
+      getLastCentral: () => null,
+      async discover(input) {
+        assert.deepEqual(input, { automatic: true, expectedCentralFingerprint: central.fingerprint });
+        return endpoint;
+      },
+    },
+    async transport(receivedEndpoint, envelope) {
+      assert.deepEqual(receivedEndpoint, endpoint);
+      const requestPayload = verifySignedEnvelope({
+        envelope,
+        publicKey: branch.publicKey,
+        expectedType: 'clientes-link-request',
+        now: NOW,
+      });
+      assert.equal(requestPayload.automatic, true);
+      assert.equal(Object.hasOwn(requestPayload, 'linkCode'), false);
+      const credential = issueBranchCredential({
+        privateKey: central.privateKey,
+        centralFingerprint: central.fingerprint,
+        branchId: BRANCH_ID,
+        branchPublicKey: branch.publicKey,
+        now: NOW,
+      });
+      return signEnvelope({
+        privateKey: central.privateKey,
+        payload: {
+          version: 1,
+          type: 'clientes-link-response',
+          requestId: requestPayload.requestId,
+          issuedAt: NOW,
+          branchId: BRANCH_ID,
+          centralId: 'dd26d267-52e7-4b90-b1ee-c53289448be0',
+          centralName: 'Central Clientes',
+          centralFingerprint: central.fingerprint,
+          credential,
+        },
+      });
+    },
+  });
+
+  await sync.pairWithCentral({
+    automatic: true,
+    branchName: 'Sucursal Norte',
+    expectedCentralFingerprint: central.fingerprint,
+  });
+
+  assert.equal(store.state.configuration.central_fingerprint, central.fingerprint);
+  assert.ok(store.state.configuration.sucursal_credential);
+});
+
 test('links a branch only with its signed request and rotates a central-signed credential without storing its endpoint', async () => {
   const central = generateCentralIdentity();
   const branch = generateBranchIdentity();
@@ -506,6 +581,28 @@ test('links a branch only with its signed request and rotates a central-signed c
   const unsigned = linkRequest({ central, branch });
   unsigned.signature = unsigned.signature.replace(/^./, unsigned.signature[0] === 'A' ? 'B' : 'A');
   await assert.rejects(sync.linkBranch({ envelope: unsigned }), /firma|firmada/i);
+});
+
+test('links a branch from a signed automatic LAN request without requiring a copied code', async () => {
+  const central = generateCentralIdentity();
+  const branch = generateBranchIdentity();
+  const store = createMemoryStore({ configuration: centralConfig(central) });
+  const sync = createClientSyncService({
+    store,
+    now: () => NOW,
+    createUuid: () => 'd4d94f5a-6170-41e2-9880-21c90bed5a08',
+  });
+
+  const response = await sync.linkBranch({ envelope: linkRequest({ central, branch, automatic: true }) });
+  const payload = verifySignedEnvelope({
+    envelope: response,
+    publicKey: central.publicKey,
+    expectedType: 'clientes-link-response',
+    now: NOW,
+  });
+
+  assert.equal(payload.branchId, BRANCH_ID);
+  assert.equal(store.state.savedBranches.length, 1);
 });
 
 test('does not let a valid link code replace the key of an existing branch UUID', async () => {

@@ -163,12 +163,14 @@ function createClientDiscoveryService({
         waiter.expectedCentralFingerprint !== fingerprint
       ) continue;
       try {
-        verifyLinkCode({
-          code: waiter.linkCode,
-          publicKey,
-          expectedCentralFingerprint: fingerprint,
-          now: now(),
-        });
+        if (!waiter.automatic) {
+          verifyLinkCode({
+            code: waiter.linkCode,
+            publicKey,
+            expectedCentralFingerprint: fingerprint,
+            now: now(),
+          });
+        }
         clearTimeoutFn(waiter.timer);
         waiters.delete(waiter);
         waiter.resolve({ ...endpoint });
@@ -310,12 +312,13 @@ function createClientDiscoveryService({
     return startPromise;
   }
 
-  function discover({ linkCode, expectedCentralFingerprint } = {}) {
+  function discover({ linkCode, expectedCentralFingerprint, automatic = false } = {}) {
     const selectedFingerprint = String(expectedCentralFingerprint || '').trim();
     if (!started) {
       return start().then(() => discover({
         linkCode,
         expectedCentralFingerprint: selectedFingerprint,
+        automatic,
       }));
     }
     if (String(configuration?.rol_nodo || '').toLowerCase() !== 'sucursal') {
@@ -327,7 +330,7 @@ function createClientDiscoveryService({
       (!selectedFingerprint || lastCentral.centralFingerprint === selectedFingerprint)
     ) {
       if (isPinned) return Promise.resolve({ ...lastCentral });
-      if (typeof linkCode !== 'string' || !linkCode.trim()) {
+      if (!automatic && (typeof linkCode !== 'string' || !linkCode.trim())) {
         return Promise.reject(new Error('Se requiere un código de vínculo para buscar la central inicial.'));
       }
       try {
@@ -342,7 +345,7 @@ function createClientDiscoveryService({
         return Promise.reject(new Error('El código de vínculo no corresponde a la Central seleccionada.'));
       }
     }
-    if (!isPinned && (typeof linkCode !== 'string' || !linkCode.trim())) {
+    if (!isPinned && !automatic && (typeof linkCode !== 'string' || !linkCode.trim())) {
       return Promise.reject(new Error('Se requiere un código de vínculo para buscar la central inicial.'));
     }
     return new Promise((resolve, reject) => {
@@ -351,6 +354,7 @@ function createClientDiscoveryService({
         reject,
         linkCode,
         expectedCentralFingerprint: selectedFingerprint,
+        automatic,
         timer: undefined,
       };
       waiter.timer = setTimeoutFn(() => {

@@ -829,18 +829,20 @@ function createClientSyncService({
     linkCode,
     branchName,
     expectedCentralFingerprint,
+    automatic = false,
     requestId: httpRequestId,
   } = {}) {
     const local = unpairedBranchConfiguration(await store.readConfiguration());
     if (local.configuration.central_fingerprint || local.configuration.central_public_key) {
       throw new ClientSyncError('Esta sucursal ya está vinculada con una central.', 409);
     }
-    const code = text(linkCode, 'El código de vínculo', 16_384, { required: true });
+    const automaticLink = automatic === true;
+    const code = automaticLink ? null : text(linkCode, 'El código de vínculo', 16_384, { required: true });
     const name = text(branchName, 'El nombre de la sucursal', 120, { required: true });
     if (!discoveryService?.discover) {
       throw new ClientSyncError('El descubrimiento LAN no está disponible.', 503);
     }
-    const discoveryOptions = { linkCode: code };
+    const discoveryOptions = automaticLink ? { automatic: true } : { linkCode: code };
     if (expectedCentralFingerprint) {
       discoveryOptions.expectedCentralFingerprint = expectedCentralFingerprint;
     }
@@ -854,15 +856,17 @@ function createClientSyncService({
     ) {
       throw new ClientSyncError('La central descubierta no tiene una identidad válida.', 401);
     }
-    try {
-      verifyLinkCode({
-        code,
-        publicKey: endpoint.centralPublicKey,
-        expectedCentralFingerprint: endpoint.centralFingerprint,
-        now: now(),
-      });
-    } catch {
-      throw new ClientSyncError('El código de vínculo no corresponde a la central descubierta.', 401);
+    if (!automaticLink) {
+      try {
+        verifyLinkCode({
+          code,
+          publicKey: endpoint.centralPublicKey,
+          expectedCentralFingerprint: endpoint.centralFingerprint,
+          now: now(),
+        });
+      } catch {
+        throw new ClientSyncError('El código de vínculo no corresponde a la central descubierta.', 401);
+      }
     }
     const pairingRequestId = uuid(createUuid(), 'La solicitud');
     const envelope = signEnvelope({
@@ -875,7 +879,7 @@ function createClientSyncService({
         branchId: local.branchId,
         branchName: name,
         branchPublicKey: local.publicKey,
-        linkCode: code,
+        ...(automaticLink ? { automatic: true } : { linkCode: code }),
       },
     });
     const responseEnvelope = await (transport || defaultTransport)(
@@ -940,12 +944,14 @@ function createClientSyncService({
       if (error instanceof ClientSyncError) throw error;
       throw new ClientSyncError('La solicitud de vínculo no tiene una firma válida.', 401);
     }
-    verifyLinkCode({
-      code: payload.linkCode,
-      publicKey: configuration.central_public_key,
-      expectedCentralFingerprint: configuration.central_fingerprint,
-      now: now(),
-    });
+    if (payload.automatic !== true) {
+      verifyLinkCode({
+        code: payload.linkCode,
+        publicKey: configuration.central_public_key,
+        expectedCentralFingerprint: configuration.central_fingerprint,
+        now: now(),
+      });
+    }
     const credential = nextCredential(configuration, branchId, branchPublicKey);
     await store.transaction(async (transaction) => {
       const existingBranch = await transaction.getBranch(branchId, { forUpdate: true });

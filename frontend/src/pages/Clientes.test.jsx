@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -363,7 +363,7 @@ describe('Configuración LAN de clientes', () => {
     expect(bodyOf(configuration)).toEqual({ rol_nodo: 'central', nombre: 'Matriz' })
   })
 
-  it('searches for the central through the same-origin local API without asking for a manual IP', async () => {
+  it('connects to the selected central through the same-origin local API without asking for a manual IP', async () => {
     const requests = []
     renderPage(<ClientesConfiguracion />, createAdapter({
       requests,
@@ -389,15 +389,14 @@ describe('Configuración LAN de clientes', () => {
     expect(screen.queryByLabelText(/dirección ip|hostname|servidor manual/i)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('radio', { name: /Central Matriz.*disponible en tu red local/i }))
-    fireEvent.click(screen.getByRole('button', { name: /siguiente: ingresar código/i }))
-    fireEvent.change(screen.getByLabelText(/código de vínculo/i), { target: { value: 'codigo-firmado' } })
-    fireEvent.click(screen.getByRole('button', { name: /validar código/i }))
+    fireEvent.click(screen.getByRole('button', { name: /conectar con la central seleccionada/i }))
 
-    expect(await screen.findByText(/código temporal e identidad firmada validados/i)).toBeVisible()
-    const discovery = requests.find((request) => request.url === '/api/clientes-sync/descubrir')
-    expect(bodyOf(discovery)).toEqual({
-      codigo_vinculo: 'codigo-firmado',
+    await waitFor(() => expect(requests.some((request) => request.url === '/api/clientes-sync/emparejar')).toBe(true))
+    const pairing = requests.find((request) => request.url === '/api/clientes-sync/emparejar')
+    expect(bodyOf(pairing)).toEqual({
+      nombre_sucursal: 'Sucursal Norte',
       central_fingerprint: 'a'.repeat(64),
+      automatico: true,
     })
     expect(requests.every((request) => request.url.startsWith('/api/'))).toBe(true)
   })
