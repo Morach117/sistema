@@ -11,12 +11,12 @@ const details = [
 describe('exportación de traspasos', () => {
   it('prepara salida y entrada con las cantidades en el signo correcto', () => {
     expect(buildTransferSheetRows(details, 'salida')).toEqual([
-      { 'CLAVE SICAR': '000123', 'DESCRIPCIÓN': 'Cuaderno profesional', 'CANTIDAD': -5 },
-      { 'CLAVE SICAR': 'SKU-2', 'DESCRIPCIÓN': 'Pluma azul', 'CANTIDAD': -2.5 },
+      { 'CLAVE SICAR': '000123', 'CANTIDAD': -5 },
+      { 'CLAVE SICAR': 'SKU-2', 'CANTIDAD': -2.5 },
     ])
     expect(buildTransferSheetRows(details, 'entrada')).toEqual([
-      { 'CLAVE SICAR': '000123', 'DESCRIPCIÓN': 'Cuaderno profesional', 'CANTIDAD': 5 },
-      { 'CLAVE SICAR': 'SKU-2', 'DESCRIPCIÓN': 'Pluma azul', 'CANTIDAD': 2.5 },
+      { 'CLAVE SICAR': '000123', 'CANTIDAD': 5 },
+      { 'CLAVE SICAR': 'SKU-2', 'CANTIDAD': 2.5 },
     ])
   })
 

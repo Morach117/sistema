@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, KeyRound, Network, RefreshCw, Server, ShieldCheck, WifiOff } from 'lucide-react'
+import { CheckCircle2, ChevronRight, KeyRound, Network, RefreshCw, Search, Server, ShieldCheck, Wifi, WifiOff } from 'lucide-react'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -188,39 +188,59 @@ export default function ClientesConfiguracion() {
               </div>
             ) : (
               <div className="grid gap-3">
-                <section aria-labelledby="central-detectada-title" className="rounded-xl border border-primary/30 bg-primary/5 p-4">
-                  <h3 id="central-detectada-title" className="font-black">1. Selecciona una Central detectada</h3>
+                <section aria-labelledby="central-detectada-title" className="overflow-hidden rounded-2xl border border-primary/30 bg-primary/5">
+                  <div className="flex items-center gap-3 border-b border-primary/20 bg-primary/10 px-4 py-3">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+                      {statusQuery.isFetching ? <RefreshCw aria-hidden="true" className="h-5 w-5 animate-spin" /> : <Search aria-hidden="true" className="h-5 w-5" />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <h3 id="central-detectada-title" className="font-black">1. Selecciona una Central detectada</h3>
+                      <p className="text-xs text-muted-foreground">{statusQuery.isFetching ? 'Buscando equipos cercanos en la red local…' : 'Las Centrales disponibles aparecen automáticamente.'}</p>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" onClick={() => statusQuery.refetch()} disabled={statusQuery.isFetching}>
+                      <RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${statusQuery.isFetching ? 'animate-spin' : ''}`} />Buscar
+                    </Button>
+                  </div>
+
                   {detectedCentrals.length > 0 ? (
-                    <ul className="mt-2 grid gap-2" aria-label="Centrales detectadas en la red local">
-                      {detectedCentrals.map((central) => (
-                        <li key={central.fingerprint}>
-                          <label className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-colors ${selectedCentralFingerprint === central.fingerprint ? 'border-primary bg-background' : 'border-border bg-background/70 hover:bg-background'}`}>
-                            <input
-                              type="radio"
-                              name="central-detectada"
-                              value={central.fingerprint}
-                              checked={selectedCentralFingerprint === central.fingerprint}
-                              disabled={linkBusy}
-                              onChange={() => {
-                                setSelectedCentralFingerprint(central.fingerprint)
-                                resetLinkValidation()
-                              }}
-                              className="h-4 w-4 shrink-0 accent-primary"
-                            />
-                            <span className="min-w-0">
-                              <span className="block break-words font-black">{central.name}</span>
-                              <span className="block text-xs font-bold text-amber-700 dark:text-amber-300">Pendiente de autorización</span>
-                            </span>
-                          </label>
-                        </li>
-                      ))}
+                    <ul className="grid divide-y divide-primary/15" aria-label="Centrales detectadas en la red local">
+                      {detectedCentrals.map((central) => {
+                        const selected = selectedCentralFingerprint === central.fingerprint
+                        return (
+                          <li key={central.fingerprint}>
+                            <label className={`flex min-h-20 cursor-pointer items-center gap-3 px-4 py-3 text-sm transition-colors ${selected ? 'bg-primary/15' : 'hover:bg-primary/10'}`}>
+                              <input
+                                type="radio"
+                                name="central-detectada"
+                                value={central.fingerprint}
+                                checked={selected}
+                                disabled={linkBusy}
+                                onChange={() => {
+                                  setSelectedCentralFingerprint(central.fingerprint)
+                                  resetLinkValidation()
+                                }}
+                                className="sr-only"
+                              />
+                              <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border ${selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background text-primary'}`}>
+                                <Server aria-hidden="true" className="h-5 w-5" />
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block break-words font-black">{central.name}</span>
+                                <span className="mt-0.5 flex items-center gap-1 text-xs font-bold text-muted-foreground"><Wifi aria-hidden="true" className="h-3.5 w-3.5" />Central disponible en tu red local</span>
+                              </span>
+                              <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${selected ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>
+                                <ChevronRight aria-hidden="true" className="h-5 w-5" />
+                              </span>
+                            </label>
+                          </li>
+                        )
+                      })}
                     </ul>
                   ) : (
-                    <div className="mt-2 grid gap-3">
-                      <p className="text-sm text-muted-foreground">No hay Centrales detectadas. Ambas instalaciones deben tener el sistema iniciado, una identidad Central o Sucursal configurada y estar en la misma red local.</p>
-                      <Button type="button" variant="outline" onClick={() => statusQuery.refetch()} disabled={statusQuery.isFetching}>
-                        <RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${statusQuery.isFetching ? 'animate-spin' : ''}`} />Volver a buscar
-                      </Button>
+                    <div className="grid min-h-36 place-items-center gap-2 px-6 py-8 text-center">
+                      <span className="grid h-12 w-12 place-items-center rounded-2xl bg-background text-muted-foreground"><WifiOff aria-hidden="true" className="h-6 w-6" /></span>
+                      <p className="font-black">Aún no hay Centrales disponibles</p>
+                      <p className="max-w-sm text-sm text-muted-foreground">Verifica que ambas instalaciones tengan el sistema iniciado, una identidad Central o Sucursal configurada y estén en la misma red local.</p>
                     </div>
                   )}
                 </section>

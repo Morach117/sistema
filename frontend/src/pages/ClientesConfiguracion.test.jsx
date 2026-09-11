@@ -88,8 +88,8 @@ describe('ClientesConfiguracion first use', () => {
       return statusAdapter(status)(config)
     })
 
-    const matriz = await screen.findByRole('radio', { name: /Central Matriz.*pendiente de autorización/i })
-    const norte = screen.getByRole('radio', { name: /Central Norte.*pendiente de autorización/i })
+    const matriz = await screen.findByRole('radio', { name: /Central Matriz.*disponible en tu red local/i })
+    const norte = screen.getByRole('radio', { name: /Central Norte.*disponible en tu red local/i })
     expect(matriz).not.toBeChecked()
     expect(norte).not.toBeChecked()
     fireEvent.click(norte)
@@ -126,7 +126,7 @@ describe('ClientesConfiguracion first use', () => {
     })
   })
 
-  it('explains the complete no-candidate requirements and refreshes candidates without requesting authorization', async () => {
+  it('explains the complete no-candidate requirements and searches again without requesting authorization', async () => {
     const requests = []
     const status = {
       configuracionRequerida: false,
@@ -141,10 +141,10 @@ describe('ClientesConfiguracion first use', () => {
       return statusAdapter(status)(config)
     })
 
-    const emptyMessage = await screen.findByText(/ambas instalaciones deben tener el sistema iniciado/i)
+    const emptyMessage = await screen.findByText(/verifica que ambas instalaciones tengan el sistema iniciado/i)
     expect(emptyMessage).toHaveTextContent(/identidad.*configurada/i)
     expect(emptyMessage).toHaveTextContent(/Central o Sucursal/i)
-    fireEvent.click(screen.getByRole('button', { name: /volver a buscar/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^buscar$/i }))
 
     await waitFor(() => expect(requests.filter((request) => request.method === 'get')).toHaveLength(2))
     expect(requests.some((request) => request.url === '/api/clientes-sync/descubrir')).toBe(false)
@@ -175,8 +175,8 @@ describe('ClientesConfiguracion first use', () => {
       return statusAdapter(status)(config)
     })
 
-    const matriz = await screen.findByRole('radio', { name: /Central Matriz.*pendiente de autorización/i })
-    const norte = screen.getByRole('radio', { name: /Central Norte.*pendiente de autorización/i })
+    const matriz = await screen.findByRole('radio', { name: /Central Matriz.*disponible en tu red local/i })
+    const norte = screen.getByRole('radio', { name: /Central Norte.*disponible en tu red local/i })
     const code = screen.getByRole('textbox', { name: /código de vínculo/i })
     fireEvent.click(matriz)
     fireEvent.change(code, { target: { value: 'signed-link-code' } })
@@ -210,7 +210,7 @@ describe('ClientesConfiguracion first use', () => {
       return statusAdapter(status)(config)
     })
 
-    const central = await screen.findByRole('radio', { name: /Central Matriz.*pendiente de autorización/i })
+    const central = await screen.findByRole('radio', { name: /Central Matriz.*disponible en tu red local/i })
     const code = screen.getByRole('textbox', { name: /código de vínculo/i })
     fireEvent.click(central)
     fireEvent.change(code, { target: { value: 'signed-link-code' } })

@@ -388,7 +388,7 @@ describe('Configuración LAN de clientes', () => {
     expect(screen.queryByLabelText(/identificador de sucursal/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/dirección ip|hostname|servidor manual/i)).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('radio', { name: /Central Matriz.*pendiente de autorización/i }))
+    fireEvent.click(screen.getByRole('radio', { name: /Central Matriz.*disponible en tu red local/i }))
     fireEvent.change(screen.getByLabelText(/código de vínculo/i), { target: { value: 'codigo-firmado' } })
     fireEvent.click(screen.getByRole('button', { name: /validar código/i }))
 

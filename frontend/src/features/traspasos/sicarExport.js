@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 
-const HEADERS = ['CLAVE SICAR', 'DESCRIPCIÓN', 'CANTIDAD']
+const HEADERS = ['CLAVE SICAR', 'CANTIDAD']
 
 function formatQuantity(value) {
   const quantity = Number(value)
@@ -18,7 +18,6 @@ export function buildTransferSheetRows(details, direction) {
 
       return {
         'CLAVE SICAR': code,
-        'DESCRIPCIÓN': detail.descripcion ?? '',
         'CANTIDAD': quantity * multiplier,
       }
     })
@@ -30,8 +29,8 @@ export function buildTransferWorkbook(details) {
   const salida = XLSX.utils.json_to_sheet(buildTransferSheetRows(details, 'salida'), { header: HEADERS })
   const entrada = XLSX.utils.json_to_sheet(buildTransferSheetRows(details, 'entrada'), { header: HEADERS })
 
-  salida['!cols'] = [{ wch: 18 }, { wch: 48 }, { wch: 14 }]
-  entrada['!cols'] = [{ wch: 18 }, { wch: 48 }, { wch: 14 }]
+  salida['!cols'] = [{ wch: 18 }, { wch: 14 }]
+  entrada['!cols'] = [{ wch: 18 }, { wch: 14 }]
   XLSX.utils.book_append_sheet(workbook, salida, 'Salida')
   XLSX.utils.book_append_sheet(workbook, entrada, 'Entrada')
   return workbook
