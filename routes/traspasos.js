@@ -75,7 +75,11 @@ router.post('/guardar', authorize({ module: 'traspasos', action: 'write' }), asy
         }
 
         await connection.commit();
-        res.json({ success: true, message: `Orden de traspaso #${traspaso_id} guardada con éxito.` });
+        res.json({
+            success: true,
+            traspasoId: traspaso_id,
+            message: `Orden de traspaso #${traspaso_id} guardada con éxito.`
+        });
     } catch (error) {
         await rollbackTransaction(connection, req.requestId);
         return sendInternalError(error, req, res);

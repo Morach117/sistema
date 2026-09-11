@@ -2,8 +2,9 @@ import { useState, useRef, useEffect } from 'react'
 import axios from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ScanBarcode, Trash2, CheckCircle2, Package, ArrowRightLeft } from 'lucide-react'
+import { ScanBarcode, Trash2, CheckCircle2, ArrowRightLeft } from 'lucide-react'
 import Swal from 'sweetalert2'
+import { downloadTransferWorkbook } from '@/features/traspasos/sicarExport'
 
 export default function Traspasos() {
   const [listaProductos, setListaProductos] = useState([])
@@ -104,6 +105,7 @@ export default function Traspasos() {
       const { data } = await axios.post('/api/traspasos/guardar', { productos: payload })
       
       if (data.success) {
+        downloadTransferWorkbook({ transferId: data.traspasoId, details: listaProductos })
         Swal.fire({ icon: 'success', title: '¡Traspaso Exitoso!', text: data.message, timer: 2000, showConfirmButton: false })
         setListaProductos([])
       }

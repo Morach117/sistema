@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from '@/lib/api'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { CheckCircle2, ArrowRightLeft, Search, Clock, FileSpreadsheet, Box, Loader2 } from 'lucide-react'
+import { CheckCircle2, ArrowRightLeft, Search, Clock, FileSpreadsheet, Loader2 } from 'lucide-react'
 import Swal from 'sweetalert2'
-import * as XLSX from 'xlsx'
+import { downloadTransferWorkbook } from '@/features/traspasos/sicarExport'
 
 export default function AdminTraspasos() {
   const queryClient = useQueryClient()
@@ -79,19 +79,16 @@ export default function AdminTraspasos() {
     })
   }
 
-  const exportarExcel = () => {
+  const exportarLibroSicar = () => {
     if (!detalles || detalles.length === 0) return
 
-    const exportData = detalles.map(d => ({
-      'CLAVE SICAR': d.clave_sicar,
-      'DESCRIPCIÓN': d.descripcion,
-      'CANTIDAD RECIBIDA': detallesFisicos[d.detalle_id] || d.cantidad
-    }))
-
-    const ws = XLSX.utils.json_to_sheet(exportData)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Traspaso")
-    XLSX.writeFile(wb, `Traspaso_${selectedId}_${new Date().toISOString().slice(0,10)}.xlsx`)
+    downloadTransferWorkbook({
+      transferId: selectedId,
+      details: detalles.map((detail) => ({
+        ...detail,
+        cantidad: detallesFisicos[detail.detalle_id] ?? detail.cantidad,
+      })),
+    })
   }
 
   return (
@@ -177,8 +174,8 @@ export default function AdminTraspasos() {
                     </div>
                     
                     {selectedTraspaso?.estado === 'COMPLETADO' ? (
-                       <Button onClick={exportarExcel} className="bg-emerald-600 hover:bg-emerald-500 text-white font-black shadow-lg shadow-emerald-500/20 gap-2">
-                         <FileSpreadsheet className="w-4 h-4" /> Exportar a SICAR
+                       <Button onClick={exportarLibroSicar} className="bg-emerald-600 hover:bg-emerald-500 text-white font-black shadow-lg shadow-emerald-500/20 gap-2">
+                         <FileSpreadsheet className="w-4 h-4" /> Descargar Excel SICAR
                        </Button>
                     ) : (
                        <Button 
