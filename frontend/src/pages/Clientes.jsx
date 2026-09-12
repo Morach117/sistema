@@ -189,7 +189,7 @@ function ClienteDetail({ clientId, onEdit }) {
   }
 
   return (
-    <section aria-label={`Ficha de ${client.nombre}`} className="client-detail-scroll custom-scrollbar grid min-h-0 gap-4">
+    <section aria-label={`Ficha de ${client.nombre}`} className="grid min-w-0 gap-4">
       <Card>
         <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0"><CardTitle className="truncate text-xl">{client.nombre}</CardTitle><CardDescription>{client.telefono || 'Sin teléfono'} · {client.correo || 'Sin correo'}</CardDescription></div>
@@ -226,7 +226,7 @@ function ClienteDetail({ clientId, onEdit }) {
           {purchasesQuery.isLoading ? <p className="text-sm text-muted-foreground">Cargando compras…</p> : purchasesQuery.error ? (
             <p role="alert" className="text-sm font-bold text-destructive">{errorMessage(purchasesQuery.error, 'No se pudo cargar el historial de compras.')}</p>
           ) : purchasesQuery.data?.length ? (
-            <ul className="divide-y divide-border">
+            <ul className="client-purchase-history custom-scrollbar divide-y divide-border">
               {purchasesQuery.data.map((purchase) => (
                 <li key={purchase.id} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <div><p className="font-bold">{purchase.folio_ticket || 'Sin folio'}</p><p className="text-xs text-muted-foreground">{dateTime(purchase.fecha_compra)} · {purchase.sucursal_nombre || 'Sucursal no disponible'}</p>{purchaseDetail(purchase.detalle) && <p className="mt-1 text-xs text-muted-foreground">{purchaseDetail(purchase.detalle)}</p>}</div>

@@ -7,14 +7,13 @@ html {
   scrollbar-gutter: stable;
 }
 
-/* En escritorio, el historial de una ficha se consulta sin desplazar el directorio. */
+/* La página conserva su scroll; solo un historial largo tiene desplazamiento propio. */
 @media (min-width: 1024px) {
-  .client-detail-scroll {
-    max-block-size: calc(100dvh - 5rem);
+  .client-purchase-history {
+    max-block-size: min(22rem, 42dvh);
     overflow-y: auto;
-    overscroll-behavior: contain;
+    overscroll-behavior-y: auto;
     padding-inline-end: 0.5rem;
-    scrollbar-gutter: stable;
   }
 }
 

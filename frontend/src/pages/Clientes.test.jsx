@@ -191,12 +191,17 @@ afterEach(() => {
 })
 
 describe('Clientes CRUD and local branch attribution', () => {
-  it('keeps the selected client detail ready for independent desktop scrolling', async () => {
+  it('limits independent scrolling to a long purchase history', async () => {
     renderPage(<Clientes />, createAdapter())
 
     const detail = await openClient()
+    fireEvent.click(within(detail).getByRole('button', { name: /registrar venta/i }))
+    const saleForm = screen.getByRole('form', { name: /registrar venta/i })
+    fireEvent.change(within(saleForm).getByLabelText(/^total/i), { target: { value: '25' } })
+    fireEvent.click(within(saleForm).getByRole('button', { name: /guardar venta/i }))
+    const purchaseTotal = await within(detail).findByText('$25.00')
 
-    expect(detail).toHaveClass('client-detail-scroll')
+    expect(purchaseTotal.closest('ul')).toHaveClass('client-purchase-history')
   })
 
   it('guides a first-run installation to configuration instead of displaying a technical sync failure', async () => {
