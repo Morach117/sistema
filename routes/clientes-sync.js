@@ -3,7 +3,7 @@ const os = require('node:os');
 const auth = require('../middleware/auth');
 const { authorize } = require('../middleware/authorize');
 const { asyncHandler } = require('../middleware/errors');
-const { createClientSyncService } = require('../services/client-sync-service');
+const { createClientSyncService, isTailscaleAddress } = require('../services/client-sync-service');
 const {
   createClientDiscoveryService,
   isAddressOnLocalSubnet,
@@ -13,7 +13,7 @@ function isLanSyncRequest(req) {
   const rawAddress = String(req.socket?.remoteAddress || '');
   const address = rawAddress.startsWith('::ffff:') ? rawAddress.slice(7) : rawAddress;
   if (address === '127.0.0.1' || address === '::1') return true;
-  return isAddressOnLocalSubnet(address, os.networkInterfaces());
+  return isAddressOnLocalSubnet(address, os.networkInterfaces()) || isTailscaleAddress(address);
 }
 
 function requireLan(lanAccess) {
@@ -30,7 +30,9 @@ function requireLan(lanAccess) {
 function createClientesSyncRouter({
   syncService = createClientSyncService(),
   discoveryService = createClientDiscoveryService(),
+  remoteDiscoveryService,
   lanAccess = isLanSyncRequest,
+  apiPort = Number(process.env.PORT || 3000),
 } = {}) {
   const router = express.Router();
   const lanBoundary = requireLan(lanAccess);
@@ -49,10 +51,12 @@ function createClientesSyncRouter({
       await Promise.all([
         syncService.stop?.(),
         discoveryService.stop?.(),
+        remoteDiscoveryService?.stop?.(),
       ]);
       await Promise.all([
         syncService.start(),
         discoveryService.start(),
+        remoteDiscoveryService?.start?.(),
       ]);
       res.json({ success: true, data: result });
     })
@@ -65,11 +69,23 @@ function createClientesSyncRouter({
     lanBoundary,
     asyncHandler(async (_req, res) => {
       const status = await syncService.getStatus();
-      const centralesDetectadas = (discoveryService.listCandidates?.() || []).map((candidate) => ({
+      if (typeof remoteDiscoveryService?.refresh === 'function') {
+        await remoteDiscoveryService.refresh().catch(() => {});
+      }
+      const centralesDetectadas = [
+        ...(discoveryService.listCandidates?.() || []).map((candidate) => ({
         name: candidate.name,
         fingerprint: candidate.fingerprint,
         seenAt: candidate.seenAt,
-      }));
+        network: 'local',
+        })),
+        ...(remoteDiscoveryService?.listCandidates?.() || []).map((candidate) => ({
+          name: candidate.name,
+          fingerprint: candidate.fingerprint,
+          seenAt: candidate.seenAt,
+          network: candidate.network || 'privada',
+        })),
+      ];
       res.json({
         success: true,
         data: {
@@ -107,6 +123,11 @@ function createClientesSyncRouter({
       requestId: req.requestId,
     });
     res.status(201).json(response);
+  }));
+
+  router.get('/anuncio', lanBoundary, asyncHandler(async (_req, res) => {
+    const envelope = await syncService.createNetworkAnnouncement({ apiPort });
+    res.json(envelope);
   }));
 
   router.post('/sincronizar', lanBoundary, asyncHandler(async (req, res) => {

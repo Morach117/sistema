@@ -75,7 +75,7 @@ export default function ClientesConfiguracion() {
       <header>
         <p className="text-xs font-black uppercase tracking-[0.2em] text-primary">Administración local</p>
         <h1 className="mt-1 text-3xl font-black tracking-tight">Configuración de clientes</h1>
-        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Identidad y vínculo LAN de esta instalación. Las direcciones de red se descubren automáticamente y nunca definen la identidad.</p>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Identidad y vínculo de esta instalación. La Central se descubre automáticamente primero en la red local y, si es necesario, en la red privada de sucursales.</p>
       </header>
 
       {statusQuery.error && (
@@ -146,8 +146,8 @@ export default function ClientesConfiguracion() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Network aria-hidden="true" className="h-5 w-5 text-primary" />Vínculo LAN</CardTitle>
-            <CardDescription>Busca y valida la central sin capturar una IP o hostname.</CardDescription>
+            <CardTitle className="flex items-center gap-2"><Network aria-hidden="true" className="h-5 w-5 text-primary" />Vínculo entre sucursales</CardTitle>
+            <CardDescription>Busca y valida la Central sin capturar una IP, hostname ni abrir puertos.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             <div className={`flex items-start gap-3 rounded-xl border p-4 ${linked ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-amber-500/30 bg-amber-500/10'}`}>
@@ -189,7 +189,7 @@ export default function ClientesConfiguracion() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <h3 id="central-detectada-title" className="font-black">1. Selecciona una Central detectada</h3>
-                      <p className="text-xs text-muted-foreground">{statusQuery.isFetching ? 'Buscando equipos cercanos en la red local…' : 'Las Centrales disponibles aparecen automáticamente.'}</p>
+                      <p className="text-xs text-muted-foreground">{statusQuery.isFetching ? 'Buscando en la red local y la red privada de sucursales…' : 'Las Centrales disponibles aparecen automáticamente.'}</p>
                     </div>
                     <Button type="button" size="sm" variant="outline" onClick={() => statusQuery.refetch()} disabled={statusQuery.isFetching}>
                       <RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${statusQuery.isFetching ? 'animate-spin' : ''}`} />Buscar
@@ -219,7 +219,7 @@ export default function ClientesConfiguracion() {
                               </span>
                               <span className="min-w-0 flex-1">
                                 <span className="block break-words font-black">{central.name}</span>
-                                <span className="mt-0.5 flex items-center gap-1 text-xs font-bold text-muted-foreground"><Wifi aria-hidden="true" className="h-3.5 w-3.5" />Central disponible en tu red local</span>
+                                <span className="mt-0.5 flex items-center gap-1 text-xs font-bold text-muted-foreground"><Wifi aria-hidden="true" className="h-3.5 w-3.5" />{central.network === 'privada' ? 'Central disponible por la red privada de sucursales' : 'Central disponible en tu red local'}</span>
                               </span>
                               <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${selected ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>
                                 <ChevronRight aria-hidden="true" className="h-5 w-5" />
@@ -233,7 +233,7 @@ export default function ClientesConfiguracion() {
                     <div className="grid min-h-36 place-items-center gap-2 px-6 py-8 text-center">
                       <span className="grid h-12 w-12 place-items-center rounded-2xl bg-background text-muted-foreground"><WifiOff aria-hidden="true" className="h-6 w-6" /></span>
                       <p className="font-black">Aún no hay Centrales disponibles</p>
-                      <p className="max-w-sm text-sm text-muted-foreground">Verifica que ambas instalaciones tengan el sistema iniciado, una identidad Central o Sucursal configurada y estén en la misma red local.</p>
+                      <p className="max-w-sm text-sm text-muted-foreground">Verifica que ambas instalaciones tengan el sistema iniciado, una identidad Central o Sucursal configurada y estén en la misma red local o conectadas a la red privada de sucursales.</p>
                     </div>
                   )}
                 </section>

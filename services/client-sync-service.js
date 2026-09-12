@@ -235,15 +235,22 @@ function isPrivateLanAddress(value) {
   );
 }
 
+function isTailscaleAddress(value) {
+  const parts = String(value || '').split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) return false;
+  const octets = parts.map(Number);
+  return octets.every((octet) => octet >= 0 && octet <= 255) && octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127;
+}
+
 function assertLanEndpoint(endpoint) {
   if (
     !endpoint ||
-    !isPrivateLanAddress(endpoint.address) ||
+    !(isPrivateLanAddress(endpoint.address) || isTailscaleAddress(endpoint.address)) ||
     !Number.isInteger(endpoint.port) ||
     endpoint.port < 1 ||
     endpoint.port > 65_535
   ) {
-    throw new ClientSyncError('La dirección de la central no pertenece a una LAN privada.', 403);
+    throw new ClientSyncError('La dirección de la Central no pertenece a una red privada autorizada.', 403);
   }
   return endpoint;
 }
@@ -706,6 +713,7 @@ function createClientSyncService({
   batchLimit = DEFAULT_BATCH_LIMIT,
   credentialTtlMs = 90 * 24 * 60 * 60 * 1000,
   discoveryService,
+  remoteDiscoveryService,
   transport,
   fetchFn = globalThis.fetch,
   transportTimeoutMs = 5_000,
@@ -738,6 +746,26 @@ function createClientSyncService({
   let nextRetryDelay = retryBaseMs;
   let lifecycleGeneration = 0;
   let lastConnectivityStatus;
+
+  async function discoverCentral(options, { preferRemote = false } = {}) {
+    const services = (preferRemote
+      ? [remoteDiscoveryService, discoveryService]
+      : [discoveryService, remoteDiscoveryService]
+    ).filter((service) => typeof service?.discover === 'function');
+    let lastError;
+    for (const service of services) {
+      try {
+        return await service.discover(options);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new ClientSyncError('No hay un servicio de descubrimiento disponible.', 503);
+  }
+
+  function lastKnownCentral() {
+    return discoveryService?.getLastCentral?.() || remoteDiscoveryService?.getLastCentral?.() || null;
+  }
 
   function nextCredential(configuration, branchId, branchPublicKey) {
     return issueBranchCredential({
@@ -857,11 +885,32 @@ function createClientSyncService({
     };
   }
 
+  async function createNetworkAnnouncement({ apiPort } = {}) {
+    const configuration = centralConfiguration(await store.readConfiguration());
+    const port = Number(apiPort);
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      throw new ClientSyncError('El puerto de anuncio de la Central no es válido.', 500);
+    }
+    return signEnvelope({
+      privateKey: configuration.central_private_key,
+      payload: {
+        version: 1,
+        type: 'clientes-central-announcement',
+        centralName: text(configuration.sucursal_nombre || 'Central de Clientes', 'El nombre de la Central', 120, { required: true }),
+        centralFingerprint: configuration.central_fingerprint,
+        centralPublicKey: configuration.central_public_key,
+        apiPort: port,
+        issuedAt: now(),
+      },
+    });
+  }
+
   async function pairWithCentral({
     linkCode,
     branchName,
     expectedCentralFingerprint,
     automatic = false,
+    preferRemote = false,
     requestId: httpRequestId,
   } = {}) {
     const local = unpairedBranchConfiguration(await store.readConfiguration());
@@ -871,14 +920,11 @@ function createClientSyncService({
     const automaticLink = automatic === true;
     const code = automaticLink ? null : text(linkCode, 'El código de vínculo', 16_384, { required: true });
     const name = text(branchName, 'El nombre de la sucursal', 120, { required: true });
-    if (!discoveryService?.discover) {
-      throw new ClientSyncError('El descubrimiento LAN no está disponible.', 503);
-    }
     const discoveryOptions = automaticLink ? { automatic: true } : { linkCode: code };
     if (expectedCentralFingerprint) {
       discoveryOptions.expectedCentralFingerprint = expectedCentralFingerprint;
     }
-    const endpoint = assertLanEndpoint(await discoveryService.discover(discoveryOptions));
+    const endpoint = assertLanEndpoint(await discoverCentral(discoveryOptions, { preferRemote }));
     if (
       !endpoint?.centralPublicKey ||
       !verifyCentralFingerprint({
@@ -1145,13 +1191,33 @@ function createClientSyncService({
   }
 
   async function syncOnce() {
-    const configuration = branchConfiguration(await store.readConfiguration());
+    let configuration = await store.readConfiguration();
+    if (
+      String(configuration.rol_nodo || '').toLowerCase() === 'sucursal' &&
+      !configuration.central_fingerprint &&
+      typeof remoteDiscoveryService?.discover === 'function'
+    ) {
+      try {
+        await pairWithCentral({
+          automatic: true,
+          branchName: configuration.sucursal_nombre,
+          preferRemote: true,
+        });
+        configuration = await store.readConfiguration();
+      } catch {
+        return {
+          status: 'offline',
+          pending: await store.countPendingOperations(configuration.sucursal_id),
+        };
+      }
+    }
+    configuration = branchConfiguration(configuration);
     const branchId = uuid(configuration.sucursal_id, 'La sucursal local');
     lastConnectivityStatus = 'offline';
-    let endpoint = discoveryService?.getLastCentral?.() || null;
-    if (!endpoint && discoveryService?.discover) {
+    let endpoint = lastKnownCentral();
+    if (!endpoint) {
       try {
-        endpoint = await discoveryService.discover();
+        endpoint = await discoverCentral();
       } catch {
         return {
           status: 'offline',
@@ -1271,6 +1337,7 @@ function createClientSyncService({
   return {
     acceptSync,
     configureNode,
+    createNetworkAnnouncement,
     createPairingCode,
     getStatus,
     linkBranch,
@@ -1299,6 +1366,7 @@ module.exports = {
   createClientSyncService,
   createSqlSyncStore,
   isPrivateLanAddress,
+  isTailscaleAddress,
   signEnvelope,
   verifySignedEnvelope,
 };

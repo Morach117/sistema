@@ -7,16 +7,20 @@ const { runMigrations } = require('./scripts/migrate');
 
 function createNetworkServices({ apiPort, database }) {
   const { createClientDiscoveryService } = require('./services/client-discovery-service');
+  const { createTailscaleDiscoveryService } = require('./services/client-tailscale-discovery-service');
   const { createClientSyncService, createSqlSyncStore } = require('./services/client-sync-service');
   const clientDiscoveryService = createClientDiscoveryService({ apiPort });
+  const clientRemoteDiscoveryService = createTailscaleDiscoveryService({ apiPort });
   const clientSyncService = createClientSyncService({
     store: createSqlSyncStore({ database }),
     discoveryService: clientDiscoveryService,
+    remoteDiscoveryService: clientRemoteDiscoveryService,
   });
   return {
     clientDiscoveryService,
+    clientRemoteDiscoveryService,
     clientSyncService,
-    services: [clientDiscoveryService, clientSyncService],
+    services: [clientDiscoveryService, clientRemoteDiscoveryService, clientSyncService],
   };
 }
 
@@ -94,6 +98,8 @@ async function startServer({
       environment: config.env,
       clientSyncService: createdNetworkServices.clientSyncService,
       clientDiscoveryService: createdNetworkServices.clientDiscoveryService,
+      clientRemoteDiscoveryService: createdNetworkServices.clientRemoteDiscoveryService,
+      apiPort: config.port,
     }).listen(config.port);
     const stopNetworkServices = networkServices.map((service) => superviseNetworkService(service, {
       scheduleRetry,

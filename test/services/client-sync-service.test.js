@@ -589,6 +589,102 @@ test('an unpaired branch can connect to its selected LAN central without copying
   assert.ok(store.state.configuration.sucursal_credential);
 });
 
+test('automatically links and syncs a branch through Tailscale when its Central is available', async () => {
+  const central = generateCentralIdentity();
+  const branch = generateBranchIdentity();
+  const store = createMemoryStore({
+    configuration: {
+      sucursal_id: BRANCH_ID,
+      sucursal_nombre: 'Sucursal Remota',
+      rol_nodo: 'sucursal',
+      central_fingerprint: null,
+      central_public_key: null,
+      sucursal_public_key: branch.publicKey,
+      sucursal_private_key: branch.privateKey,
+      sucursal_credential: null,
+      ultimo_cursor_recibido: 0,
+    },
+  });
+  const endpoint = {
+    address: '100.90.10.4',
+    port: 4312,
+    network: 'tailscale',
+    centralFingerprint: central.fingerprint,
+    centralPublicKey: central.publicKey,
+  };
+  let discoveredEndpoint = null;
+  const sync = createClientSyncService({
+    store,
+    now: () => NOW,
+    createUuid: () => '06b02906-e22e-43bf-ab7d-b85211f4ec66',
+    discoveryService: {
+      getLastCentral: () => null,
+      async discover() { assert.fail('the remote private network must be preferred for automatic linking'); },
+    },
+    remoteDiscoveryService: {
+      getLastCentral: () => discoveredEndpoint,
+      async discover(input) {
+        assert.deepEqual(input, { automatic: true });
+        discoveredEndpoint = endpoint;
+        return endpoint;
+      },
+    },
+    async transport(receivedEndpoint, envelope, path) {
+      assert.deepEqual(receivedEndpoint, endpoint);
+      if (path === '/api/clientes-sync/vincular') {
+        const requestPayload = verifySignedEnvelope({ envelope, publicKey: branch.publicKey, expectedType: 'clientes-link-request', now: NOW });
+        assert.equal(requestPayload.automatic, true);
+        const credential = issueBranchCredential({
+          privateKey: central.privateKey,
+          centralFingerprint: central.fingerprint,
+          branchId: BRANCH_ID,
+          branchPublicKey: branch.publicKey,
+          now: NOW,
+        });
+        return signEnvelope({
+          privateKey: central.privateKey,
+          payload: {
+            version: 1,
+            type: 'clientes-link-response',
+            requestId: requestPayload.requestId,
+            issuedAt: NOW,
+            branchId: BRANCH_ID,
+            centralId: 'dd26d267-52e7-4b90-b1ee-c53289448be0',
+            centralName: 'Central Matriz',
+            centralFingerprint: central.fingerprint,
+            credential,
+          },
+        });
+      }
+      const requestPayload = verifySignedEnvelope({ envelope, publicKey: branch.publicKey, expectedType: 'clientes-sync-request', now: NOW });
+      return signEnvelope({
+        privateKey: central.privateKey,
+        payload: {
+          version: 1,
+          type: 'clientes-sync-response',
+          requestId: requestPayload.requestId,
+          issuedAt: NOW,
+          branchId: BRANCH_ID,
+          centralFingerprint: central.fingerprint,
+          acknowledgedOperationIds: [],
+          operations: [],
+          nextCursor: 0,
+          credential: store.state.configuration.sucursal_credential,
+        },
+      });
+    },
+  });
+
+  assert.deepEqual(await sync.syncOnce(), {
+    status: 'synchronized',
+    sent: 0,
+    received: 0,
+    conflicts: 0,
+    pending: 0,
+  });
+  assert.equal(store.state.configuration.central_fingerprint, central.fingerprint);
+});
+
 test('links a branch only with its signed request and rotates a central-signed credential without storing its endpoint', async () => {
   const central = generateCentralIdentity();
   const branch = generateBranchIdentity();
@@ -1042,7 +1138,7 @@ test('rejects a discovered endpoint outside private LAN ranges before calling tr
     },
   });
 
-  await assert.rejects(sync.syncOnce(), /LAN|subred|direcci[oó]n.*local/i);
+  await assert.rejects(sync.syncOnce(), /privada|direcci[oó]n/i);
   assert.equal(transportCalled, false);
 });
 

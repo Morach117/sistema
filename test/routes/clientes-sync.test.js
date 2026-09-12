@@ -16,11 +16,11 @@ const { request } = require('../helpers/app');
 const jwtSecret = 'clientes-sync-route-secret-32-characters';
 process.env.JWT_SECRET = jwtSecret;
 
-function buildApp({ syncService, discoveryService, lanAccess }) {
+function buildApp({ syncService, discoveryService, remoteDiscoveryService, lanAccess, apiPort }) {
   const app = express();
   app.use(requestContext);
   app.use(express.json());
-  app.use('/api/clientes-sync', createClientesSyncRouter({ syncService, discoveryService, lanAccess }));
+  app.use('/api/clientes-sync', createClientesSyncRouter({ syncService, discoveryService, remoteDiscoveryService, lanAccess, apiPort }));
   app.use(errorHandler);
   return app;
 }
@@ -292,8 +292,64 @@ test('publishes only safe ephemeral central candidates in the local status', asy
     name: 'Central Matriz',
     fingerprint: 'b'.repeat(64),
     seenAt: 1_786_723_200_000,
+    network: 'local',
   }]);
   assert.doesNotMatch(response.text, /192\.168\.80\.20|must-not-leak/);
+});
+
+test('publishes a Tailscale-discovered Central without exposing its private network address', async () => {
+  const app = buildApp({
+    syncService: serviceDouble({
+      async getStatus() {
+        return { sucursal: { nombre: 'Sucursal Remota', rol: 'sucursal' }, estado: 'sin-vincular' };
+      },
+    }),
+    discoveryService: { listCandidates: () => [] },
+    remoteDiscoveryService: {
+      async refresh() {},
+      listCandidates: () => [{
+        name: 'Central Matriz',
+        fingerprint: 'c'.repeat(64),
+        network: 'privada',
+        seenAt: 1_786_723_200_000,
+        address: '100.90.10.4',
+      }],
+    },
+    lanAccess: () => true,
+  });
+
+  const response = await request(app)
+    .get('/api/clientes-sync/estado')
+    .set('Authorization', `Bearer ${adminToken({ rol: 'empleado', permisos: ['clientes'] })}`);
+
+  assert.equal(response.status, 200, response.text);
+  assert.deepEqual(response.body.data.centralesDetectadas, [{
+    name: 'Central Matriz',
+    fingerprint: 'c'.repeat(64),
+    network: 'privada',
+    seenAt: 1_786_723_200_000,
+  }]);
+  assert.doesNotMatch(response.text, /100\.90\.10\.4/);
+});
+
+test('returns a signed central announcement only through the private sync boundary', async () => {
+  const envelope = { payload: { type: 'clientes-central-announcement' }, signature: 'signed' };
+  const allowed = buildApp({
+    syncService: serviceDouble({ async createNetworkAnnouncement(input) { return { ...envelope, apiPort: input.apiPort }; } }),
+    discoveryService: {},
+    lanAccess: () => true,
+    apiPort: 4312,
+  });
+  const denied = buildApp({
+    syncService: serviceDouble({ async createNetworkAnnouncement() { assert.fail('must not announce outside a private network'); } }),
+    discoveryService: {},
+    lanAccess: () => false,
+  });
+
+  const response = await request(allowed).get('/api/clientes-sync/anuncio');
+  assert.equal(response.status, 200, response.text);
+  assert.deepEqual(response.body, { ...envelope, apiPort: 4312 });
+  assert.equal((await request(denied).get('/api/clientes-sync/anuncio')).status, 403);
 });
 
 test('reports setup required without leaking node identity details', async () => {

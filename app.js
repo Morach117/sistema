@@ -43,6 +43,8 @@ function createApp({
   developmentPublicPath,
   clientSyncService,
   clientDiscoveryService,
+  clientRemoteDiscoveryService,
+  apiPort = Number(process.env.PORT || 3000),
   readinessCheck = defaultReadinessCheck,
   readinessAccess = isLoopbackReadinessRequest,
   readinessCacheMs = 5000,
@@ -96,6 +98,8 @@ function createApp({
   app.use('/api/clientes-sync', require('./routes/clientes-sync').createClientesSyncRouter({
     syncService: clientSyncService,
     discoveryService: clientDiscoveryService,
+    remoteDiscoveryService: clientRemoteDiscoveryService,
+    apiPort,
   }));
   app.use('/api/captura', require('./routes/captura'));
   app.use('/api/reclamaciones', require('./routes/reclamaciones'));
