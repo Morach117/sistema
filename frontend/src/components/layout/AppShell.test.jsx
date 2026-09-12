@@ -72,6 +72,15 @@ afterEach(() => {
 })
 
 describe('AppShell', () => {
+  it('uses one viewport-bound scroll area for the application content', () => {
+    renderShell()
+
+    const main = document.getElementById('main-content')
+
+    expect(main).toHaveClass('min-h-0', 'overflow-y-auto')
+    expect(main.parentElement.parentElement).toHaveClass('h-dvh', 'overflow-hidden')
+  })
+
   it('opens the mobile navigation with an accessible control', () => {
     renderShell()
 

@@ -152,7 +152,7 @@ export default function AppShell({ children }) {
   }
 
   return (
-    <div className="relative flex min-h-dvh bg-background font-sans text-foreground">
+    <div className="relative flex h-dvh overflow-hidden bg-background font-sans text-foreground">
       <a
         href="#main-content"
         className={`sr-only z-50 rounded-lg bg-background px-4 py-3 text-foreground shadow-lg focus:not-sr-only focus:fixed focus:left-4 focus:top-4 ${focusStyles}`}
@@ -249,7 +249,7 @@ export default function AppShell({ children }) {
         </div>
       </aside>
 
-      <div inert={mobileNavigationOpen} className="flex min-w-0 flex-1 flex-col">
+      <div inert={mobileNavigationOpen} className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 flex min-h-16 items-center justify-between gap-3 border-b border-border bg-[hsl(var(--surface)/0.9)] px-4 backdrop-blur-xl lg:hidden">
           <button
             ref={mobileNavigationTriggerRef}
@@ -268,7 +268,7 @@ export default function AppShell({ children }) {
           <ThemeToggle />
         </header>
 
-        <main id="main-content" tabIndex="-1" className="app-content-scroll min-w-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10">
+        <main id="main-content" tabIndex="-1" className="app-content-scroll min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10">
           {children}
         </main>
       </div>
