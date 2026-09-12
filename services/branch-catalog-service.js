@@ -59,6 +59,10 @@ function sanitizeEntries(entries, includePrices) {
   });
 }
 
+function withoutLocalBranch(entries, localBranchId) {
+  return entries.filter((entry) => entry.sucursalId !== localBranchId);
+}
+
 function createSqlBranchCatalogStore({ executor = database } = {}) {
   if (!executor || typeof executor.execute !== 'function') throw new TypeError('Se requiere una base de datos válida.');
   return {
@@ -295,7 +299,8 @@ function createBranchCatalogService({
     const configuration = await store.readConfiguration();
     const normalizedCode = cleanCode(code);
     if (String(configuration.rol_nodo || '').toLowerCase() === 'central') {
-      return { entries: await collectAtCentral({ configuration, code: normalizedCode, includePrices }) };
+      const entries = await collectAtCentral({ configuration, code: normalizedCode, includePrices });
+      return { entries: withoutLocalBranch(entries, configuration.sucursal_id) };
     }
     if (String(configuration.rol_nodo || '').toLowerCase() !== 'sucursal') {
       throw new ClientSyncError('Esta instalación no tiene un rol de red válido.', 409);
@@ -326,10 +331,10 @@ function createBranchCatalogService({
       now,
     });
     if (payload.requestId !== requestId) throw new ClientSyncError('La respuesta de la Central no corresponde a la consulta.', 401);
-    return { entries: sanitizeEntries(payload.entries || [], includePrices) };
+    return { entries: withoutLocalBranch(sanitizeEntries(payload.entries || [], includePrices), configuration.sucursal_id) };
   }
 
   return { announceBranch, receiveBranchLookup, receiveCentralLookup, resolveForReception };
 }
 
-module.exports = { createBranchCatalogService, createSqlBranchCatalogStore, sanitizeEntries };
+module.exports = { createBranchCatalogService, createSqlBranchCatalogStore, sanitizeEntries, withoutLocalBranch };

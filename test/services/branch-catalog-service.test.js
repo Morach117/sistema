@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { generateKeyPairSync } = require('node:crypto');
-const { createBranchCatalogService } = require('../../services/branch-catalog-service');
+const { createBranchCatalogService, sanitizeEntries } = require('../../services/branch-catalog-service');
 
 const CENTRAL_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -29,26 +29,42 @@ function centralStore() {
   };
 }
 
-test('consultas de recepción eliminan precios cuando no están autorizados', async () => {
-  const service = createBranchCatalogService({ store: centralStore() });
-
-  const result = await service.resolveForReception({ code: '7500000000001', includePrices: false });
-
-  assert.deepEqual(result, {
-    entries: [{
+test('consultas de recepción eliminan precios cuando no están autorizados', () => {
+  const entries = sanitizeEntries([{
       sucursalId: CENTRAL_ID,
       sucursal: 'Matriz',
       claveSicar: '7500000000001',
       codigoBarras: '7500000000001',
       descripcion: 'Cuaderno',
-    }],
-  });
+      precioVenta: 24.5,
+    }], false);
+
+  assert.deepEqual(entries, [{
+    sucursalId: CENTRAL_ID,
+    sucursal: 'Matriz',
+    claveSicar: '7500000000001',
+    codigoBarras: '7500000000001',
+    descripcion: 'Cuaderno',
+  }]);
 });
 
-test('consultas administrativas incluyen el precio de venta de la sucursal', async () => {
+test('consultas administrativas incluyen el precio de venta de la sucursal', () => {
+  const result = sanitizeEntries([{
+    sucursalId: CENTRAL_ID,
+    sucursal: 'Matriz',
+    claveSicar: '7500000000001',
+    codigoBarras: '7500000000001',
+    descripcion: 'Cuaderno',
+    precioVenta: 24.5,
+  }], true);
+
+  assert.equal(result[0].precioVenta, 24.5);
+});
+
+test('la Central no se muestra como sucursal conectada a sí misma', async () => {
   const service = createBranchCatalogService({ store: centralStore() });
 
   const result = await service.resolveForReception({ code: '7500000000001', includePrices: true });
 
-  assert.equal(result.entries[0].precioVenta, 24.5);
+  assert.deepEqual(result.entries, []);
 });
