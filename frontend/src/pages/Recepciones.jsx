@@ -115,41 +115,34 @@ async function copyCode(code) {
 }
 
 function BranchCatalogLookup({ code, isReceptionAdmin }) {
-  const [entries, setEntries] = useState([])
-  const [state, setState] = useState('idle')
-  const [message, setMessage] = useState('')
-
-  const consult = async () => {
-    const normalizedCode = String(code || '').trim()
-    if (!normalizedCode || normalizedCode === 'FALTANTE' || normalizedCode === 'DEVOLUCION') {
-      setEntries([])
-      setState('error')
-      setMessage('Asigna una clave SICAR para consultar otras sucursales.')
-      return
-    }
-    setState('loading')
-    setMessage('')
-    try {
+  const normalizedCode = String(code || '').trim()
+  const canQuery = Boolean(normalizedCode && normalizedCode !== 'FALTANTE' && normalizedCode !== 'DEVOLUCION')
+  const [copyMessage, setCopyMessage] = useState('')
+  const branchCatalog = useQuery({
+    queryKey: ['catalogo-sucursales-recepcion', normalizedCode],
+    enabled: canQuery,
+    staleTime: 60_000,
+    retry: false,
+    queryFn: async () => {
       const response = await api.get('/api/catalogo-sucursales/recepcion', { params: { code: normalizedCode } })
-      const results = Array.isArray(response.data?.data?.entries) ? response.data.data.entries : []
-      setEntries(results)
-      setState('done')
-      setMessage(results.length ? '' : 'No hay coincidencias en las sucursales conectadas.')
-    } catch (error) {
-      setEntries([])
-      setState('error')
-      setMessage(error.response?.data?.error || 'No se pudo consultar las sucursales conectadas.')
-    }
-  }
+      return Array.isArray(response.data?.data?.entries) ? response.data.data.entries : []
+    },
+  })
+  const entries = branchCatalog.data || []
+  const queryMessage = !canQuery
+    ? 'Asigna una clave SICAR para consultar otras sucursales.'
+    : branchCatalog.isError
+      ? (branchCatalog.error?.response?.data?.error || 'No se pudo consultar las sucursales conectadas.')
+      : branchCatalog.isSuccess && entries.length === 0
+        ? 'No hay coincidencias en las sucursales conectadas.'
+        : ''
 
   const copyBarcode = async (entry) => {
     try {
       await copyCode(entry.codigoBarras)
-      setMessage(`Código de ${entry.sucursal} copiado.`)
-      setState('done')
+      setCopyMessage(`Código de ${entry.sucursal} copiado.`)
     } catch {
-      setMessage('No se pudo copiar el código. Inténtalo de nuevo.')
-      setState('error')
+      setCopyMessage('No se pudo copiar el código. Inténtalo de nuevo.')
     }
   }
 
@@ -159,9 +152,9 @@ function BranchCatalogLookup({ code, isReceptionAdmin }) {
         <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
           <Waypoints aria-hidden="true" className="h-3.5 w-3.5" /> Sucursales conectadas
         </p>
-        <Button type="button" size="sm" variant="outline" onClick={consult} disabled={state === 'loading'} className="h-8 px-2 text-[10px] font-black">
-          {state === 'loading' ? <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" /> : 'Consultar'}
-        </Button>
+        {branchCatalog.isFetching
+          ? <Loader2 aria-label="Consultando sucursales" className="h-4 w-4 animate-spin text-muted-foreground" />
+          : canQuery && <Button type="button" size="sm" variant="outline" onClick={() => branchCatalog.refetch()} className="h-8 px-2 text-[10px] font-black">Actualizar</Button>}
       </div>
       {entries.length > 0 && (
         <div className="mt-2 space-y-1.5">
@@ -178,7 +171,8 @@ function BranchCatalogLookup({ code, isReceptionAdmin }) {
           ))}
         </div>
       )}
-      {message && <p role="status" className={`mt-2 text-[11px] font-bold ${state === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>{message}</p>}
+      {queryMessage && <p role="status" className={`mt-2 text-[11px] font-bold ${branchCatalog.isError ? 'text-destructive' : 'text-muted-foreground'}`}>{queryMessage}</p>}
+      {copyMessage && <p role="status" className="mt-2 text-[11px] font-bold text-muted-foreground">{copyMessage}</p>}
     </section>
   )
 }

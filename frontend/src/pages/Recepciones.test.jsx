@@ -176,8 +176,6 @@ describe('Recepciones presentation and cost review', () => {
     }), ['recepciones'], employee())
     await openReception()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Consultar' }))
-
     expect(await screen.findByRole('button', { name: /copiar código 7500000000001 de Sucursal Centro/i })).toBeVisible()
     expect(screen.queryByText('$24.50')).not.toBeInTheDocument()
   })
