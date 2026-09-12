@@ -63,7 +63,7 @@ function createClientesSyncRouter({
   );
 
   router.get(
-    '/estado',
+    ['/estado', '/status'],
     auth,
     authorize({ module: 'clientes', action: 'read' }),
     lanBoundary,

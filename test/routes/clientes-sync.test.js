@@ -238,18 +238,25 @@ test('returns only safe local sync status to an authenticated clients user', asy
   });
 
   const anonymous = await request(app).get('/api/clientes-sync/estado');
+  const statusAliasAnonymous = await request(app).get('/api/clientes-sync/status');
   const denied = await request(app)
     .get('/api/clientes-sync/estado')
     .set('Authorization', `Bearer ${adminToken({ rol: 'empleado', permisos: [] })}`);
   const allowed = await request(app)
     .get('/api/clientes-sync/estado')
     .set('Authorization', `Bearer ${adminToken({ rol: 'empleado', permisos: ['clientes'] })}`);
+  const statusAliasAllowed = await request(app)
+    .get('/api/clientes-sync/status')
+    .set('Authorization', `Bearer ${adminToken({ rol: 'empleado', permisos: ['clientes'] })}`);
 
   assert.equal(anonymous.status, 401);
+  assert.equal(statusAliasAnonymous.status, 401);
   assert.equal(denied.status, 403);
   assert.equal(allowed.status, 200, allowed.text);
+  assert.equal(statusAliasAllowed.status, 200, statusAliasAllowed.text);
   assert.deepEqual(allowed.body, { success: true, data: safeStatus });
-  assert.deepEqual(calls, ['status']);
+  assert.deepEqual(statusAliasAllowed.body, { success: true, data: safeStatus });
+  assert.deepEqual(calls, ['status', 'status']);
   assert.equal(JSON.stringify(allowed.body).includes('private_key'), false);
   assert.equal(JSON.stringify(allowed.body).includes('credential'), false);
   assert.equal(JSON.stringify(allowed.body).includes('192.168.'), false);
