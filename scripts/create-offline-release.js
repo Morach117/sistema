@@ -89,6 +89,8 @@ function isInside(parent, candidate) {
 function copyReleaseTree(sourceRoot, destinationRoot, outputRoot) {
   const excludedTopLevel = new Set([
     '.git',
+    '.codex-remote-attachments',
+    'graphify-out',
     'node_modules',
     'artifacts',
     'backups',

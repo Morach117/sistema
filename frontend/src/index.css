@@ -110,4 +110,32 @@
   ):hover {
     border-color: hsl(var(--focus));
   }
+
+  /* Prevent leftover dark utility classes from leaking into light CRUD forms. */
+  .light #main-content input,
+  .light #main-content select,
+  .light #main-content textarea {
+    background-color: hsl(var(--surface));
+    border-color: hsl(var(--border));
+    color: hsl(var(--text-primary));
+  }
+
+  .light #main-content input::placeholder,
+  .light #main-content textarea::placeholder {
+    color: hsl(var(--muted-foreground));
+    opacity: 1;
+  }
+
+  .light #main-content input:focus,
+  .light #main-content select:focus,
+  .light #main-content textarea:focus {
+    border-color: hsl(var(--focus));
+    outline-color: hsl(var(--focus));
+  }
+
+  .light [role="dialog"] {
+    background-color: hsl(var(--surface));
+    border-color: hsl(var(--border));
+    color: hsl(var(--text-primary));
+  }
 }

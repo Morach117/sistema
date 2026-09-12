@@ -65,10 +65,10 @@ export default function Reclamaciones() {
   }
 
   return (
-    <div className="flex h-full gap-6 animate-in fade-in duration-500 pb-10">
+    <div className="flex min-h-0 flex-col gap-6 animate-in fade-in duration-500 pb-10 lg:flex-row">
       
       {/* Sidebar de Incidencias */}
-      <div className="w-80 flex-shrink-0 flex flex-col gap-4">
+      <div className="w-full flex-none flex flex-col gap-4 lg:w-80 lg:self-start">
         <div>
           <h2 className="font-black text-2xl tracking-tight text-slate-100 flex items-center gap-2">
             <AlertOctagon className="text-red-500 w-6 h-6" /> Rectificación y re-conteo
@@ -76,7 +76,7 @@ export default function Reclamaciones() {
           <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1 block">Artículos por rectificar</span>
         </div>
         
-        <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+        <div className="max-h-[min(55dvh,36rem)] overflow-y-auto space-y-3 pr-2 custom-scrollbar">
           {loadingList ? (
              [...Array(4)].map((_, i) => (
               <div key={i} className="animate-pulse bg-muted rounded-2xl h-24 w-full"></div>
@@ -111,18 +111,18 @@ export default function Reclamaciones() {
       </div>
 
       {/* Detalle Principal */}
-      <div className="flex-1 flex flex-col glass-panel shadow-sm rounded-[2rem] overflow-hidden relative">
+      <div className="flex-1 glass-panel shadow-sm rounded-[2rem] overflow-visible relative">
         {!selectedIncidencia ? (
-           <div className="flex flex-col items-center justify-center h-full text-slate-600 mt-32">
+            <div className="flex min-h-64 flex-col items-center justify-center text-slate-600">
              <AlertOctagon className="w-24 h-24 mb-6 opacity-30 text-red-500" />
              <p className="text-2xl font-black tracking-tight text-slate-500">Selecciona un folio</p>
            </div>
         ) : loadingDetails ? (
-           <div className="flex flex-col items-center justify-center h-full">
+            <div className="flex min-h-64 flex-col items-center justify-center">
              <span className="loading loading-spinner text-red-500 w-12 h-12"></span>
            </div>
         ) : items?.length === 0 ? (
-           <div className="flex flex-col items-center justify-center h-full animate-in fade-in">
+            <div className="flex min-h-64 flex-col items-center justify-center animate-in fade-in">
              <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center text-white shadow-xl shadow-emerald-500/20 mb-4">
                <Check className="w-10 h-10" />
              </div>
@@ -146,7 +146,7 @@ export default function Reclamaciones() {
              </div>
              
              {/* Lista de Items */}
-             <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-950/20">
+              <div className="max-h-[min(65dvh,52rem)] overflow-y-auto p-6 space-y-4 bg-slate-950/20 custom-scrollbar">
                {items?.map((item) => (
                  <Card key={item.id} className="glass-panel border-2 border-slate-800/50 bg-slate-900/40 shadow-sm transition-all overflow-hidden hover:border-slate-700 hover:bg-slate-900/60">
                    <div className="p-4 flex flex-col md:flex-row items-center gap-6">
