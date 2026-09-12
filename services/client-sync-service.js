@@ -157,6 +157,8 @@ function normalizeOperation(value) {
   if (version !== baseVersion + 1) {
     throw new ClientSyncError('La versión de la operación no continúa su versión base.');
   }
+  const entityPayload = { ...payload };
+  delete entityPayload._registro;
   const normalized = {
     id: uuid(operation.id, 'La operación'),
     cursorLocal: boundedInteger(Number(operation.cursorLocal || 0), 'El cursor local'),
@@ -169,32 +171,33 @@ function normalizeOperation(value) {
     version,
   };
   if (
-    uuid(payload.id, 'El contenido de la entidad') !== normalized.entidadId ||
-    Number(payload.version) !== normalized.version
+    uuid(entityPayload.id, 'El contenido de la entidad') !== normalized.entidadId ||
+    Number(entityPayload.version) !== normalized.version
   ) {
     throw new ClientSyncError('El contenido de la operación no coincide con su identidad o versión.');
   }
   if (entidad === 'cliente') {
-    const originBranchId = uuid(payload.origen_sucursal_id, 'La sucursal de origen');
+    const originBranchId = uuid(entityPayload.origen_sucursal_id, 'La sucursal de origen');
     if (tipoOperacion === 'crear' && originBranchId !== normalized.sucursalId) {
       throw new ClientSyncError('La sucursal de origen no coincide con la atribución de la operación.');
     }
-    text(payload.nombre, 'El nombre del cliente', 180, { required: true });
-    if (typeof payload.activo !== 'boolean') {
+    text(entityPayload.nombre, 'El nombre del cliente', 180, { required: true });
+    if (typeof entityPayload.activo !== 'boolean') {
       throw new ClientSyncError('El estado del cliente no es válido.');
     }
   } else {
-    uuid(payload.cliente_id, 'El cliente de la compra');
-    if (uuid(payload.sucursal_id, 'La sucursal de la compra') !== normalized.sucursalId) {
+    uuid(entityPayload.cliente_id, 'El cliente de la compra');
+    if (uuid(entityPayload.sucursal_id, 'La sucursal de la compra') !== normalized.sucursalId) {
       throw new ClientSyncError('La sucursal de la compra no coincide con la atribución de la operación.');
     }
-    if (!Number.isFinite(Number(payload.total)) || Number(payload.total) < 0) {
+    if (!Number.isFinite(Number(entityPayload.total)) || Number(entityPayload.total) < 0) {
       throw new ClientSyncError('El total de la compra no es válido.');
     }
-    if (!Number.isFinite(Date.parse(payload.fecha_compra))) {
+    if (!Number.isFinite(Date.parse(entityPayload.fecha_compra))) {
       throw new ClientSyncError('La fecha de compra no es válida.');
     }
   }
+  Object.defineProperty(normalized, 'entityPayload', { value: entityPayload, enumerable: false });
   return normalized;
 }
 
@@ -382,9 +385,32 @@ function createSqlSyncStore({ database = require('../config/database'), executor
 
     async saveBranchCredential({ branchId, credential }) {
       await executor.execute(
-        'UPDATE sucursales SET credential = ? WHERE id = ? AND activo = 1',
+        `UPDATE sucursales
+            SET credential = ?, ultima_sincronizacion_en = CURRENT_TIMESTAMP(3)
+          WHERE id = ? AND activo = 1`,
         [credential, branchId]
       );
+    },
+
+    async listLinkedBranches({ centralId }) {
+      const [rows] = await executor.execute(
+        `SELECT id, nombre, activo, creado_en, actualizado_en, ultima_sincronizacion_en,
+                ultimo_cursor_enviado, ultimo_cursor_recibido
+           FROM sucursales
+          WHERE id <> ? AND rol_nodo = 'sucursal'
+          ORDER BY activo DESC, ultima_sincronizacion_en DESC, creado_en DESC, nombre ASC`,
+        [centralId]
+      );
+      return rows.map((row) => ({
+        id: row.id,
+        nombre: row.nombre,
+        activo: Boolean(row.activo),
+        vinculadaEn: row.creado_en || null,
+        actualizadaEn: row.actualizado_en || null,
+        ultimaSincronizacionEn: row.ultima_sincronizacion_en || null,
+        ultimoCursorEnviado: Number(row.ultimo_cursor_enviado || 0),
+        ultimoCursorRecibido: Number(row.ultimo_cursor_recibido || 0),
+      }));
     },
 
     async hasOperation(operationId) {
@@ -625,16 +651,17 @@ function unpairedBranchConfiguration(configuration) {
 
 async function applyIncomingOperation({ store, operation, localBranchId, createUuid }) {
   if (await store.hasOperation(operation.id)) return { duplicate: true, conflict: false };
+  const entityPayload = operation.entityPayload || operation.payload;
   const local = await store.getEntity(operation.entidad, operation.entidadId);
   if (
     local &&
     operation.entidad === 'cliente' &&
-    local.origen_sucursal_id !== operation.payload.origen_sucursal_id
+    local.origen_sucursal_id !== entityPayload.origen_sucursal_id
   ) {
     throw new ClientSyncError('La operación intenta cambiar la sucursal de origen del cliente.', 403);
   }
   let conflict = false;
-  if (local && canonicalJson(local) !== canonicalJson(operation.payload)) {
+  if (local && canonicalJson(local) !== canonicalJson(entityPayload)) {
     if (Number(local.version) !== operation.baseVersion) {
       conflict = true;
       await store.saveConflict({
@@ -643,7 +670,7 @@ async function applyIncomingOperation({ store, operation, localBranchId, createU
         entidad: operation.entidad,
         entidadId: operation.entidadId,
         payloadLocal: local,
-        payloadRemoto: operation.payload,
+        payloadRemoto: entityPayload,
       });
     }
   } else if (!local && operation.baseVersion !== 0) {
@@ -654,16 +681,16 @@ async function applyIncomingOperation({ store, operation, localBranchId, createU
       entidad: operation.entidad,
       entidadId: operation.entidadId,
       payloadLocal: { ausente: true },
-      payloadRemoto: operation.payload,
+      payloadRemoto: entityPayload,
     });
   }
   if (!conflict) {
-    if (!local) await store.insertEntity(operation.entidad, operation.payload);
+    if (!local) await store.insertEntity(operation.entidad, entityPayload);
     else if (
-      canonicalJson(local) !== canonicalJson(operation.payload) &&
+      canonicalJson(local) !== canonicalJson(entityPayload) &&
       Number(local.version) === operation.baseVersion
     ) {
-      await store.updateEntity(operation.entidad, operation.payload);
+      await store.updateEntity(operation.entidad, entityPayload);
     }
   }
   await store.saveIncomingOperation(operation);
@@ -781,15 +808,15 @@ function createClientSyncService({
         : await store.readConfiguration();
     } catch (error) {
       if (error instanceof ClientSyncError && error.status === 409) {
-        return {
-          configuracionRequerida: true,
+      return {
+        configuracionRequerida: true,
           sucursal: null,
           centralVinculada: false,
           centralFingerprint: null,
           estado: 'configuracion-requerida',
           pendientes: 0,
-          conflictos: 0,
-        };
+        conflictos: 0,
+      };
       }
       throw error;
     }
@@ -801,6 +828,10 @@ function createClientSyncService({
     else if (fingerprint && lastConnectivityStatus === 'offline') status = 'offline';
     else if (fingerprint) status = 'offline';
 
+    const sucursalesVinculadas = role === 'central' && typeof store.listLinkedBranches === 'function'
+      ? await store.listLinkedBranches({ centralId: summary.sucursal_id })
+      : [];
+
     return {
       sucursal: {
         nombre: summary.sucursal_nombre || 'Sucursal local',
@@ -811,6 +842,7 @@ function createClientSyncService({
       estado: status,
       pendientes: Number(summary.pendientes || 0),
       conflictos: Number(summary.conflictos || 0),
+      ...(role === 'central' ? { sucursalesVinculadas } : {}),
     };
   }
 

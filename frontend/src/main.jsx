@@ -5,8 +5,10 @@ import { BrowserRouter } from 'react-router-dom'
 import { ThemeProvider } from 'next-themes'
 import { Toaster } from 'sonner'
 import App from './App.jsx'
+import AccessibilityMenu from './components/AccessibilityMenu.jsx'
 import './lib/api'
 import './index.css'
+import './styles/accessibility.css'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,6 +25,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <App />
+          <AccessibilityMenu />
           <Toaster richColors position="bottom-right" />
         </BrowserRouter>
       </QueryClientProvider>

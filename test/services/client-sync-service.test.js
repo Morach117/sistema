@@ -348,6 +348,52 @@ test('reports a safe offline summary without reading credentials or persisted ne
   assert.doesNotMatch(sql, /private_key|credential|address|hostname|\bip\b/);
 });
 
+test('reports linked branch activity to a Central without exposing identity credentials', async () => {
+  const statements = [];
+  const database = {
+    async getConnection() { assert.fail('status must not start a transaction'); },
+    async execute(sql) {
+      statements.push(sql);
+      if (/FROM sucursales\s+WHERE id <> \? AND rol_nodo = 'sucursal'/i.test(sql)) {
+        return [[{
+          id: BRANCH_ID,
+          nombre: 'Sucursal Norte',
+          activo: 1,
+          creado_en: '2026-08-15 10:00:00',
+          actualizado_en: '2026-08-15 11:00:00',
+          ultima_sincronizacion_en: '2026-08-15 11:00:00',
+          ultimo_cursor_enviado: 8,
+          ultimo_cursor_recibido: 5,
+        }], []];
+      }
+      return [[{
+        sucursal_id: 'central-id',
+        sucursal_nombre: 'Central Matriz',
+        rol_nodo: 'central',
+        central_fingerprint: 'a'.repeat(64),
+        pendientes: 0,
+        conflictos: 0,
+      }], []];
+    },
+  };
+  const sync = createClientSyncService({ store: createSqlSyncStore({ database }) });
+
+  const status = await sync.getStatus();
+
+  assert.equal(status.estado, 'central');
+  assert.deepEqual(status.sucursalesVinculadas, [{
+    id: BRANCH_ID,
+    nombre: 'Sucursal Norte',
+    activo: true,
+    vinculadaEn: '2026-08-15 10:00:00',
+    actualizadaEn: '2026-08-15 11:00:00',
+    ultimaSincronizacionEn: '2026-08-15 11:00:00',
+    ultimoCursorEnviado: 8,
+    ultimoCursorRecibido: 5,
+  }]);
+  assert.doesNotMatch(statements.join('\n').toLowerCase(), /private_key|credential|address|hostname|\bip\b/);
+});
+
 test('does not report a cached central as connected before a verified sync succeeds', async () => {
   const central = generateCentralIdentity();
   const branch = generateBranchIdentity();

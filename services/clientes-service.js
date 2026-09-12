@@ -281,15 +281,60 @@ function createClientesService({
     async getCliente({ clienteId } = {}) {
       const id = normalizeUuid(clienteId, 'El cliente');
       const [rows] = await database.execute(
-        `SELECT id, origen_sucursal_id, nombre, telefono, correo, notas, activo, version,
-                creado_en, actualizado_en
-           FROM clientes
-          WHERE id = ?
+        `SELECT cliente.id, cliente.origen_sucursal_id, cliente.nombre, cliente.telefono,
+                cliente.correo, cliente.notas, cliente.activo, cliente.version,
+                cliente.creado_en, cliente.actualizado_en,
+                sucursal_origen.nombre AS origen_sucursal_nombre,
+                alta.creado_en AS registrado_en,
+                COALESCE(creador.nombre, creador.usuario,
+                  JSON_UNQUOTE(JSON_EXTRACT(alta_sync.payload, '$._registro.nombre'))
+                ) AS registrado_por_nombre,
+                creador.usuario AS registrado_por_usuario
+           FROM clientes AS cliente
+           LEFT JOIN sucursales AS sucursal_origen ON sucursal_origen.id = cliente.origen_sucursal_id
+           LEFT JOIN cliente_bitacora AS alta ON alta.id = (
+             SELECT bitacora.id
+               FROM cliente_bitacora AS bitacora
+              WHERE bitacora.entidad = 'cliente'
+                AND bitacora.entidad_id = cliente.id
+                AND bitacora.accion = 'crear'
+              ORDER BY bitacora.creado_en ASC, bitacora.id ASC
+              LIMIT 1
+           )
+           LEFT JOIN usuarios AS creador ON creador.id = alta.usuario_id
+           LEFT JOIN cliente_operaciones_sync AS alta_sync ON alta_sync.id = (
+             SELECT operacion.id
+               FROM cliente_operaciones_sync AS operacion
+              WHERE operacion.entidad = 'cliente'
+                AND operacion.entidad_id = cliente.id
+                AND operacion.tipo_operacion = 'crear'
+              ORDER BY operacion.creado_en ASC, operacion.id ASC
+              LIMIT 1
+           )
+          WHERE cliente.id = ?
           LIMIT 1`,
         [id]
       );
       if (rows.length !== 1) throw new ClientesServiceError('El cliente no existe.', 404);
-      return mapCliente(rows[0]);
+      const [statisticsRows] = await database.execute(
+        `SELECT COUNT(*) AS total_compras,
+                COALESCE(SUM(total), 0) AS total_gastado,
+                COALESCE(AVG(total), 0) AS ticket_promedio,
+                MAX(fecha_compra) AS ultima_compra
+           FROM cliente_compras
+          WHERE cliente_id = ?`,
+        [id]
+      );
+      const statistics = statisticsRows[0] || {};
+      return {
+        ...mapCliente(rows[0]),
+        estadisticas: {
+          totalCompras: Number(statistics.total_compras || 0),
+          totalGastado: Number(statistics.total_gastado || 0),
+          ticketPromedio: Number(statistics.ticket_promedio || 0),
+          ultimaCompra: statistics.ultima_compra || null,
+        },
+      };
     },
 
     async listPurchases({ clienteId, pagina, limite } = {}) {
@@ -302,11 +347,13 @@ function createClientesService({
       const total = Number(countRows[0]?.total || 0);
       const offset = (page.pagina - 1) * page.limite;
       const [rows] = await database.execute(
-        `SELECT id, cliente_id, sucursal_id, folio_ticket, total, detalle, fecha_compra,
-                version, creado_en, actualizado_en
-           FROM cliente_compras
-          WHERE cliente_id = ?
-          ORDER BY fecha_compra DESC, id DESC
+        `SELECT compra.id, compra.cliente_id, compra.sucursal_id, compra.folio_ticket,
+                compra.total, compra.detalle, compra.fecha_compra, compra.version,
+                compra.creado_en, compra.actualizado_en, sucursal.nombre AS sucursal_nombre
+           FROM cliente_compras AS compra
+           LEFT JOIN sucursales AS sucursal ON sucursal.id = compra.sucursal_id
+          WHERE compra.cliente_id = ?
+          ORDER BY compra.fecha_compra DESC, compra.id DESC
           LIMIT ? OFFSET ?`,
         [id, page.limite, offset]
       );
@@ -320,13 +367,14 @@ function createClientesService({
       };
     },
 
-    async createCliente({ nombre, telefono, correo, notas, actorId, requestId } = {}) {
+    async createCliente({ nombre, telefono, correo, notas, actorId, actorName, requestId } = {}) {
       const normalized = {
         nombre: customerName(nombre),
         telefono: optionalText(telefono, 'El teléfono', 40),
         correo: emailAddress(correo),
         notas: optionalText(notas, 'Las notas', 65_535)
       };
+      const registeredBy = optionalText(actorName, 'El nombre del usuario', 180);
       return inTransaction(database, requestId, async (connection) => {
         const branchId = await localBranchId(connection);
         const id = generatedUuid(createUuid);
@@ -350,7 +398,10 @@ function createClientesService({
           entityId: id,
           action: 'crear',
           version: 1,
-          payload: client
+          payload: {
+            ...client,
+            ...(registeredBy ? { _registro: { nombre: registeredBy } } : {})
+          }
         });
         return client;
       });

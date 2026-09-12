@@ -83,6 +83,18 @@ function createClientesSyncRouter({
           estado: status.estado,
           pendientes: Number(status.pendientes || 0),
           conflictos: Number(status.conflictos || 0),
+          ...(status.sucursal?.rol === 'central' ? {
+            sucursalesVinculadas: (status.sucursalesVinculadas || []).map((sucursal) => ({
+              id: sucursal.id,
+              nombre: sucursal.nombre,
+              activa: Boolean(sucursal.activo),
+              vinculadaEn: sucursal.vinculadaEn || null,
+              actualizadaEn: sucursal.actualizadaEn || null,
+              ultimaSincronizacionEn: sucursal.ultimaSincronizacionEn || null,
+              ultimoCursorEnviado: Number(sucursal.ultimoCursorEnviado || 0),
+              ultimoCursorRecibido: Number(sucursal.ultimoCursorRecibido || 0),
+            })),
+          } : {}),
           centralesDetectadas,
         },
       });

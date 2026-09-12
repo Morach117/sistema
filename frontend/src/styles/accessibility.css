@@ -1,0 +1,45 @@
+html[data-text-size='large'] {
+  font-size: 112.5%;
+}
+
+html[data-text-size='extra-large'] {
+  font-size: 125%;
+}
+
+html[data-high-contrast='true'] {
+  color-scheme: dark;
+  --background: 0 0% 0%;
+  --surface: 0 0% 5%;
+  --text-primary: 0 0% 100%;
+  --border: 0 0% 78%;
+  --focus: 52 100% 62%;
+  --foreground: var(--text-primary);
+  --card: var(--surface);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface);
+  --popover-foreground: var(--text-primary);
+  --primary: 52 100% 62%;
+  --primary-foreground: 0 0% 0%;
+  --secondary: 0 0% 14%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 0 0% 14%;
+  --muted-foreground: 0 0% 88%;
+  --accent: 0 0% 22%;
+  --accent-foreground: 0 0% 100%;
+  --input: var(--border);
+  --ring: var(--focus);
+}
+
+html[data-high-contrast='true'] :focus-visible {
+  outline: 3px solid hsl(var(--focus));
+  outline-offset: 3px;
+}
+
+html[data-reduce-motion='true'] *,
+html[data-reduce-motion='true'] *::before,
+html[data-reduce-motion='true'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+}

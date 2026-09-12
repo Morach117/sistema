@@ -28,6 +28,7 @@ function createClientesRouter({ clientesService = createClientesService() } = {}
       correo: body.correo,
       notas: body.notas,
       actorId: req.user.id,
+      ...(req.user.nombre || req.user.usuario ? { actorName: req.user.nombre || req.user.usuario } : {}),
       requestId: req.requestId
     });
     res.status(201).json({ success: true, data: result });

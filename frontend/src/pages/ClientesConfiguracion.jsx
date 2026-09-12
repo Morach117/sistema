@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, Network, RefreshCw, Search, Server, ShieldCheck, Wifi, WifiOff } from 'lucide-react'
+import { Activity, CalendarClock, ChevronRight, Network, RefreshCw, Search, Server, ShieldCheck, Wifi, WifiOff } from 'lucide-react'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,6 +14,12 @@ const setupChoices = [
 
 function errorMessage(error, fallback) {
   return error?.response?.data?.error || error?.message || fallback
+}
+
+function dateTime(value) {
+  if (!value) return 'Aún no sincroniza'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('es-MX')
 }
 
 export default function ClientesConfiguracion() {
@@ -58,6 +64,7 @@ export default function ClientesConfiguracion() {
   const role = status?.sucursal?.rol || ''
   const linked = Boolean(status?.centralVinculada)
   const detectedCentrals = status?.centralesDetectadas ?? []
+  const linkedBranches = status?.sucursalesVinculadas ?? []
   const selectedCentral = detectedCentrals.find((central) => central.fingerprint === selectedCentralFingerprint)
   const linkBusy = pair.isPending
 
@@ -150,7 +157,28 @@ export default function ClientesConfiguracion() {
 
             {role === 'central' ? (
               <div className="grid gap-3">
-                <p className="text-sm text-muted-foreground">Las sucursales de esta red pueden seleccionarte y vincularse directamente. La conexión quedará guardada en cada equipo.</p>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3">
+                  <div><p className="font-black">Equipos vinculados</p><p className="text-xs text-muted-foreground">Se actualiza cuando cada sucursal se sincroniza.</p></div>
+                  <span className="rounded-full bg-background px-3 py-1 text-sm font-black tabular-nums">{linkedBranches.length}</span>
+                </div>
+                {linkedBranches.length ? (
+                  <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border" aria-label="Sucursales vinculadas a esta Central">
+                    {linkedBranches.map((branch) => (
+                      <li key={branch.id} className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                        <div className="min-w-0">
+                          <p className="truncate font-black">{branch.nombre}</p>
+                          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><CalendarClock aria-hidden="true" className="h-3.5 w-3.5" />Vinculada: {dateTime(branch.vinculadaEn)}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-xs font-bold">
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 ${branch.activa ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground'}`}>
+                            <Activity aria-hidden="true" className="h-3.5 w-3.5" />{branch.activa ? 'Vinculada' : 'Inactiva'}
+                          </span>
+                          <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1">Última sync: {dateTime(branch.ultimaSincronizacionEn)}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">Aún no hay sucursales vinculadas. Las sucursales de esta red pueden seleccionarte y conectarse directamente.</p>}
               </div>
             ) : (
               <div className="grid gap-3">

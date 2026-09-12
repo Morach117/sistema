@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, BadgeDollarSign, CheckCircle2, CircleOff, Edit3, Plus, Search, UserRound, UserRoundX, UsersRound, WifiOff } from 'lucide-react'
+import { AlertTriangle, BadgeDollarSign, CalendarClock, CheckCircle2, CircleOff, Edit3, Plus, Search, Store, UserRound, UserRoundCheck, UserRoundX, UsersRound, WifiOff } from 'lucide-react'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -20,6 +20,17 @@ function dateTime(value) {
   if (!value) return 'Fecha local'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('es-MX')
+}
+
+function purchaseDetail(value) {
+  if (!value) return null
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value.map((entry) => entry?.nombre || entry?.sku || entry?.descripcion).filter(Boolean).join(', ') || 'Detalle registrado'
+  return value.nota || value.descripcion || value.productos || 'Detalle registrado'
+}
+
+function Stat({ label, value }) {
+  return <div className="rounded-xl border border-border bg-muted/40 p-3"><p className="text-xs font-bold text-muted-foreground">{label}</p><p className="mt-1 text-lg font-black tabular-nums">{value}</p></div>
 }
 
 function StatusBanner({ status, isLoading, error }) {
@@ -134,7 +145,7 @@ function VentaForm({ onCancel, onSubmit, pending, error }) {
         <label className={labelClass}>Folio de ticket (opcional)<input className={fieldClass} value={folio} onChange={(event) => setFolio(event.target.value)} maxLength="100" /></label>
         <label className={labelClass}>Total<input className={fieldClass} value={total} onChange={(event) => setTotal(event.target.value)} min="0" step="0.01" type="number" required /></label>
       </div>
-      <label className={labelClass}>Detalle opcional<textarea className={`${fieldClass} min-h-20`} value={detalle} onChange={(event) => setDetalle(event.target.value)} /></label>
+      <label className={labelClass}>Productos o detalle (opcional)<textarea className={`${fieldClass} min-h-20`} value={detalle} onChange={(event) => setDetalle(event.target.value)} placeholder="Ej. 2 libretas profesionales y 1 paquete de plumas" /></label>
       {error && <p role="alert" className="text-sm font-bold text-destructive">{errorMessage(error, 'No se pudo registrar la venta.')}</p>}
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button>
@@ -161,6 +172,7 @@ function ClienteDetail({ clientId, onEdit }) {
     mutationFn: async (payload) => (await api.post(`/api/clientes/${clientId}/compras`, payload)).data.data,
     onSuccess: () => {
       setShowSale(false)
+      queryClient.invalidateQueries({ queryKey: ['cliente', clientId] })
       queryClient.invalidateQueries({ queryKey: ['cliente-compras', clientId] })
       queryClient.invalidateQueries({ queryKey: ['clientes-sync-estado'] })
     },
@@ -170,6 +182,7 @@ function ClienteDetail({ clientId, onEdit }) {
   if (detailQuery.error) return <Card><CardContent className="p-6 text-sm font-bold text-destructive">{errorMessage(detailQuery.error, 'No se pudo abrir el cliente.')}</CardContent></Card>
   const client = detailQuery.data
   if (!client) return null
+  const statistics = client.estadisticas || {}
 
   const confirmDeactivation = () => {
     if (window.confirm(`¿Desactivar a ${client.nombre}? Sus compras se conservarán.`)) deactivate.mutate()
@@ -184,6 +197,18 @@ function ClienteDetail({ clientId, onEdit }) {
         </CardHeader>
         <CardContent className="grid gap-4">
           {client.notas && <p className="rounded-xl bg-muted/50 p-3 text-sm">{client.notas}</p>}
+          <div className="grid gap-3 rounded-xl border border-border bg-muted/20 p-3 text-sm sm:grid-cols-2">
+            <p className="flex min-w-0 items-center gap-2"><Store aria-hidden="true" className="h-4 w-4 shrink-0 text-primary" /><span className="min-w-0"><span className="block text-xs font-bold text-muted-foreground">Registrado originalmente en</span><span className="block truncate font-bold">{client.origen_sucursal_nombre || 'Sucursal de origen no disponible'}</span></span></p>
+            <p className="flex min-w-0 items-center gap-2"><UserRoundCheck aria-hidden="true" className="h-4 w-4 shrink-0 text-primary" /><span className="min-w-0"><span className="block text-xs font-bold text-muted-foreground">Registrado por</span><span className="block truncate font-bold">{client.registrado_por_nombre || client.registrado_por_usuario || 'No disponible para registros anteriores'}</span></span></p>
+            <p className="flex min-w-0 items-center gap-2"><CalendarClock aria-hidden="true" className="h-4 w-4 shrink-0 text-primary" /><span><span className="block text-xs font-bold text-muted-foreground">Fecha de alta</span><span className="font-bold">{dateTime(client.registrado_en || client.creado_en)}</span></span></p>
+            <p className="flex min-w-0 items-center gap-2"><CalendarClock aria-hidden="true" className="h-4 w-4 shrink-0 text-primary" /><span><span className="block text-xs font-bold text-muted-foreground">Última actualización</span><span className="font-bold">{dateTime(client.actualizado_en)}</span></span></p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Stat label="Compras" value={statistics.totalCompras || 0} />
+            <Stat label="Total comprado" value={money(statistics.totalGastado)} />
+            <Stat label="Ticket promedio" value={money(statistics.ticketPromedio)} />
+            <Stat label="Última compra" value={statistics.ultimaCompra ? dateTime(statistics.ultimaCompra) : 'Sin compras'} />
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => onEdit(client)}><Edit3 aria-hidden="true" className="mr-2 h-4 w-4" />Editar cliente</Button>
             <Button type="button" onClick={() => setShowSale(true)} disabled={!client.activo}><BadgeDollarSign aria-hidden="true" className="mr-2 h-4 w-4" />Registrar venta</Button>
@@ -204,7 +229,7 @@ function ClienteDetail({ clientId, onEdit }) {
             <ul className="divide-y divide-border">
               {purchasesQuery.data.map((purchase) => (
                 <li key={purchase.id} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div><p className="font-bold">{purchase.folio_ticket || 'Sin folio'}</p><p className="text-xs text-muted-foreground">{dateTime(purchase.fecha_compra)}</p></div>
+                  <div><p className="font-bold">{purchase.folio_ticket || 'Sin folio'}</p><p className="text-xs text-muted-foreground">{dateTime(purchase.fecha_compra)} · {purchase.sucursal_nombre || 'Sucursal no disponible'}</p>{purchaseDetail(purchase.detalle) && <p className="mt-1 text-xs text-muted-foreground">{purchaseDetail(purchase.detalle)}</p>}</div>
                   <p className="font-black tabular-nums">{money(purchase.total)}</p>
                 </li>
               ))}
@@ -231,6 +256,7 @@ export default function Clientes() {
     mutationFn: async (payload) => formClient ? (await api.put(`/api/clientes/${formClient.id}`, payload)).data.data : (await api.post('/api/clientes', payload)).data.data,
     onSuccess: (saved) => {
       queryClient.setQueryData(['cliente', saved.id], saved)
+      queryClient.invalidateQueries({ queryKey: ['cliente', saved.id] })
       queryClient.invalidateQueries({ queryKey: ['clientes'] })
       queryClient.invalidateQueries({ queryKey: ['clientes-sync-estado'] })
       setSelectedId(saved.id)

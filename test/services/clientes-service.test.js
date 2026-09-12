@@ -71,7 +71,8 @@ test('creates a client for the locally configured branch and atomically queues a
     correo: ' ANA@EXAMPLE.COM ',
     notas: ' Prefiere WhatsApp ',
     sucursal_id: '00000000-0000-4000-8000-000000000000',
-    actorId: 17
+    actorId: 17,
+    actorName: 'Administradora local',
   });
 
   assert.deepEqual(created, {
@@ -92,6 +93,7 @@ test('creates a client for the locally configured branch and atomically queues a
   assert.equal(queueInsert[2][0], OPERATION_ID);
   assert.equal(queueInsert[2][1], LOCAL_BRANCH_ID);
   assert.deepEqual(queueInsert[2].slice(2, 5), ['cliente', CLIENT_ID, 'crear']);
+  assert.deepEqual(JSON.parse(queueInsert[2][5])._registro, { nombre: 'Administradora local' });
   assert.equal(auditInsert[2][0], AUDIT_ID);
   assert.equal(auditInsert[2][1], LOCAL_BRANCH_ID);
   assert.deepEqual(database.events.slice(-2), ['commit', 'release']);
@@ -449,7 +451,7 @@ test('returns a client detail and paginates that client purchase history', async
     async execute(sql, parameters) {
       const normalized = sqlText(sql);
       executed.push([normalized, parameters]);
-      if (/FROM clientes WHERE id = \? LIMIT 1/i.test(normalized)) {
+      if (/FROM clientes AS cliente/i.test(normalized)) {
         return [[{
           id: CLIENT_ID,
           origen_sucursal_id: LOCAL_BRANCH_ID,
@@ -458,13 +460,20 @@ test('returns a client detail and paginates that client purchase history', async
           correo: null,
           notas: null,
           activo: 1,
-          version: 3
+          version: 3,
+          origen_sucursal_nombre: 'Sucursal Centro',
+          registrado_en: '2026-08-01 10:00:00',
+          registrado_por_nombre: 'Admin local',
+          registrado_por_usuario: 'admin',
         }], []];
+      }
+      if (/COUNT\(\*\) AS total_compras/i.test(normalized)) {
+        return [[{ total_compras: 26, total_gastado: '663.00', ticket_promedio: '25.50', ultima_compra: '2026-08-15 12:00:00' }], []];
       }
       if (/SELECT COUNT\(\*\) AS total FROM cliente_compras WHERE cliente_id = \?/i.test(normalized)) {
         return [[{ total: 26 }], []];
       }
-      if (/FROM cliente_compras WHERE cliente_id = \?/i.test(normalized)) {
+      if (/FROM cliente_compras AS compra/i.test(normalized)) {
         return [[{
           id: PURCHASE_ID,
           cliente_id: CLIENT_ID,
@@ -473,7 +482,8 @@ test('returns a client detail and paginates that client purchase history', async
           total: '25.50',
           detalle: '[{"sku":"A"}]',
           fecha_compra: '2026-08-15 12:00:00',
-          version: 1
+          version: 1,
+          sucursal_nombre: 'Sucursal Centro',
         }], []];
       }
       assert.fail(`unexpected SQL: ${normalized}`);
@@ -485,7 +495,16 @@ test('returns a client detail and paginates that client purchase history', async
   const purchases = await service.listPurchases({ clienteId: CLIENT_ID, pagina: 2, limite: 25 });
 
   assert.equal(detail.activo, true);
+  assert.equal(detail.origen_sucursal_nombre, 'Sucursal Centro');
+  assert.equal(detail.registrado_por_nombre, 'Admin local');
+  assert.deepEqual(detail.estadisticas, {
+    totalCompras: 26,
+    totalGastado: 663,
+    ticketPromedio: 25.5,
+    ultimaCompra: '2026-08-15 12:00:00',
+  });
   assert.equal(purchases.data[0].total, 25.5);
+  assert.equal(purchases.data[0].sucursal_nombre, 'Sucursal Centro');
   assert.deepEqual(purchases.data[0].detalle, [{ sku: 'A' }]);
   assert.deepEqual(purchases.paginacion, { pagina: 2, limite: 25, total: 26, totalPaginas: 2 });
   assert.deepEqual(executed.at(-1)[1], [CLIENT_ID, 25, 25]);
