@@ -125,6 +125,7 @@ function createTailscaleDiscoveryService({
       return this.listCandidates();
     },
     getLastCentral: () => lastCentral && { ...lastCentral },
+    listPeers: async () => (await listPeers()).filter((peer) => isTailscaleAddress(peer?.address)),
     listCandidates: () => [...candidates.values()].sort((a, b) => b.seenAt - a.seenAt).map((candidate) => ({ ...candidate })),
     async start() {},
     async stop() { lastCentral = null; candidates.clear(); },

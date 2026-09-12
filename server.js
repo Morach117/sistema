@@ -9,6 +9,7 @@ function createNetworkServices({ apiPort, database }) {
   const { createClientDiscoveryService } = require('./services/client-discovery-service');
   const { createTailscaleDiscoveryService } = require('./services/client-tailscale-discovery-service');
   const { createClientSyncService, createSqlSyncStore } = require('./services/client-sync-service');
+  const { createBranchCatalogService } = require('./services/branch-catalog-service');
   const clientDiscoveryService = createClientDiscoveryService({ apiPort });
   const clientRemoteDiscoveryService = createTailscaleDiscoveryService({ apiPort });
   const clientSyncService = createClientSyncService({
@@ -16,10 +17,16 @@ function createNetworkServices({ apiPort, database }) {
     discoveryService: clientDiscoveryService,
     remoteDiscoveryService: clientRemoteDiscoveryService,
   });
+  const branchCatalogService = createBranchCatalogService({
+    remoteDiscoveryService: clientRemoteDiscoveryService,
+    listPeers: () => clientRemoteDiscoveryService.listPeers(),
+    apiPort,
+  });
   return {
     clientDiscoveryService,
     clientRemoteDiscoveryService,
     clientSyncService,
+    branchCatalogService,
     services: [clientDiscoveryService, clientRemoteDiscoveryService, clientSyncService],
   };
 }
@@ -99,6 +106,7 @@ async function startServer({
       clientSyncService: createdNetworkServices.clientSyncService,
       clientDiscoveryService: createdNetworkServices.clientDiscoveryService,
       clientRemoteDiscoveryService: createdNetworkServices.clientRemoteDiscoveryService,
+      branchCatalogService: createdNetworkServices.branchCatalogService,
       apiPort: config.port,
     }).listen(config.port);
     const stopNetworkServices = networkServices.map((service) => superviseNetworkService(service, {

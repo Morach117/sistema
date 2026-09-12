@@ -5,6 +5,7 @@ import {
   AlertCircle,
   CheckCircle2,
   ClipboardCheck,
+  Copy,
   FileSearch,
   FileSpreadsheet,
   Loader2,
@@ -12,6 +13,7 @@ import {
   Save,
   Trash2,
   Upload,
+  Waypoints,
   X,
 } from 'lucide-react'
 import Swal from 'sweetalert2'
@@ -93,6 +95,92 @@ function downloadResponse(response, fallbackName) {
   link.click()
   link.remove()
   URL.revokeObjectURL(blobUrl)
+}
+
+async function copyCode(code) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(code)
+    return
+  }
+  const input = document.createElement('textarea')
+  input.value = code
+  input.setAttribute('readonly', '')
+  input.style.position = 'fixed'
+  input.style.opacity = '0'
+  document.body.appendChild(input)
+  input.select()
+  const copied = document.execCommand('copy')
+  input.remove()
+  if (!copied) throw new Error('No se pudo copiar el código.')
+}
+
+function BranchCatalogLookup({ code, isReceptionAdmin }) {
+  const [entries, setEntries] = useState([])
+  const [state, setState] = useState('idle')
+  const [message, setMessage] = useState('')
+
+  const consult = async () => {
+    const normalizedCode = String(code || '').trim()
+    if (!normalizedCode || normalizedCode === 'FALTANTE' || normalizedCode === 'DEVOLUCION') {
+      setEntries([])
+      setState('error')
+      setMessage('Asigna una clave SICAR para consultar otras sucursales.')
+      return
+    }
+    setState('loading')
+    setMessage('')
+    try {
+      const response = await api.get('/api/catalogo-sucursales/recepcion', { params: { code: normalizedCode } })
+      const results = Array.isArray(response.data?.data?.entries) ? response.data.data.entries : []
+      setEntries(results)
+      setState('done')
+      setMessage(results.length ? '' : 'No hay coincidencias en las sucursales conectadas.')
+    } catch (error) {
+      setEntries([])
+      setState('error')
+      setMessage(error.response?.data?.error || 'No se pudo consultar las sucursales conectadas.')
+    }
+  }
+
+  const copyBarcode = async (entry) => {
+    try {
+      await copyCode(entry.codigoBarras)
+      setMessage(`Código de ${entry.sucursal} copiado.`)
+      setState('done')
+    } catch {
+      setMessage('No se pudo copiar el código. Inténtalo de nuevo.')
+      setState('error')
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-border bg-background/60 p-2" aria-label="Códigos en sucursales conectadas">
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+          <Waypoints aria-hidden="true" className="h-3.5 w-3.5" /> Sucursales conectadas
+        </p>
+        <Button type="button" size="sm" variant="outline" onClick={consult} disabled={state === 'loading'} className="h-8 px-2 text-[10px] font-black">
+          {state === 'loading' ? <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" /> : 'Consultar'}
+        </Button>
+      </div>
+      {entries.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {entries.map((entry) => (
+            <div key={`${entry.sucursalId}-${entry.codigoBarras}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/70 px-2 py-1.5">
+              <span className="text-xs font-bold text-muted-foreground">{entry.sucursal}</span>
+              <div className="flex items-center gap-1.5">
+                {isReceptionAdmin && Number.isFinite(Number(entry.precioVenta)) && <span className="text-xs font-black text-emerald-700 dark:text-emerald-300">{formatMoney(entry.precioVenta)}</span>}
+                <Button type="button" size="sm" variant="secondary" onClick={() => copyBarcode(entry)} className="h-8 gap-1.5 px-2 font-mono text-[11px] font-black" aria-label={`Copiar código ${entry.codigoBarras} de ${entry.sucursal}`}>
+                  <Copy aria-hidden="true" className="h-3.5 w-3.5" /> {entry.codigoBarras}
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {message && <p role="status" className={`mt-2 text-[11px] font-bold ${state === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>{message}</p>}
+    </section>
+  )
 }
 
 function SicarInput({ item, editor, disabled }) {
@@ -699,6 +787,7 @@ export default function Recepciones() {
                             <p className="mt-1 text-xs font-bold text-muted-foreground">Artículo #{item.id} · proveedor {item.cod_prov || 'sin código'}</p>
                           </div>
                           <SicarInput item={item} editor={editor} disabled={finalised} />
+                          <BranchCatalogLookup code={item.clave_final || item.clave_sicar || item.cod_prov} isReceptionAdmin={isReceptionAdmin} />
                         </section>
 
                         <section role="group" aria-label={`Físico y caja de ${item.desc}`} className="min-w-0 space-y-3 rounded-xl border border-border bg-background/40 p-3">

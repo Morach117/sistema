@@ -48,7 +48,7 @@ function item(overrides = {}) {
   }
 }
 
-function createAdapter({ detailsItems = [item()], requests = [], preview, uploadResponse, failFieldSave = false, catalogResult } = {}) {
+function createAdapter({ detailsItems = [item()], requests = [], preview, uploadResponse, failFieldSave = false, catalogResult, branchEntries } = {}) {
   return async (config) => {
     requests.push(config)
     if (config.url === '/api/recepciones' && config.method === 'get') {
@@ -85,6 +85,9 @@ function createAdapter({ detailsItems = [item()], requests = [], preview, upload
     }
     if (config.url === '/api/recepciones/catalogo-exacto') {
       return responseFor(config, { data: catalogResult || null })
+    }
+    if (config.url === '/api/catalogo-sucursales/recepcion') {
+      return responseFor(config, { success: true, data: { entries: branchEntries || [] } })
     }
     const fieldPayload = config.url === '/api/recepciones/actualizar_campo' ? JSON.parse(config.data) : null
     if (config.url === '/api/recepciones/actualizar_campo' && (typeof failFieldSave === 'function' ? failFieldSave(fieldPayload) : failFieldSave)) {
@@ -160,6 +163,23 @@ describe('Recepciones presentation and cost review', () => {
       const save = requests.find((entry) => entry.url === '/api/recepciones/actualizar_campo')
       expect(JSON.parse(save.data)).toEqual({ id_item: 11, campo: 'cantidad', valor: '92' })
     })
+  })
+
+  it('lets an employee view a connected branch barcode without rendering its sale price', async () => {
+    renderPage(createAdapter({
+      branchEntries: [{
+        sucursalId: '11111111-1111-4111-8111-111111111111',
+        sucursal: 'Sucursal Centro',
+        codigoBarras: '7500000000001',
+        precioVenta: 24.5,
+      }],
+    }), ['recepciones'], employee())
+    await openReception()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Consultar' }))
+
+    expect(await screen.findByRole('button', { name: /copiar código 7500000000001 de Sucursal Centro/i })).toBeVisible()
+    expect(screen.queryByText('$24.50')).not.toBeInTheDocument()
   })
 
   it('states which catalog product belongs to a SICAR code without calling it a mismatch', async () => {

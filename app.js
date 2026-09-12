@@ -44,6 +44,7 @@ function createApp({
   clientSyncService,
   clientDiscoveryService,
   clientRemoteDiscoveryService,
+  branchCatalogService,
   apiPort = Number(process.env.PORT || 3000),
   readinessCheck = defaultReadinessCheck,
   readinessAccess = isLoopbackReadinessRequest,
@@ -100,6 +101,9 @@ function createApp({
     discoveryService: clientDiscoveryService,
     remoteDiscoveryService: clientRemoteDiscoveryService,
     apiPort,
+  }));
+  app.use('/api/catalogo-sucursales', require('./routes/catalogo-sucursales').createBranchCatalogRouter({
+    service: branchCatalogService,
   }));
   app.use('/api/captura', require('./routes/captura'));
   app.use('/api/reclamaciones', require('./routes/reclamaciones'));
