@@ -2,12 +2,24 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
-const { authorize } = require('../middleware/authorize');
+const { authorize, denyAccess } = require('../middleware/authorize');
 const { sendInternalError } = require('../middleware/errors');
+const { logAudit } = require('../utils/audit');
+const multer = require('multer');
+const {
+    CatalogImportError,
+    MAX_CATALOG_FILE_BYTES,
+    parseCatalogWorkbook,
+    saveCatalogProducts
+} = require('../services/catalog-import');
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 100;
 const MAX_OFFSET = 100_000;
+const catalogUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_CATALOG_FILE_BYTES, files: 1 }
+});
 
 function paginationError() {
     const error = new RangeError('Paginaci\u00f3n fuera de rango.');
@@ -41,6 +53,45 @@ function parsePagination(query = {}) {
 // Middleware to protect routes
 router.use(authMiddleware);
 router.use(authorize({ module: 'catalogo', action: 'read' }));
+
+function receiveCatalogUpload(req, res, next) {
+    catalogUpload.single('archivo')(req, res, (error) => {
+        if (error?.code === 'LIMIT_FILE_SIZE') {
+            return res.status(413).json({ success: false, error: 'El archivo supera el límite de 10 MB.' });
+        }
+        if (error) return next(error);
+        return next();
+    });
+}
+
+function requireCatalogAdmin(req, res, next) {
+    if (req.user?.rol !== 'admin') return denyAccess(res);
+    return next();
+}
+
+router.post('/importar', authorize({ module: 'catalogo', action: 'write' }), requireCatalogAdmin, receiveCatalogUpload, async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, error: 'Selecciona el archivo de catálogo.' });
+        }
+        const parsed = parseCatalogWorkbook(req.file.buffer, req.file.originalname);
+        const result = await saveCatalogProducts({ pool, products: parsed.products });
+        await logAudit(req.user?.id, 'IMPORTAR_CATALOGO', `Importó ${result.imported} productos de ${req.file.originalname}`, req.requestId);
+        return res.json({
+            success: true,
+            data: {
+                ...result,
+                sheetName: parsed.sheetName,
+                headerRow: parsed.headerRow
+            }
+        });
+    } catch (error) {
+        if (error instanceof CatalogImportError) {
+            return res.status(error.statusCode).json({ success: false, error: error.message });
+        }
+        return sendInternalError(error, req, res);
+    }
+});
 
 router.get('/exact', async (req, res) => {
     const code = String(req.query.code || '').trim();
