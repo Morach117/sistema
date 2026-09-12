@@ -808,15 +808,15 @@ function createClientSyncService({
         : await store.readConfiguration();
     } catch (error) {
       if (error instanceof ClientSyncError && error.status === 409) {
-      return {
-        configuracionRequerida: true,
+        return {
+          configuracionRequerida: true,
           sucursal: null,
           centralVinculada: false,
           centralFingerprint: null,
           estado: 'configuracion-requerida',
           pendientes: 0,
-        conflictos: 0,
-      };
+          conflictos: 0,
+        };
       }
       throw error;
     }
