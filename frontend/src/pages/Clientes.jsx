@@ -189,7 +189,7 @@ function ClienteDetail({ clientId, onEdit }) {
   }
 
   return (
-    <section aria-label={`Ficha de ${client.nombre}`} className="grid gap-4">
+    <section aria-label={`Ficha de ${client.nombre}`} className="client-detail-scroll custom-scrollbar grid min-h-0 gap-4">
       <Card>
         <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0"><CardTitle className="truncate text-xl">{client.nombre}</CardTitle><CardDescription>{client.telefono || 'Sin teléfono'} · {client.correo || 'Sin correo'}</CardDescription></div>

@@ -191,6 +191,14 @@ afterEach(() => {
 })
 
 describe('Clientes CRUD and local branch attribution', () => {
+  it('keeps the selected client detail ready for independent desktop scrolling', async () => {
+    renderPage(<Clientes />, createAdapter())
+
+    const detail = await openClient()
+
+    expect(detail).toHaveClass('client-detail-scroll')
+  })
+
   it('guides a first-run installation to configuration instead of displaying a technical sync failure', async () => {
     renderPage(<Clientes />, createAdapter({
       status: syncStatus({

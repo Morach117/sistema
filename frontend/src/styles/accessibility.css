@@ -7,6 +7,17 @@ html {
   scrollbar-gutter: stable;
 }
 
+/* En escritorio, el historial de una ficha se consulta sin desplazar el directorio. */
+@media (min-width: 1024px) {
+  .client-detail-scroll {
+    max-block-size: calc(100dvh - 5rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-inline-end: 0.5rem;
+    scrollbar-gutter: stable;
+  }
+}
+
 html[data-text-size='large'] {
   font-size: 112.5%;
 }
