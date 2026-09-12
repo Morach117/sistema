@@ -31,19 +31,17 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
-      {/* Decorative background elements */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div className="relative grid min-h-dvh place-items-center overflow-y-auto bg-[#060b1d] px-4 py-8 text-slate-100">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(90,99,255,0.2),transparent_30%),radial-gradient(circle_at_85%_85%,rgba(24,162,255,0.14),transparent_28%)]" />
 
-      <div className="w-full max-w-sm glass-panel bg-slate-900/60 rounded-3xl shadow-2xl border border-slate-800/60 overflow-hidden relative z-10 backdrop-blur-xl">
-        <div className="p-8">
+      <div className="relative z-10 w-full max-w-md overflow-hidden rounded-3xl border border-slate-600/70 bg-slate-950/90 shadow-2xl shadow-black/40 backdrop-blur-xl">
+        <div className="p-6 sm:p-8">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 mb-6 shadow-inner">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl border border-indigo-400/35 bg-indigo-400/15 text-indigo-200 mb-5 shadow-inner shadow-indigo-500/20">
               <BookMarked className="w-8 h-8" />
             </div>
-            <h2 className="text-2xl font-black text-slate-100 tracking-tight">Papelería Yazmín</h2>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black mt-2">Sistema React Premium</p>
+            <h2 className="text-2xl font-black text-slate-50 tracking-tight">Papelería Yazmín</h2>
+            <p className="text-[11px] text-slate-300 uppercase tracking-widest font-black mt-2">Acceso al sistema</p>
           </div>
 
           {error && (
@@ -55,10 +53,10 @@ export default function Login() {
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="block text-[10px] uppercase tracking-widest font-black text-slate-500 mb-2">Usuario</label>
+              <label className="block text-[11px] uppercase tracking-widest font-black text-slate-300 mb-2">Usuario</label>
               <input
                 type="text"
-                className="w-full px-4 py-3 bg-slate-950/50 border border-slate-700 text-slate-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-inner font-bold placeholder:text-slate-600"
+                className="w-full px-4 py-3 bg-slate-900 border border-slate-600 text-slate-50 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-400/25 focus:border-indigo-300 transition-all shadow-inner font-bold placeholder:text-slate-400"
                 value={usuario}
                 onChange={(e) => setUsuario(e.target.value)}
                 required
@@ -68,10 +66,10 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="block text-[10px] uppercase tracking-widest font-black text-slate-500 mb-2">Contraseña</label>
+              <label className="block text-[11px] uppercase tracking-widest font-black text-slate-300 mb-2">Contraseña</label>
               <input
                 type="password"
-                className="w-full px-4 py-3 bg-slate-950/50 border border-slate-700 text-slate-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-inner font-bold placeholder:text-slate-600"
+                className="w-full px-4 py-3 bg-slate-900 border border-slate-600 text-slate-50 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-400/25 focus:border-indigo-300 transition-all shadow-inner font-bold placeholder:text-slate-400"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -79,7 +77,7 @@ export default function Login() {
               />
             </div>
 
-            <Button type="submit" className="w-full h-12 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-lg shadow-indigo-500/20 font-black text-base mt-4 transition-all active:scale-95" disabled={loading}>
+            <Button type="submit" className="w-full h-12 bg-indigo-500 hover:bg-indigo-400 text-slate-950 rounded-xl shadow-lg shadow-indigo-500/25 font-black text-base mt-4 transition-colors" disabled={loading}>
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
                 <>Iniciar Sesión <ArrowRight className="w-4 h-4 ml-2" /></>
               )}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Accessibility, Contrast, RotateCcw, Type } from 'lucide-react'
 
 const STORAGE_KEY = 'papeleria-accessibility-preferences'
@@ -21,9 +21,10 @@ function readPreferences() {
   }
 }
 
-export default function AccessibilityMenu() {
+export default function AccessibilityMenu({ className = '' }) {
   const [open, setOpen] = useState(false)
   const [preferences, setPreferences] = useState(readPreferences)
+  const menuRef = useRef(null)
 
   useEffect(() => {
     const root = document.documentElement
@@ -37,12 +38,28 @@ export default function AccessibilityMenu() {
     }
   }, [preferences])
 
+  useEffect(() => {
+    if (!open) return undefined
+    const closeFromOutside = (event) => {
+      if (!menuRef.current?.contains(event.target)) setOpen(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeFromOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeFromOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
   const reset = () => setPreferences({ textSize: 'normal', highContrast: false, reduceMotion: false })
 
   return (
-    <div className="fixed bottom-4 left-4 z-50">
+    <div ref={menuRef} className={`relative ${className}`}>
       {open && (
-        <section aria-label="Opciones de lectura" className="mb-3 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-border bg-popover p-4 text-popover-foreground shadow-2xl">
+        <section aria-label="Opciones de lectura" className="absolute bottom-full left-0 z-50 mb-3 max-h-[min(36rem,calc(100dvh-8rem))] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-border bg-popover p-4 text-popover-foreground shadow-2xl">
           <div className="flex items-start gap-3">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Accessibility aria-hidden="true" className="h-5 w-5" /></span>
             <div><h2 className="font-black">Lectura y accesibilidad</h2><p className="mt-0.5 text-sm text-muted-foreground">Estos ajustes se guardan en esta PC.</p></div>
@@ -66,7 +83,7 @@ export default function AccessibilityMenu() {
           </div>
         </section>
       )}
-      <button type="button" aria-label="Abrir opciones de lectura y accesibilidad" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-primary/30 bg-background px-4 text-sm font-black text-foreground shadow-lg transition hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+      <button type="button" aria-label="Abrir opciones de lectura y accesibilidad" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 text-sm font-black text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
         <Accessibility aria-hidden="true" className="h-5 w-5" />
         <span>Lectura</span>
       </button>

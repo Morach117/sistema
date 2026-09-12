@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { canAccess } from '@/auth/permissions'
 import { clearSession, readSession } from '@/auth/session'
+import AccessibilityMenu from '../AccessibilityMenu'
 import ThemeToggle from './ThemeToggle'
 
 const primaryItems = [
@@ -234,14 +235,17 @@ export default function AppShell({ children }) {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-transparent px-4 py-2.5 text-sm font-bold text-muted-foreground transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive ${focusStyles}`}
-          >
-            <LogOut aria-hidden="true" className="h-5 w-5" />
-            Cerrar Sesión
-          </button>
+          <div className="grid gap-2">
+            <AccessibilityMenu />
+            <button
+              type="button"
+              onClick={handleLogout}
+              className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-transparent px-4 py-2.5 text-sm font-bold text-muted-foreground transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive ${focusStyles}`}
+            >
+              <LogOut aria-hidden="true" className="h-5 w-5" />
+              Cerrar Sesión
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -264,7 +268,7 @@ export default function AppShell({ children }) {
           <ThemeToggle />
         </header>
 
-        <main id="main-content" tabIndex="-1" className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10">
+        <main id="main-content" tabIndex="-1" className="app-content-scroll min-w-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10">
           {children}
         </main>
       </div>
