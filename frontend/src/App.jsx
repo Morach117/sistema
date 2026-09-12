@@ -3,9 +3,9 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './auth/ProtectedRoute'
 
-const Login = lazy(() => import('./pages/Login'))
-const Dashboard = lazy(() => import('./pages/Dashboard'))
-const Bodega = lazy(() => import('./pages/Bodega'))
+const Login = lazyWithOneReload(() => import('./pages/Login'), 'login')
+const Dashboard = lazyWithOneReload(() => import('./pages/Dashboard'), 'dashboard')
+const Bodega = lazyWithOneReload(() => import('./pages/Bodega'), 'bodega')
 function lazyWithOneReload(loader, moduleName) {
   return lazy(async () => {
     try {
@@ -26,17 +26,17 @@ function lazyWithOneReload(loader, moduleName) {
 }
 
 const Catalogo = lazyWithOneReload(() => import('./pages/Catalogo'), 'catalogo')
-const Usuarios = lazy(() => import('./pages/Usuarios'))
-const Traspasos = lazy(() => import('./pages/Traspasos'))
+const Usuarios = lazyWithOneReload(() => import('./pages/Usuarios'), 'usuarios')
+const Traspasos = lazyWithOneReload(() => import('./pages/Traspasos'), 'traspasos')
 const AdminTraspasos = lazyWithOneReload(() => import('./pages/AdminTraspasos'), 'admin-traspasos')
-const CapturaInteligente = lazy(() => import('./pages/CapturaInteligente'))
-const AuditoriaCaptura = lazy(() => import('./pages/AuditoriaCaptura'))
-const Recepciones = lazy(() => import('./pages/Recepciones'))
-const HistorialRecepciones = lazy(() => import('./pages/HistorialRecepciones'))
-const Reclamaciones = lazy(() => import('./pages/Reclamaciones'))
-const EvolucionPrecios = lazy(() => import('./pages/EvolucionPrecios'))
-const Clientes = lazy(() => import('./pages/Clientes'))
-const ClientesConfiguracion = lazy(() => import('./pages/ClientesConfiguracion'))
+const CapturaInteligente = lazyWithOneReload(() => import('./pages/CapturaInteligente'), 'captura')
+const AuditoriaCaptura = lazyWithOneReload(() => import('./pages/AuditoriaCaptura'), 'auditoria')
+const Recepciones = lazyWithOneReload(() => import('./pages/Recepciones'), 'recepciones')
+const HistorialRecepciones = lazyWithOneReload(() => import('./pages/HistorialRecepciones'), 'historial-recepciones')
+const Reclamaciones = lazyWithOneReload(() => import('./pages/Reclamaciones'), 'reclamaciones')
+const EvolucionPrecios = lazyWithOneReload(() => import('./pages/EvolucionPrecios'), 'evolucion-precios')
+const Clientes = lazyWithOneReload(() => import('./pages/Clientes'), 'clientes')
+const ClientesConfiguracion = lazyWithOneReload(() => import('./pages/ClientesConfiguracion'), 'clientes-configuracion')
 
 function RouteLoadingFallback() {
   return (
