@@ -28,7 +28,7 @@ function lazyWithOneReload(loader, moduleName) {
 const Catalogo = lazyWithOneReload(() => import('./pages/Catalogo'), 'catalogo')
 const Usuarios = lazy(() => import('./pages/Usuarios'))
 const Traspasos = lazy(() => import('./pages/Traspasos'))
-const AdminTraspasos = lazy(() => import('./pages/AdminTraspasos'))
+const AdminTraspasos = lazyWithOneReload(() => import('./pages/AdminTraspasos'), 'admin-traspasos')
 const CapturaInteligente = lazy(() => import('./pages/CapturaInteligente'))
 const AuditoriaCaptura = lazy(() => import('./pages/AuditoriaCaptura'))
 const Recepciones = lazy(() => import('./pages/Recepciones'))

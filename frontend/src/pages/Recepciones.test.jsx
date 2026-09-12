@@ -165,8 +165,10 @@ describe('Recepciones presentation and cost review', () => {
     })
   })
 
-  it('lets an employee view a connected branch barcode without rendering its sale price', async () => {
+  it('lets an employee use a connected branch barcode without rendering its sale price', async () => {
+    const requests = []
     renderPage(createAdapter({
+      requests,
       branchEntries: [{
         sucursalId: '11111111-1111-4111-8111-111111111111',
         sucursal: 'Sucursal Centro',
@@ -176,8 +178,15 @@ describe('Recepciones presentation and cost review', () => {
     }), ['recepciones'], employee())
     await openReception()
 
-    expect(await screen.findByRole('button', { name: /copiar código 7500000000001 de Sucursal Centro/i })).toBeVisible()
+    const codeButton = await screen.findByRole('button', { name: /copiar y usar código 7500000000001 de Sucursal Centro/i })
+    expect(codeButton).toBeVisible()
     expect(screen.queryByText('$24.50')).not.toBeInTheDocument()
+    fireEvent.click(codeButton)
+    expect(screen.getByLabelText('SICAR de artículo Cuaderno caja')).toHaveValue('7500000000001')
+    await waitFor(() => {
+      const save = requests.find((entry) => entry.url === '/api/recepciones/actualizar_campo')
+      expect(JSON.parse(save.data)).toEqual({ id_item: 11, campo: 'clave_final', valor: '7500000000001' })
+    })
   })
 
   it('states which catalog product belongs to a SICAR code without calling it a mismatch', async () => {

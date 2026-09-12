@@ -114,7 +114,7 @@ async function copyCode(code) {
   if (!copied) throw new Error('No se pudo copiar el código.')
 }
 
-function BranchCatalogLookup({ code, isReceptionAdmin }) {
+function BranchCatalogLookup({ code, isReceptionAdmin, onSelectCode, disabled }) {
   const normalizedCode = String(code || '').trim()
   const canQuery = Boolean(normalizedCode && normalizedCode !== 'FALTANTE' && normalizedCode !== 'DEVOLUCION')
   const [copyMessage, setCopyMessage] = useState('')
@@ -138,11 +138,12 @@ function BranchCatalogLookup({ code, isReceptionAdmin }) {
         : ''
 
   const copyBarcode = async (entry) => {
+    onSelectCode?.(entry.codigoBarras)
     try {
       await copyCode(entry.codigoBarras)
-      setCopyMessage(`Código de ${entry.sucursal} copiado.`)
+      setCopyMessage(`Código de ${entry.sucursal} copiado y colocado en SICAR.`)
     } catch {
-      setCopyMessage('No se pudo copiar el código. Inténtalo de nuevo.')
+      setCopyMessage(`Código de ${entry.sucursal} colocado en SICAR; no se pudo copiar al portapapeles.`)
     }
   }
 
@@ -163,7 +164,7 @@ function BranchCatalogLookup({ code, isReceptionAdmin }) {
               <span className="text-xs font-bold text-muted-foreground">{entry.sucursal}</span>
               <div className="flex items-center gap-1.5">
                 {isReceptionAdmin && Number.isFinite(Number(entry.precioVenta)) && <span className="text-xs font-black text-emerald-700 dark:text-emerald-300">{formatMoney(entry.precioVenta)}</span>}
-                <Button type="button" size="sm" variant="secondary" onClick={() => copyBarcode(entry)} className="h-8 gap-1.5 px-2 font-mono text-[11px] font-black" aria-label={`Copiar código ${entry.codigoBarras} de ${entry.sucursal}`}>
+                <Button type="button" size="sm" variant="secondary" disabled={disabled} onClick={() => copyBarcode(entry)} className="h-8 gap-1.5 px-2 font-mono text-[11px] font-black" aria-label={`Copiar y usar código ${entry.codigoBarras} de ${entry.sucursal}`}>
                   <Copy aria-hidden="true" className="h-3.5 w-3.5" /> {entry.codigoBarras}
                 </Button>
               </div>
@@ -781,7 +782,15 @@ export default function Recepciones() {
                             <p className="mt-1 text-xs font-bold text-muted-foreground">Artículo #{item.id} · proveedor {item.cod_prov || 'sin código'}</p>
                           </div>
                           <SicarInput item={item} editor={editor} disabled={finalised} />
-                          <BranchCatalogLookup code={item.clave_final || item.clave_sicar || item.cod_prov} isReceptionAdmin={isReceptionAdmin} />
+                          <BranchCatalogLookup
+                            code={item.clave_final || item.clave_sicar || item.cod_prov}
+                            isReceptionAdmin={isReceptionAdmin}
+                            disabled={finalised}
+                            onSelectCode={(selectedCode) => {
+                              editor.setDraftField(item.id, 'clave_final', selectedCode)
+                              editor.saveField(item.id, 'clave_final', selectedCode)
+                            }}
+                          />
                         </section>
 
                         <section role="group" aria-label={`Físico y caja de ${item.desc}`} className="min-w-0 space-y-3 rounded-xl border border-border bg-background/40 p-3">
